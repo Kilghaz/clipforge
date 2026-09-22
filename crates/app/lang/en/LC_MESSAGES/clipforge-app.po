@@ -1,0 +1,10 @@
+# English is the source language; this catalogue exists so the picker can
+# switch back to it explicitly and so extraction tooling has a target.
+msgid ""
+msgstr ""
+"Project-Id-Version: clipforge-app\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"

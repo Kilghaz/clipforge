@@ -5,12 +5,48 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+build = "build.rs"
 
 [[bin]]
 name = "clipforge"
 path = "src/main.rs"
 
 [dependencies]
+clipforge-core.workspace = true
+clipforge-i18n.workspace = true
+clipforge-platform.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+slint.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
+
+# cargo-packager (https://docs.crabnebula.dev/packager/) configuration.
+[package.metadata.packager]
+product-name = "ClipForge"
+identifier = "dev.clipforge.app"
+description = "Turn your photos and videos into a slideshow."
+category = "Video"
+icons = ["../../assets/icons/icon.icns", "../../assets/icons/icon.ico", "../../assets/icons/*.png"]
+out-dir = "../../dist"
+before-packaging-command = ""
+
+[package.metadata.packager.macos]
+minimum-system-version = "14.0"
+formats = ["app", "dmg"]
+
+[package.metadata.packager.windows]
+formats = ["nsis"]
+
+[package.metadata.packager.nsis]
+install-mode = "currentUser"

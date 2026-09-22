@@ -1,0 +1,68 @@
+# cargo-deny configuration. Run `cargo deny check`.
+# See docs/PLAN.md section 2.1 and LICENSES.md for the reasoning.
+
+[graph]
+all-features = false
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+    # ttf-parser is unmaintained but only reached through winit's Wayland
+    # decorations (sctk-adwaita), which are not compiled for our targets.
+    { id = "RUSTSEC-2026-0192", reason = "Linux-only transitive dependency of winit" },
+]
+
+[licenses]
+version = 2
+# Workspace crates are private; their licence is decided when/if ClipForge is
+# distributed (see LICENSES.md).
+private = { ignore = true }
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    # Slint is triple-licensed; we use the royalty-free desktop licence.
+    "LicenseRef-Slint-Royalty-free-2.0",
+    # r-efi (UEFI bindings pulled in by getrandom) is MIT OR Apache-2.0 OR
+    # LGPL-2.1-or-later; the permissive options apply.
+]
+confidence-threshold = 0.9
+
+[[licenses.clarify]]
+crate = "slint"
+expression = "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0"
+license-files = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # Architecture rule: no web technology anywhere in the tree.
+    { crate = "tauri", reason = "no web technology (docs/PLAN.md)" },
+    { crate = "wry", reason = "no web technology (docs/PLAN.md)" },
+    { crate = "webview2-com", reason = "no web technology (docs/PLAN.md)" },
+    { crate = "dioxus", reason = "no web technology (docs/PLAN.md)" },
+    { crate = "openssl-sys", reason = "use rustls; avoids native TLS build pain on Windows" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,54 @@
+import { VerticalBox, HorizontalBox, ComboBox, GroupBox } from "std-widgets.slint";
+
+export component SettingsPage inherits Rectangle {
+    in-out property <int> language-index;
+    in property <[string]> language-options;
+    in property <string> app-version;
+    callback language-selected(int);
+
+    VerticalBox {
+        alignment: start;
+        padding: 24px;
+        spacing: 16px;
+
+        Text {
+            text: @tr("Settings");
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        GroupBox {
+            title: @tr("Language");
+            VerticalBox {
+                HorizontalBox {
+                    padding: 0;
+                    Text {
+                        text: @tr("Interface language");
+                        color: #d0d0d0;
+                        vertical-alignment: center;
+                    }
+                    ComboBox {
+                        width: 240px;
+                        model: root.language-options;
+                        current-index <=> root.language-index;
+                        selected => { root.language-selected(self.current-index); }
+                    }
+                }
+                Text {
+                    text: @tr("Changes apply immediately.");
+                    color: #8a8a8a;
+                    font-size: 12px;
+                }
+            }
+        }
+
+        GroupBox {
+            title: @tr("About");
+            Text {
+                text: @tr("ClipForge {}", root.app-version);
+                color: #d0d0d0;
+            }
+        }
+    }
+}

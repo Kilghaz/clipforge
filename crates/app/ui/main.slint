@@ -1,0 +1,79 @@
+import { VerticalBox, HorizontalBox, Button, ComboBox, GroupBox, ListView, StandardButton } from "std-widgets.slint";
+import { SettingsPage } from "settings.slint";
+import { Sidebar, Page } from "sidebar.slint";
+
+export { Page }
+
+/// Strings Rust needs in the current UI language.
+export global Strings {
+    out property <string> system-language: @tr("System language");
+}
+
+component Placeholder inherits Rectangle {
+    in property <string> text;
+    Text {
+        text: root.text;
+        color: #9a9a9a;
+        font-size: 16px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        width: parent.width * 0.6;
+    }
+}
+
+export component MainWindow inherits Window {
+    title: @tr("ClipForge");
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    min-width: 800px;
+    min-height: 500px;
+    icon: @image-url("../../../assets/icons/256x256.png");
+
+    in-out property <Page> page: Page.library;
+
+    // Settings state, owned by Rust.
+    in-out property <int> language-index: 0;
+    in property <[string]> language-options: [];
+    in property <string> app-version: "";
+
+    callback new-project();
+    callback open-project();
+    callback quit();
+    callback language-selected(int);
+
+    MenuBar {
+        Menu {
+            title: @tr("File");
+            MenuItem { title: @tr("New Project"); activated => { root.new-project(); } }
+            MenuItem { title: @tr("Open Project…"); activated => { root.open-project(); } }
+            MenuSeparator {}
+            MenuItem { title: @tr("Settings"); activated => { root.page = Page.settings; } }
+            MenuSeparator {}
+            MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
+        }
+        Menu {
+            title: @tr("View");
+            MenuItem { title: @tr("Library"); activated => { root.page = Page.library; } }
+            MenuItem { title: @tr("Editor"); activated => { root.page = Page.editor; } }
+        }
+    }
+
+    HorizontalLayout {
+        Sidebar {
+            page <=> root.page;
+        }
+        Rectangle {
+            background: #1e1e1e;
+            if root.page == Page.library : Placeholder { text: @tr("Your media library will appear here. Drop photos and videos anywhere."); }
+            if root.page == Page.editor : Placeholder { text: @tr("The timeline editor arrives in the next milestone."); }
+            if root.page == Page.settings : SettingsPage {
+                language-index <=> root.language-index;
+                language-options: root.language-options;
+                app-version: root.app-version;
+                language-selected(i) => { root.language-selected(i); }
+            }
+        }
+    }
+}
+

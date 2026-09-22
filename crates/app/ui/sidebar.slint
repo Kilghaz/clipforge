@@ -1,0 +1,43 @@
+export enum Page { library, editor, settings }
+
+component NavButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback clicked();
+    height: 40px;
+    border-radius: 8px;
+    background: root.active ? #3a3f4b : (touch.has-hover ? #2c303a : transparent);
+    animate background { duration: 100ms; }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        text: root.label;
+        color: root.active ? #ffffff : #c8c8c8;
+        font-size: 14px;
+        font-weight: root.active ? 600 : 400;
+        vertical-alignment: center;
+        x: 14px;
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in-out property <Page> page;
+    width: 200px;
+    background: #16181d;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+        Text {
+            text: "ClipForge";
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 700;
+            height: 44px;
+            vertical-alignment: center;
+        }
+        NavButton { label: @tr("Library"); active: root.page == Page.library; clicked => { root.page = Page.library; } }
+        NavButton { label: @tr("Editor"); active: root.page == Page.editor; clicked => { root.page = Page.editor; } }
+        Rectangle { }
+        NavButton { label: @tr("Settings"); active: root.page == Page.settings; clicked => { root.page = Page.settings; } }
+    }
+}

@@ -1,0 +1,60 @@
+# German translation for ClipForge.
+msgid ""
+msgstr ""
+"Project-Id-Version: clipforge-app\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "ClipForge"
+msgstr "ClipForge"
+
+msgid "System language"
+msgstr "Systemsprache"
+
+msgid "File"
+msgstr "Datei"
+
+msgid "New Project"
+msgstr "Neues Projekt"
+
+msgid "Open Project…"
+msgstr "Projekt öffnen…"
+
+msgid "Settings"
+msgstr "Einstellungen"
+
+msgid "Quit"
+msgstr "Beenden"
+
+msgid "View"
+msgstr "Ansicht"
+
+msgid "Library"
+msgstr "Mediathek"
+
+msgid "Editor"
+msgstr "Editor"
+
+msgid "Your media library will appear here. Drop photos and videos anywhere."
+msgstr "Hier erscheint deine Mediathek. Ziehe Fotos und Videos einfach hinein."
+
+msgid "The timeline editor arrives in the next milestone."
+msgstr "Der Timeline-Editor kommt im nächsten Meilenstein."
+
+msgid "Language"
+msgstr "Sprache"
+
+msgid "Interface language"
+msgstr "Sprache der Oberfläche"
+
+msgid "Changes apply immediately."
+msgstr "Änderungen gelten sofort."
+
+msgid "About"
+msgstr "Über"
+
+msgid "ClipForge {}"
+msgstr "ClipForge {}"

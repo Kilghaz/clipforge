@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-deny,cargo-about
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo nextest run --workspace
+      - name: Doc tests
+        run: cargo test --workspace --doc
+      - name: Dependency direction
+        run: cargo xtask check-deps
+      - name: Fixtures present
+        run: cargo xtask fixtures --verify
+      - name: Licences and advisories
+        run: cargo deny check
+      - name: Third-party licence report
+        run: cargo about generate about.hbs -o target/THIRD_PARTY_LICENSES.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: third-party-licenses-${{ matrix.os }}
+          path: target/THIRD_PARTY_LICENSES.html
+
+  package:
+    name: package (${{ matrix.os }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+      - name: Build release binary
+        run: cargo build --release -p clipforge-app
+      - name: Package
+        run: cargo packager --release -p clipforge-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipforge-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.app.tar.gz
+            dist/*.exe
+            dist/*.msi
+          if-no-files-found: error
