@@ -1,0 +1,20 @@
+[package]
+name = "clipforge-export"
+description = "Export planner and ffmpeg sidecar driver."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clipforge-core.workspace = true
+clipforge-media.workspace = true
+clipforge-render.workspace = true
+clipforge-jobs.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

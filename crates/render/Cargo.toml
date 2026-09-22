@@ -1,0 +1,18 @@
+[package]
+name = "clipforge-render"
+description = "GPU compositor: transitions, Ken Burns, titles and the colour pipeline."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clipforge-core.workspace = true
+clipforge-media.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

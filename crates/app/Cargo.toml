@@ -1,0 +1,16 @@
+[package]
+name = "clipforge-app"
+description = "ClipForge desktop application (Slint UI)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "clipforge"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

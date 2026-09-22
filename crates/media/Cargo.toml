@@ -1,0 +1,17 @@
+[package]
+name = "clipforge-media"
+description = "Media types, probing and decoding traits with pluggable backends."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clipforge-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "clipforge-platform"
+description = "OS integration: app directories, drag-and-drop payloads, OS thumbnails, cloud file status."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+directories.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "clipforge-library"
+description = "Local media library: SQLite catalogue, import pipeline, thumbnail and proxy cache."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clipforge-core.workspace = true
+clipforge-media.workspace = true
+clipforge-jobs.workspace = true
+clipforge-platform.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
