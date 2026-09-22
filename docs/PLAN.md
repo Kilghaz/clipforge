@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: draft v1 (2026-09-22), awaiting refinement pass with fresh context.
+Status: v1 (2026-09-22). Milestone 0 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -92,7 +92,7 @@ collaboration, mobile.
 | Area | Decision | Rationale |
 |---|---|---|
 | Language | Rust, stable toolchain, edition 2024, MSRV = current stable at kickoff | Memory safety, performance, single language across all crates, cross-platform. |
-| UI | Slint (winit backend, Skia renderer), `cupertino` style on macOS, `fluent` on Windows | Declarative, GPU rendered, real text input and accessibility, royalty-free desktop licence, wgpu texture import for the preview. |
+| UI | Slint 1.18 (winit backend, femtovg renderer; `renderer-femtovg-wgpu` planned for the preview texture), `cupertino` style on macOS, `fluent` on Windows | Declarative, GPU rendered, real text input and accessibility, royalty-free desktop licence, wgpu texture import for the preview. |
 | GPU compositing | wgpu (Metal / DX12 / Vulkan) | One shader codebase for preview and export; runs headless in tests. |
 | Decoding | `ffmpeg-next` (libav* 7.x) in-process with hwaccel (VideoToolbox, D3D11VA); ImageIO via `objc2` on macOS for HEIC and gain-map HDR; `image` crate for PNG/JPEG/WebP fast paths | Broadest format coverage; Apple is the only correct decoder for Apple HDR photos. |
 | Encoding | ffmpeg CLI as sidecar process, fed raw frames over a pipe, using hardware encoders (`h264_videotoolbox`, `hevc_videotoolbox`, `h264_mf`/`hevc_mf`, NVENC/QSV/AMF when present) with libx264/libx265 fallback | Process isolation for the longest-running operation, no native Media Foundation code, correct HDR tagging, GPL binary stays separate from the app. |
@@ -452,3 +452,20 @@ Use this to start development with a fresh context:
 > English and German at runtime. Do not start on Milestone 1. Finish with CI
 > green on both operating systems and a short summary of what deviated from
 > the plan and why.
+
+## 10. Deviations log
+
+Kept short; the ADRs hold the reasoning.
+
+- **M0, renderer:** femtovg instead of Skia. Skia adds a large prebuilt
+  binary download to every CI run and Slint's wgpu texture import is
+  available through `renderer-femtovg-wgpu`, which is the path the preview
+  needs anyway. Skia remains an option if text rendering quality disappoints.
+- **M0, translations:** Slint's bundled `.po` translations instead of
+  gettext at runtime, to avoid a native libintl dependency on Windows.
+  Runtime switching works via `slint::select_bundled_translation`.
+- **M0, fixtures:** no WebP fixture; the local ffmpeg build lacks libwebp.
+  A TIFF fixture took its place. WebP decoding is still in scope and will be
+  covered via the `image` crate with an in-test generated file.
+- **M0, packaging:** cargo-packager formats are passed on the command line
+  per OS because the config schema does not allow per-platform `formats`.

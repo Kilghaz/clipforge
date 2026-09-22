@@ -41,12 +41,14 @@ icons = ["../../assets/icons/icon.icns", "../../assets/icons/icon.ico", "../../a
 out-dir = "../../dist"
 before-packaging-command = ""
 
+# Formats are passed on the command line per OS (see .github/workflows/ci.yml):
+#   macOS:   cargo packager --release -p clipforge-app --formats app,dmg
+#   Windows: cargo packager --release -p clipforge-app --formats nsis
+
 [package.metadata.packager.macos]
 minimum-system-version = "14.0"
-formats = ["app", "dmg"]
-
-[package.metadata.packager.windows]
-formats = ["nsis"]
 
 [package.metadata.packager.nsis]
-install-mode = "currentUser"
+installer-mode = "currentUser"
+display-language-selector = true
+languages = ["English", "German"]
