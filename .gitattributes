@@ -1,0 +1,12 @@
+# Always check out with LF so rustfmt (newline_style = "Unix") and the
+# translation catalogues behave identically on Windows and macOS.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.tif binary
+*.mp4 binary
+*.mov binary
+*.m4a binary
+*.wav binary
