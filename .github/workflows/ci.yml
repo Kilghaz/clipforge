@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,21 +30,25 @@ jobs:
           toolchain: 1.98.1
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-deny,cargo-about
       - name: Format
         run: cargo fmt --all --check
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      # Tests first: they need full codegen of every dependency and that
+      # build is what the cache keeps. Clippy afterwards only adds rmeta.
       - name: Tests
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --cargo-profile ci
       - name: Doc tests
-        run: cargo test --workspace --doc
-      - name: Dependency direction
-        run: cargo xtask check-deps
-      - name: Fixtures present
-        run: cargo xtask fixtures --verify
+        run: cargo test --workspace --doc --profile ci
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --profile ci -- -D warnings
+      - name: Dependency direction and fixtures
+        run: |
+          cargo run --quiet --profile ci -p xtask -- check-deps
+          cargo run --quiet --profile ci -p xtask -- fixtures --verify
       - name: Licences and advisories
         run: cargo deny check
       - name: Third-party licence report
@@ -56,6 +61,7 @@ jobs:
   package:
     name: package (${{ matrix.os }})
     needs: check
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,6 +77,8 @@ jobs:
         with:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: package
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-packager

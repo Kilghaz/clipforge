@@ -50,8 +50,21 @@ dbg_macro = "deny"
 print_stdout = "warn"
 print_stderr = "warn"
 
+# Local development: optimise dependencies (image decoding, hashing) so the
+# debug app is usable, keep our own crates fast to compile.
 [profile.dev.package."*"]
 opt-level = 2
+
+# CI: no dependency optimisation, no debug info. Cuts cold compile time
+# roughly in half; used by clippy and tests in .github/workflows/ci.yml.
+[profile.ci]
+inherits = "dev"
+debug = 0
+strip = "debuginfo"
+incremental = false
+
+[profile.ci.package."*"]
+opt-level = 0
 
 [profile.release]
 lto = "thin"
