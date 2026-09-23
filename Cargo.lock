@@ -820,12 +820,14 @@ dependencies = [
  "clipforge-jobs",
  "clipforge-media",
  "clipforge-platform",
+ "crossbeam-channel",
  "rusqlite",
  "serde",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
  "uuid",
+ "walkdir",
  "xxhash-rust",
 ]
 

@@ -8,6 +8,8 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod cloud;
 pub mod dirs;
 
+pub use cloud::{CloudStatus, IcloudStub, cloud_status, icloud_stub};
 pub use dirs::AppDirs;
