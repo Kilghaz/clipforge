@@ -6,9 +6,15 @@ use crate::encoders::Encoder;
 use crate::plan::{Codec, EncodePlan, PixelFormat};
 
 /// Full argument list (without the program name) for streaming raw
-/// `yuv420p` frames on stdin into an encoded file at `output`.
+/// `yuv420p` frames on stdin into an encoded file at `output`. `audio` is
+/// an optional WAV mixed by [`crate::audio::mix`].
 #[must_use]
-pub fn build(plan: &EncodePlan, encoder: &Encoder, output: &Path) -> Vec<String> {
+pub fn build(
+    plan: &EncodePlan,
+    encoder: &Encoder,
+    output: &Path,
+    audio: Option<&Path>,
+) -> Vec<String> {
     let fps = format!(
         "{}/{}",
         plan.frame_rate.numerator(),
@@ -40,8 +46,26 @@ pub fn build(plan: &EncodePlan, encoder: &Encoder, output: &Path) -> Vec<String>
         plan.color.transfer.into(),
         "-i".into(),
         "pipe:0".into(),
-        // No audio in this milestone.
-        "-an".into(),
+    ];
+    match audio {
+        Some(wav) => a.extend([
+            "-i".into(),
+            wav.to_string_lossy().into_owned(),
+            "-map".into(),
+            "0:v:0".into(),
+            "-map".into(),
+            "1:a:0".into(),
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            format!("{}k", plan.audio_bitrate_kbps),
+            "-ar".into(),
+            "48000".into(),
+            "-shortest".into(),
+        ]),
+        None => a.push("-an".into()),
+    }
+    a.extend([
         // Video encoder.
         "-c:v".into(),
         encoder.name.into(),
@@ -68,7 +92,7 @@ pub fn build(plan: &EncodePlan, encoder: &Encoder, output: &Path) -> Vec<String>
         plan.color.primaries.into(),
         "-color_trc".into(),
         plan.color.transfer.into(),
-    ];
+    ]);
     a.extend(encoder_specific(plan, encoder));
     if plan.faststart {
         a.extend(["-movflags".into(), "+faststart".into()]);
@@ -152,6 +176,7 @@ mod tests {
                 hardware: false,
             },
             Path::new("/out/movie.mp4"),
+            None,
         );
         assert_eq!(a.last().unwrap(), "/out/movie.mp4");
         assert!(has_pair(&a, "-f", "rawvideo"));
@@ -177,12 +202,35 @@ mod tests {
                 hardware: true,
             },
             Path::new("o.mp4"),
+            None,
         );
         assert!(has_pair(&a, "-c:v", "hevc_videotoolbox"));
         assert!(has_pair(&a, "-pix_fmt", "yuv420p10le"));
         assert!(has_pair(&a, "-profile:v", "main10"));
         assert!(has_pair(&a, "-color_trc", "arib-std-b67"));
         assert!(has_pair(&a, "-tag:v", "hvc1"));
+    }
+
+    #[test]
+    fn audio_input_is_mapped_and_encoded() {
+        let a = build(
+            &plan(false),
+            &Encoder {
+                name: "libx264",
+                hardware: false,
+            },
+            Path::new("o.mp4"),
+            Some(Path::new("/tmp/mix.wav")),
+        );
+        assert!(has_pair(&a, "-i", "/tmp/mix.wav"));
+        assert!(has_pair(&a, "-map", "0:v:0") && has_pair(&a, "-map", "1:a:0"));
+        assert!(has_pair(&a, "-c:a", "aac"));
+        assert!(has_pair(&a, "-b:a", "256k"));
+        assert!(a.contains(&"-shortest".to_owned()));
+        assert!(!a.contains(&"-an".to_owned()));
+        let video_in = a.iter().position(|s| s == "pipe:0").unwrap();
+        let audio_in = a.iter().position(|s| s == "/tmp/mix.wav").unwrap();
+        assert!(video_in < audio_in, "video is input 0");
     }
 
     #[test]

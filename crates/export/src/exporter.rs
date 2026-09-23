@@ -107,6 +107,7 @@ impl Exporter {
         &self,
         plan: &EncodePlan,
         frames: &mut dyn FrameSource,
+        audio: Option<&Path>,
         output: &Path,
         token: &CancellationToken,
         mut on_progress: impl FnMut(ExportProgress),
@@ -121,7 +122,7 @@ impl Exporter {
         if let Some(parent) = output.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let argv = args::build(plan, &encoder, output);
+        let argv = args::build(plan, &encoder, output, audio);
         tracing::info!(encoder = encoder.name, ?output, "starting ffmpeg");
         let mut child = Command::new(&self.ffmpeg)
             .args(&argv)
@@ -328,9 +329,14 @@ mod tests {
         };
         let mut reports = Vec::new();
         let report = exporter
-            .run(&plan, &mut frames, &out, &CancellationToken::new(), |p| {
-                reports.push(p)
-            })
+            .run(
+                &plan,
+                &mut frames,
+                None,
+                &out,
+                &CancellationToken::new(),
+                |p| reports.push(p),
+            )
             .unwrap();
         assert_eq!(report.frames, 45);
         assert!(report.bytes > 0);
@@ -362,7 +368,7 @@ mod tests {
         let t = token.clone();
         let mut n = 0;
         let err = exporter
-            .run(&small_plan(), &mut frames, &out, &token, |_| {
+            .run(&small_plan(), &mut frames, None, &out, &token, |_| {
                 n += 1;
                 if n >= 2 {
                     t.cancel();
@@ -381,6 +387,7 @@ mod tests {
             exporter.run(
                 &small_plan(),
                 &mut frames,
+                None,
                 Path::new("/tmp/x.mp4"),
                 &CancellationToken::new(),
                 |_| {}
@@ -392,6 +399,7 @@ mod tests {
             exporter.run(
                 &small_plan(),
                 &mut frames,
+                None,
                 Path::new("/tmp/x.mp4"),
                 &CancellationToken::new(),
                 |_| {}
@@ -416,6 +424,7 @@ mod tests {
             .run(
                 &small_plan(),
                 &mut frames,
+                None,
                 &out,
                 &CancellationToken::new(),
                 |_| {},
@@ -447,6 +456,7 @@ mod tests {
             exporter.run(
                 &small_plan(),
                 &mut frames,
+                None,
                 &dir.path().join("x.mp4"),
                 &CancellationToken::new(),
                 |_| {}

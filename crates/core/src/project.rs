@@ -184,6 +184,13 @@ pub struct Clip {
     pub transition_in: Transition,
     #[serde(default)]
     pub muted: bool,
+    /// Audio gain in percent (100 = unchanged). Only meaningful for video.
+    #[serde(default = "default_volume")]
+    pub volume_percent: u16,
+}
+
+fn default_volume() -> u16 {
+    100
 }
 
 impl Clip {
@@ -198,6 +205,7 @@ impl Clip {
             rotate: Quarter::default(),
             transition_in: Transition::default(),
             muted: false,
+            volume_percent: 100,
         }
     }
 
@@ -215,6 +223,17 @@ impl Clip {
             rotate: Quarter::default(),
             transition_in: Transition::default(),
             muted: false,
+            volume_percent: 100,
+        }
+    }
+
+    /// Linear gain factor from `volume_percent`, 0 when muted.
+    #[must_use]
+    pub fn gain(&self) -> f32 {
+        if self.muted {
+            0.0
+        } else {
+            f32::from(self.volume_percent.min(300)) / 100.0
         }
     }
 

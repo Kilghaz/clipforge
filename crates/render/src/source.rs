@@ -46,6 +46,18 @@ pub trait SourceProvider {
     /// (larger is fine, smaller means upscaling). `None` while the image is
     /// not available yet; the compositor then draws a placeholder.
     fn still(&self, media: MediaId, max_edge: u32) -> Option<SourceImage>;
+
+    /// The frame of video `media` at `source_time` (time within the file).
+    /// Providers without video support fall back to the still.
+    fn video_frame(
+        &self,
+        media: MediaId,
+        source_time: clipforge_core::Ticks,
+        max_edge: u32,
+    ) -> Option<SourceImage> {
+        let _ = source_time;
+        self.still(media, max_edge)
+    }
 }
 
 /// A provider backed by a map, for tests.

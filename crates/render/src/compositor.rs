@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use clipforge_core::project::{Clip, Quarter, TransitionKind};
+use clipforge_core::project::{Clip, ClipSource, Quarter, TransitionKind};
 use clipforge_core::{Fit, MediaId, Project, Ticks};
 use fast_image_resize as fr;
 
@@ -20,6 +20,8 @@ const CACHE_ENTRIES: usize = 48;
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct CacheKey {
     media: MediaId,
+    /// Source frame index for video, `None` for stills.
+    time_key: Option<i64>,
     src_size: (u32, u32),
     frame: (u32, u32),
     fit: Fit,
@@ -61,22 +63,23 @@ impl Compositor {
         let Some(at) = clipforge_core::timeline::frame_at(&project.clips, t) else {
             return Frame::black(w, h);
         };
-        let (cur_idx, _) = at.current;
+        let (cur_idx, cur_local) = at.current;
         let current = &project.clips[cur_idx];
-        let mut frame = self.render_clip(current, w, h, quality, sources);
-        if let Some((out_idx, _)) = at.outgoing {
+        let mut frame = self.render_clip(current, cur_local, w, h, quality, sources);
+        if let Some((out_idx, out_local)) = at.outgoing {
             let outgoing = &project.clips[out_idx];
             match current.transition_in.kind {
                 TransitionKind::Cut => {}
                 TransitionKind::CrossDissolve => {
-                    let mut from = self.render_clip(outgoing, w, h, quality, sources);
+                    let mut from = self.render_clip(outgoing, out_local, w, h, quality, sources);
                     from.blend_towards(&frame, at.progress);
                     frame = from;
                 }
                 TransitionKind::FadeThroughBlack => {
                     // First half: outgoing fades to black; second half: incoming fades in.
                     if at.progress < 0.5 {
-                        let mut from = self.render_clip(outgoing, w, h, quality, sources);
+                        let mut from =
+                            self.render_clip(outgoing, out_local, w, h, quality, sources);
                         from.darken(1.0 - at.progress * 2.0);
                         frame = from;
                     } else {
@@ -96,10 +99,12 @@ impl Compositor {
         frame
     }
 
-    /// Renders a single clip's picture (no transitions).
+    /// Renders a single clip's picture (no transitions) at `local` time
+    /// within the clip.
     fn render_clip(
         &self,
         clip: &Clip,
+        local: Ticks,
         w: u32,
         h: u32,
         quality: RenderQuality,
@@ -108,11 +113,21 @@ impl Compositor {
         let want_edge = quality
             .source_edge(clipforge_core::Aspect::Landscape16x9)
             .max(w.max(h));
-        let Some(src) = sources.still(clip.media, want_edge) else {
+        let (src, time_key) = match clip.source {
+            ClipSource::Photo { .. } => (sources.still(clip.media, want_edge), None),
+            ClipSource::Video { in_point, .. } => {
+                let t = in_point + local;
+                // Quantise to milliseconds so identical requests hit the cache.
+                let ms = t.flicks() / (clipforge_core::time::FLICKS_PER_SECOND / 1000);
+                (sources.video_frame(clip.media, t, want_edge), Some(ms))
+            }
+        };
+        let Some(src) = src else {
             return Frame::solid(w, h, PLACEHOLDER_RGB);
         };
         let key = CacheKey {
             media: clip.media,
+            time_key,
             src_size: (src.width, src.height),
             frame: (w, h),
             fit: clip.fit,
@@ -453,6 +468,66 @@ mod tests {
         assert_eq!((r.width, r.height), (1, 2));
         assert_eq!(&r.rgba[..4], &[1, 1, 1, 255]);
         assert_eq!(&r.rgba[4..], &[2, 2, 2, 255]);
+    }
+
+    struct TimedProvider {
+        asked: std::sync::Mutex<Vec<Ticks>>,
+    }
+
+    impl SourceProvider for TimedProvider {
+        fn still(&self, _: MediaId, _: u32) -> Option<SourceImage> {
+            None
+        }
+        fn video_frame(&self, _: MediaId, t: Ticks, _: u32) -> Option<SourceImage> {
+            self.asked.lock().unwrap().push(t);
+            // Encode the second in the red channel so frames differ.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(SourceImage::solid(
+                16,
+                9,
+                [(t.as_seconds_f64() * 10.0) as u8, 0, 0],
+            ))
+        }
+    }
+
+    #[test]
+    fn video_clips_ask_for_frames_at_trimmed_source_time() {
+        let id = MediaId::new();
+        let mut p = Project::new();
+        let mut m = media_ref(id);
+        m.kind = RefKind::Video;
+        m.duration = Some(Ticks::from_seconds(10));
+        let mut clip = Clip::video(id, Ticks::from_seconds(10));
+        clip.source = clipforge_core::ClipSource::Video {
+            in_point: Ticks::from_seconds(2),
+            out_point: Ticks::from_seconds(5),
+        };
+        Command::InsertClips {
+            entries: vec![(0, clip)],
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let provider = TimedProvider {
+            asked: std::sync::Mutex::new(Vec::new()),
+        };
+        let c = Compositor::new();
+        let f1 = c.render(&p, Ticks::SECOND, RenderQuality::Preview, &provider);
+        let f2 = c.render(
+            &p,
+            Ticks::from_seconds(2),
+            RenderQuality::Preview,
+            &provider,
+        );
+        assert_eq!(
+            provider.asked.lock().unwrap().as_slice(),
+            [Ticks::from_seconds(3), Ticks::from_seconds(4)]
+        );
+        assert_ne!(
+            f1, f2,
+            "different source times are not served from the still cache"
+        );
+        assert_eq!(rgb(&f1, 480, 270), [30, 0, 0]);
     }
 
     #[test]

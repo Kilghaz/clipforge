@@ -6,17 +6,32 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use clipforge_core::{MediaId, Project};
-use clipforge_media::{Backends, StillDecoder};
+use clipforge_core::{MediaId, Project, Ticks};
+use clipforge_media::{
+    AudioReader, Backends, FfmpegCli, MediaInfo, Prober, StillDecoder, VideoReader,
+};
 use clipforge_render::{SourceImage, SourceProvider};
+
+use crate::audio::{AudioSourceFactory, AudioStream};
 
 const CACHE_ENTRIES: usize = 8;
 
-#[derive(Debug)]
 pub struct FileSources {
     backends: Backends,
+    ffmpeg: Option<FfmpegCli>,
     paths: HashMap<MediaId, PathBuf>,
     cache: Mutex<HashMap<MediaId, SourceImage>>,
+    infos: Mutex<HashMap<MediaId, Option<MediaInfo>>>,
+    /// One streaming reader per video, reopened when a request goes backwards.
+    readers: Mutex<HashMap<MediaId, VideoReader>>,
+}
+
+impl std::fmt::Debug for FileSources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileSources")
+            .field("media", &self.paths.len())
+            .finish()
+    }
 }
 
 impl FileSources {
@@ -30,13 +45,79 @@ impl FileSources {
             .collect();
         FileSources {
             backends,
+            ffmpeg: FfmpegCli::discover(),
             paths,
             cache: Mutex::new(HashMap::new()),
+            infos: Mutex::new(HashMap::new()),
+            readers: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn info(&self, media: MediaId) -> Option<MediaInfo> {
+        if let Some(cached) = self.infos.lock().ok().and_then(|m| m.get(&media).cloned()) {
+            return cached;
+        }
+        let info = self
+            .paths
+            .get(&media)
+            .and_then(|p| self.backends.probe(p).ok());
+        if let Ok(mut m) = self.infos.lock() {
+            m.insert(media, info.clone());
+        }
+        info
+    }
+}
+
+impl AudioSourceFactory for FileSources {
+    fn open(&self, media: MediaId, start: Ticks) -> Option<Box<dyn AudioStream>> {
+        let cli = self.ffmpeg.as_ref()?;
+        let path = self.paths.get(&media)?;
+        if !self.info(media)?.has_audio {
+            return None;
+        }
+        let reader = AudioReader::open(cli, path, start).ok()?;
+        Some(Box::new(ReaderStream(reader)))
+    }
+}
+
+struct ReaderStream(AudioReader);
+
+impl AudioStream for ReaderStream {
+    fn read(&mut self, buf: &mut [f32]) -> usize {
+        self.0.read(buf).unwrap_or(0)
     }
 }
 
 impl SourceProvider for FileSources {
+    fn video_frame(
+        &self,
+        media: MediaId,
+        source_time: Ticks,
+        max_edge: u32,
+    ) -> Option<SourceImage> {
+        let cli = self.ffmpeg.as_ref()?;
+        let path = self.paths.get(&media)?;
+        let info = self.info(media)?;
+        let (dw, dh) = info.display_size()?;
+        let wanted_edge = max_edge.min(dw.max(dh));
+        let mut readers = self.readers.lock().ok()?;
+        let needs_new = readers.get(&media).is_none_or(|r| {
+            let (rw, rh) = r.size();
+            !r.can_reach(source_time) || rw.max(rh) < wanted_edge
+        });
+        if needs_new {
+            let reader = VideoReader::open(cli, path, &info, source_time, max_edge).ok()?;
+            readers.insert(media, reader);
+        }
+        let reader = readers.get_mut(&media)?;
+        let frame = reader.frame_at(source_time).ok()??;
+        Some(SourceImage {
+            width: frame.width,
+            height: frame.height,
+            rgba: Arc::new(frame.rgba),
+        })
+    }
+
     fn still(&self, media: MediaId, max_edge: u32) -> Option<SourceImage> {
         if let Some(img) = self.cache.lock().ok().and_then(|c| c.get(&media).cloned()) {
             return Some(img);
@@ -112,6 +193,85 @@ mod tests {
         assert_eq!(s.cache.lock().unwrap().len(), 1);
     }
 
+    /// Video path: a trimmed clip with its audio, through readers, mix and ffmpeg.
+    #[test]
+    fn exports_a_trimmed_video_clip_with_audio() {
+        let Some(loc) = FfmpegLocation::discover() else {
+            eprintln!("ffmpeg not installed; skipping");
+            return;
+        };
+        let mut v = media_ref(fixture("video_sdr_h264.mp4"));
+        v.kind = RefKind::Video;
+        v.duration = Some(Ticks::from_seconds(2));
+        let mut p = Project::new();
+        p.settings.frame_rate = FrameRate::FPS_25;
+        let mut clip = Clip::video(v.id, Ticks::from_seconds(2));
+        clip.source = clipforge_core::ClipSource::Video {
+            in_point: Ticks::from_millis(500),
+            out_point: Ticks::from_millis(1_500),
+        };
+        Command::InsertClips {
+            entries: vec![(0, clip)],
+            media: vec![v],
+        }
+        .apply(&mut p)
+        .unwrap();
+
+        let sources = FileSources::for_project(&p, Backends::discover());
+        assert!(crate::audio::has_audio(&p));
+        let samples = crate::audio::mix(&p, &sources);
+        assert_eq!(samples.len(), 48_000 * 2, "one second of stereo");
+        let rms = (samples
+            .iter()
+            .map(|s| f64::from(*s) * f64::from(*s))
+            .sum::<f64>()
+            / samples.len() as f64)
+            .sqrt();
+        assert!(rms > 0.05, "tone present: {rms}");
+
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("mix.wav");
+        crate::audio::write_wav(&wav, &samples).unwrap();
+        let out = dir.path().join("video.mp4");
+        let mut plan = EncodePlan::build(
+            &ExportOptions::default(),
+            Aspect::Landscape16x9,
+            FrameRate::FPS_25,
+        );
+        plan.width = 960;
+        plan.height = 540;
+        plan.video_bitrate_kbps = 1500;
+        let mut exporter = Exporter::new(loc.ffmpeg.clone()).unwrap();
+        exporter.prefer_hardware = false;
+        let compositor = Compositor::new();
+        let mut frames = TimelineFrames::new(&p, &compositor, &sources, RenderQuality::Preview);
+        let report = exporter
+            .run(
+                &plan,
+                &mut frames,
+                Some(&wav),
+                &out,
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(report.frames, 25);
+        let info = clipforge_media::FfmpegCli::new(loc).probe(&out).unwrap();
+        assert!(info.has_audio, "audio track muxed");
+        assert_eq!((info.width, info.height), (Some(960), Some(540)));
+        let d = info.duration.unwrap().as_seconds_f64();
+        assert!((0.9..=1.1).contains(&d), "{d}");
+        // The picture at the middle must not be the placeholder colour.
+        let mid = compositor.render(
+            &p,
+            Ticks::from_millis(500),
+            RenderQuality::Preview,
+            &sources,
+        );
+        let px = mid.pixel(480, 270);
+        assert_ne!(&px[..3], &[40, 42, 48], "video frame decoded");
+    }
+
     /// The whole photo path: real JPEG/PNG files → compositor → yuv → ffmpeg → mp4.
     #[test]
     fn exports_a_two_photo_slideshow_with_a_dissolve() {
@@ -152,7 +312,14 @@ mod tests {
         let sources = FileSources::for_project(&p, Backends::new(None));
         let mut frames = TimelineFrames::new(&p, &compositor, &sources, RenderQuality::Preview);
         let report = exporter
-            .run(&plan, &mut frames, &out, &CancellationToken::new(), |_| {})
+            .run(
+                &plan,
+                &mut frames,
+                None,
+                &out,
+                &CancellationToken::new(),
+                |_| {},
+            )
             .unwrap();
         // 1.6 s total at 25 fps = 40 frames.
         assert_eq!(report.frames, 40);

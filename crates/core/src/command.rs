@@ -89,6 +89,11 @@ pub enum Command {
         indices: Vec<usize>,
         muted: bool,
     },
+    /// Sets the audio gain in percent (0–300).
+    SetVolume {
+        indices: Vec<usize>,
+        percent: u16,
+    },
     SetSettings {
         settings: ProjectSettings,
     },
@@ -114,7 +119,7 @@ impl Command {
             Command::SetFit { .. } => CommandLabel::Fit,
             Command::SetRotate { .. } => CommandLabel::Rotate,
             Command::SetTransition { .. } => CommandLabel::Transition,
-            Command::SetMuted { .. } => CommandLabel::Mute,
+            Command::SetMuted { .. } | Command::SetVolume { .. } => CommandLabel::Mute,
             Command::SetSettings { .. } => CommandLabel::Settings,
             Command::Batch { commands } => commands
                 .first()
@@ -276,6 +281,9 @@ impl Command {
             }
             Command::SetMuted { indices, muted } => {
                 set_field(project, &indices, |c| c.muted = muted)
+            }
+            Command::SetVolume { indices, percent } => {
+                set_field(project, &indices, |c| c.volume_percent = percent.min(300))
             }
             Command::SetSettings { settings } => {
                 let before = std::mem::replace(&mut project.settings, settings);
@@ -641,6 +649,10 @@ mod tests {
                     indices: vec![0],
                     muted: true,
                 },
+                Command::SetVolume {
+                    indices: vec![1],
+                    percent: 50,
+                },
                 Command::SetSettings {
                     settings: ProjectSettings {
                         default_photo_duration: Ticks::SECOND,
@@ -655,6 +667,9 @@ mod tests {
         assert_eq!(p.clips[2].rotate, Quarter::Cw90);
         assert_eq!(p.clips[1].transition_in, t);
         assert!(p.clips[0].muted);
+        assert_eq!(p.clips[0].gain(), 0.0);
+        assert_eq!(p.clips[1].volume_percent, 50);
+        assert!((p.clips[1].gain() - 0.5).abs() < 1e-6);
         assert_eq!(p.settings.default_photo_duration, Ticks::SECOND);
         inv.apply(&mut p).unwrap();
         assert_eq!(p, before);

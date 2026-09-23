@@ -9,6 +9,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod args;
+pub mod audio;
 pub mod encoders;
 pub mod exporter;
 pub mod frames;
@@ -18,6 +19,7 @@ pub mod progress;
 pub mod sources;
 pub mod yuv;
 
+pub use audio::{AudioSourceFactory, AudioStream};
 pub use encoders::{Encoder, EncoderCatalog};
 pub use exporter::{ExportError, ExportReport, Exporter};
 pub use frames::{FrameRef, FrameSource, TimelineFrames};

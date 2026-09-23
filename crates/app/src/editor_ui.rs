@@ -953,17 +953,39 @@ impl Inner {
                     }
                 };
                 let compositor = Compositor::new();
+                // Audio first: it is small and lets ffmpeg mux in one pass.
+                let wav_path = output.with_extension("clipforge-audio.wav");
+                let audio = if clipforge_export::audio::has_audio(&project) {
+                    let samples = clipforge_export::audio::mix(&project, &sources);
+                    match clipforge_export::audio::write_wav(&wav_path, &samples) {
+                        Ok(()) => Some(wav_path.clone()),
+                        Err(e) => {
+                            warn!(error = %e, "could not write audio mix; exporting without sound");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
                 let mut frames = TimelineFrames::new(&project, &compositor, &sources, quality);
                 let progress_tx = tx.clone();
-                let result = exporter.run(&plan, &mut frames, &output, &ctx.token, |p| {
-                    #[allow(clippy::cast_precision_loss)]
-                    let f = if p.frames_total > 0 {
-                        p.frames_sent as f32 / p.frames_total as f32
-                    } else {
-                        0.0
-                    };
-                    let _ = progress_tx.send(ExportEvent::Progress(f));
-                });
+                let result = exporter.run(
+                    &plan,
+                    &mut frames,
+                    audio.as_deref(),
+                    &output,
+                    &ctx.token,
+                    |p| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let f = if p.frames_total > 0 {
+                            p.frames_sent as f32 / p.frames_total as f32
+                        } else {
+                            0.0
+                        };
+                        let _ = progress_tx.send(ExportEvent::Progress(f));
+                    },
+                );
+                let _ = std::fs::remove_file(&wav_path);
                 let _ = tx.send(ExportEvent::Finished(result.map_err(|e| e.to_string())));
                 Ok(())
             });
