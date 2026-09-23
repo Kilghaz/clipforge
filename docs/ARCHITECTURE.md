@@ -14,7 +14,7 @@ Redrawn from the code after each milestone. Last update: Milestone 2 (photo slid
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
-| `clipforge-app` | Slint UI | `MainWindow`, `LibraryState`/`EditorState` (Slint globals), `LibraryController`, `EditorController`, `editor_view` (pure), `SettingsStore` |
+| `clipforge-app` | Slint UI | `MainWindow` (library panel + editor side by side, settings overlay), `LibraryState`/`EditorState`/`Shell` (Slint globals), `LibraryController`, `EditorController`, `editor_view` (pure), `SettingsStore` |
 | `xtask` | Dev tasks | `check-deps`, `fixtures`, `icons` |
 
 ## Dependency graph

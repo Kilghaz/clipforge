@@ -1,4 +1,5 @@
 import { Button, ComboBox, SpinBox, CheckBox, Slider, ProgressIndicator, LineEdit, ScrollView } from "std-widgets.slint";
+import { Shell } from "shell.slint";
 
 export struct TimelineClip {
     index: int,
@@ -75,7 +76,6 @@ export global EditorState {
     callback save-project-as();
     callback export-start();
     callback export-cancel();
-    callback go-to-library();
 }
 
 component ClipView inherits Rectangle {
@@ -271,7 +271,7 @@ export component EditorPage inherits Rectangle {
                         padding-left: 16px;
                         padding-right: 16px;
                         spacing: 8px;
-                        Button { text: @tr("Add from library…"); clicked => { EditorState.go-to-library(); } }
+                        Button { text: Shell.library-visible ? "◧" : "◨"; width: 36px; clicked => { Shell.library-visible = !Shell.library-visible; } }
                         Button { text: "↶"; enabled: EditorState.can-undo; clicked => { EditorState.undo(); } }
                         Button { text: "↷"; enabled: EditorState.can-redo; clicked => { EditorState.redo(); } }
                         Rectangle { horizontal-stretch: 1; }
@@ -282,6 +282,7 @@ export component EditorPage inherits Rectangle {
                         }
                         Rectangle { horizontal-stretch: 1; }
                         Button { text: @tr("Export…"); primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        Button { text: "⚙"; width: 36px; clicked => { Shell.settings-open = true; } }
                     }
                 }
                 // Preview
@@ -297,7 +298,7 @@ export component EditorPage inherits Rectangle {
                         y: 16px;
                     }
                     if EditorState.clip-count == 0 : Text {
-                        text: @tr("Add photos from the library to start your slideshow.");
+                        text: @tr("Double-click photos in the library, or use “Add all”, to start your slideshow.");
                         color: #7a7a7a;
                         font-size: 16px;
                         horizontal-alignment: center;

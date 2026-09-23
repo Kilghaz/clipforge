@@ -44,7 +44,7 @@ mod ui {
     )]
     slint::include_modules!();
 }
-use ui::{EditorState, MainWindow, Page, Strings};
+use ui::{MainWindow, Strings};
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -111,14 +111,6 @@ fn main() -> Result<()> {
         editor_controller.add_media_handle(),
         editor_controller.preview_thumb_handle(),
     );
-    {
-        let weak = window.as_weak();
-        window.global::<EditorState>().on_go_to_library(move || {
-            if let Some(w) = weak.upgrade() {
-                w.set_page(Page::Library);
-            }
-        });
-    }
     if let Ok(paths) = std::env::var("CLIPFORGE_IMPORT") {
         library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());
     }

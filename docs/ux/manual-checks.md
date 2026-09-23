@@ -5,7 +5,9 @@ Things CI cannot verify. Run before tagging a milestone.
 ## Milestone 0
 
 - [ ] `cargo run -p clipforge-app` opens a window with menu bar
-      (File, View) and sidebar (Library, Editor, Settings).
+      (File, Edit, View), the library panel on the left and the editor on
+      the right. The divider resizes the panel; ◧ / View menu hides it;
+      ⚙ opens Settings as an overlay.
 - [ ] Settings → Interface language → "Deutsch" switches all visible strings
       immediately, including the menu and the "System language" entry.
 - [ ] Restarting the app keeps the chosen language.
@@ -38,8 +40,10 @@ Things CI cannot verify. Run before tagging a milestone.
 
 ## Milestone 2
 
-- [ ] Library → "Add all to timeline" with ~200 photos: clips appear with
-      thumbnails, the preview shows the first photo.
+- [ ] Library panel → "Add all" with ~200 photos: clips appear with
+      thumbnails, the preview shows the first photo. Double-click adds one.
+- [ ] The ▴ button in the library panel opens the details of the selected
+      item (Show in folder, Remove).
 - [ ] Click, shift-click and Cmd/Ctrl-click select clips as expected;
       Cmd/Ctrl+A selects all; Delete removes; Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z undo/redo.
 - [ ] Drag a clip (or a selection) to a new position; the orange marker

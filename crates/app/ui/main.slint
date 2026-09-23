@@ -1,10 +1,10 @@
-import { VerticalBox, HorizontalBox, Button, ComboBox, GroupBox, ListView, StandardButton } from "std-widgets.slint";
+import { Button } from "std-widgets.slint";
 import { SettingsPage } from "settings.slint";
-import { Sidebar, Page } from "sidebar.slint";
 import { LibraryPage, LibraryState, MediaCell, GridRow, InspectorInfo } from "library.slint";
 import { EditorPage, EditorState, TimelineClip } from "editor.slint";
+import { Shell } from "shell.slint";
 
-export { Page, LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip }
+export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, Shell }
 
 /// Strings Rust needs in the current UI language.
 export global Strings {
@@ -16,15 +16,14 @@ export global Strings {
     out property <string> ffmpeg-missing: @tr("ffmpeg was not found. Install it or place it next to the app.");
 }
 
+
 export component MainWindow inherits Window {
     title: @tr("ClipForge");
-    preferred-width: 1280px;
-    preferred-height: 800px;
-    min-width: 800px;
-    min-height: 500px;
+    preferred-width: 1400px;
+    preferred-height: 860px;
+    min-width: 900px;
+    min-height: 560px;
     icon: @image-url("../../../assets/icons/256x256.png");
-
-    in-out property <Page> page: Page.library;
 
     // Settings state, owned by Rust.
     in-out property <int> language-index: 0;
@@ -37,17 +36,17 @@ export component MainWindow inherits Window {
     MenuBar {
         Menu {
             title: @tr("File");
-            MenuItem { title: @tr("New Project"); activated => { EditorState.new-project(); root.page = Page.editor; } }
-            MenuItem { title: @tr("Open Project…"); activated => { EditorState.open-project(); root.page = Page.editor; } }
+            MenuItem { title: @tr("New Project"); activated => { EditorState.new-project(); } }
+            MenuItem { title: @tr("Open Project…"); activated => { EditorState.open-project(); } }
             MenuItem { title: @tr("Save Project"); activated => { EditorState.save-project(); } }
             MenuItem { title: @tr("Save Project As…"); activated => { EditorState.save-project-as(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Export Video…"); activated => { root.page = Page.editor; EditorState.export-open = true; } }
+            MenuItem { title: @tr("Export Video…"); activated => { EditorState.export-open = true; } }
             MenuSeparator {}
             MenuItem { title: @tr("Add files to library…"); activated => { LibraryState.add-files(); } }
             MenuItem { title: @tr("Add folder to library…"); activated => { LibraryState.add-folder(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Settings"); activated => { root.page = Page.settings; } }
+            MenuItem { title: @tr("Settings"); activated => { Shell.settings-open = true; } }
             MenuSeparator {}
             MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
         }
@@ -61,26 +60,61 @@ export component MainWindow inherits Window {
         }
         Menu {
             title: @tr("View");
-            MenuItem { title: @tr("Library"); activated => { root.page = Page.library; } }
-            MenuItem { title: @tr("Editor"); activated => { root.page = Page.editor; } }
+            MenuItem {
+                title: Shell.library-visible ? @tr("Hide Library") : @tr("Show Library");
+                activated => { Shell.library-visible = !Shell.library-visible; }
+            }
         }
     }
 
     HorizontalLayout {
-        Sidebar {
-            page <=> root.page;
+        if Shell.library-visible : LibraryPage {
+            width: Shell.library-width;
         }
+        // Divider: drag to resize the library panel.
+        divider := Rectangle {
+            width: 6px;
+            background: divider-touch.has-hover || divider-touch.pressed ? #3d5afe : #101114;
+            divider-touch := TouchArea {
+                mouse-cursor: Shell.library-visible ? MouseCursor.col-resize : MouseCursor.default;
+                property <length> start-width;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down { self.start-width = Shell.library-width; }
+                }
+                moved => {
+                    if self.pressed && Shell.library-visible {
+                        Shell.library-width = max(260px, min(root.width - 600px, self.start-width + (self.mouse-x - self.pressed-x)));
+                    }
+                }
+            }
+        }
+        EditorPage {
+            horizontal-stretch: 1;
+        }
+    }
+
+    if Shell.settings-open : Rectangle {
+        background: #000000aa;
+        TouchArea { clicked => { Shell.settings-open = false; } }
         Rectangle {
+            width: 520px;
+            height: 380px;
+            border-radius: 12px;
             background: #1e1e1e;
-            if root.page == Page.library : LibraryPage { }
-            if root.page == Page.editor : EditorPage { }
-            if root.page == Page.settings : SettingsPage {
+            clip: true;
+            TouchArea { }
+            SettingsPage {
                 language-index <=> root.language-index;
                 language-options: root.language-options;
                 app-version: root.app-version;
                 language-selected(i) => { root.language-selected(i); }
             }
+            Button {
+                text: @tr("Close");
+                x: parent.width - self.width - 16px;
+                y: parent.height - self.height - 16px;
+                clicked => { Shell.settings-open = false; }
+            }
         }
     }
 }
-

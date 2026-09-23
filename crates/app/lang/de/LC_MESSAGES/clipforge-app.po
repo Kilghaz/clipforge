@@ -104,8 +104,8 @@ msgstr "Deine Mediathek ist leer."
 msgid "Nothing matches your search."
 msgstr "Nichts passt zu deiner Suche."
 
-msgid "Add photos, videos and music with the buttons above. Files stay where they are."
-msgstr "Füge Fotos, Videos und Musik mit den Schaltflächen oben hinzu. Die Dateien bleiben, wo sie sind."
+msgid "Drop photos, videos and music here, or use the + buttons. Files stay where they are."
+msgstr "Ziehe Fotos, Videos und Musik hierher oder nutze die +‑Schaltflächen. Die Dateien bleiben, wo sie sind."
 
 msgid "Scanning…"
 msgstr "Durchsuche…"
@@ -311,11 +311,20 @@ msgstr "Schließen"
 msgid "Export…"
 msgstr "Exportieren…"
 
-msgid "Add from library…"
-msgstr "Aus Mediathek hinzufügen…"
-
-msgid "Add photos from the library to start your slideshow."
-msgstr "Füge Fotos aus der Mediathek hinzu, um deine Diashow zu beginnen."
+msgid "Double-click photos in the library, or use “Add all”, to start your slideshow."
+msgstr "Doppelklicke Fotos in der Mediathek oder nutze „Alle hinzufügen“, um deine Diashow zu beginnen."
 
 msgid "Zoom"
 msgstr "Zoom"
+
+msgid "Hide Library"
+msgstr "Mediathek ausblenden"
+
+msgid "Show Library"
+msgstr "Mediathek einblenden"
+
+msgid "Add all"
+msgstr "Alle hinzufügen"
+
+msgid "Remove"
+msgstr "Entfernen"

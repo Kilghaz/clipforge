@@ -7,9 +7,9 @@ use clipforge_library::{Query, Sort};
 use clipforge_media::MediaKind;
 
 /// Width of one grid cell including its gap, in logical pixels.
-pub(crate) const CELL_WIDTH: f32 = 168.0;
+pub(crate) const CELL_WIDTH: f32 = 112.0;
 /// Horizontal padding of the grid, in logical pixels.
-pub(crate) const GRID_PADDING: f32 = 16.0;
+pub(crate) const GRID_PADDING: f32 = 12.0;
 
 /// Number of columns that fit into `width`. Never below one.
 #[must_use]
