@@ -11,6 +11,8 @@ clipforge-core.workspace = true
 clipforge-media.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+fast_image_resize.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 

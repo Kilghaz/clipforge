@@ -867,8 +867,10 @@ version = "0.1.0"
 dependencies = [
  "clipforge-core",
  "clipforge-media",
+ "fast_image_resize",
  "serde",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

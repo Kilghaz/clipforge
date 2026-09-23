@@ -203,7 +203,7 @@ impl Command {
                 let mut slots: Vec<Option<Clip>> = old.into_iter().map(Some).collect();
                 project.clips = order
                     .iter()
-                    .map(|&o| slots[o].take().unwrap_or_else(|| unreachable_clip()))
+                    .map(|&o| slots[o].take().unwrap_or_else(unreachable_clip))
                     .collect();
                 let mut inverse = vec![0; len];
                 for (new_i, &old_i) in order.iter().enumerate() {
