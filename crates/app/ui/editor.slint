@@ -343,8 +343,6 @@ export component EditorPage inherits Rectangle {
                     height: 132px;
                     background: #191a1e;
                     flick := Flickable {
-                        // Same here: clip drags and scrubbing must not flick the strip.
-                        interactive: false;
                         content-width: max(EditorState.strip-width * 1px + 200px, self.width);
                         content-height: self.height;
                         TouchArea {

@@ -1,16 +1,5 @@
-import { LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
+import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "shell.slint";
-
-/// A virtualised list that scrolls with the wheel/trackpad only. The
-/// standard ListView flicks on drag, which would swallow the marquee and
-/// the drag-to-timeline gestures. The name and these properties are what
-/// the Slint compiler requires to virtualise the `for` rows.
-component ListView inherits Flickable {
-    interactive: false;
-    out property <length> visible-width: self.width;
-    out property <length> visible-height: self.height;
-    @children
-}
 
 export struct MediaCell {
     index: int,
@@ -137,12 +126,12 @@ component CellView inherits Rectangle {
     touch := TouchArea {
         double-clicked => { root.double-clicked(); }
         pointer-event(e) => {
-            if e.button != PointerEventButton.left { return; }
-            if e.kind == PointerEventKind.down {
+            // Move events carry no button, so only filter down/up on it.
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
                 root.pressed(e.modifiers.shift, e.modifiers.control || e.modifiers.meta);
             } else if e.kind == PointerEventKind.move && self.pressed {
                 root.dragged((root.absolute-position.x + self.mouse-x) / 1px, (root.absolute-position.y + self.mouse-y) / 1px);
-            } else if e.kind == PointerEventKind.up {
+            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
                 root.released((root.absolute-position.x + self.mouse-x) / 1px, (root.absolute-position.y + self.mouse-y) / 1px);
             }
         }
@@ -288,12 +277,11 @@ export component LibraryPage inherits Rectangle {
                     // Empty space in a row starts a marquee selection.
                     TouchArea {
                         pointer-event(e) => {
-                            if e.button != PointerEventButton.left { return; }
-                            if e.kind == PointerEventKind.down {
+                            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
                                 LibraryState.marquee-start(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px, e.modifiers.shift || e.modifiers.control || e.modifiers.meta);
                             } else if e.kind == PointerEventKind.move && self.pressed {
                                 LibraryState.marquee-move(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px);
-                            } else if e.kind == PointerEventKind.up {
+                            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
                                 LibraryState.marquee-end();
                             }
                         }
