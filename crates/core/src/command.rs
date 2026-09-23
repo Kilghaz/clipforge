@@ -1,0 +1,681 @@
+//! Commands: the only way to change a [`Project`]. Each `apply` returns the
+//! inverse command, which is what undo replays.
+
+use std::collections::BTreeSet;
+
+use serde::{Deserialize, Serialize};
+
+use crate::project::{
+    Clip, ClipSource, Fit, MediaRef, Project, ProjectSettings, Quarter, Transition,
+};
+use crate::time::Ticks;
+
+/// Error for a command that cannot be applied to the current project.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CommandError {
+    #[error("clip index {index} out of range (len {len})")]
+    IndexOutOfRange { index: usize, len: usize },
+    #[error("duplicate index {0}")]
+    DuplicateIndex(usize),
+    #[error("permutation must contain every index exactly once")]
+    BadPermutation,
+    #[error("duration must be positive")]
+    NonPositiveDuration,
+    #[error("trim range is invalid")]
+    InvalidTrim,
+    #[error("command does not apply to clip {index}: {reason}")]
+    NotApplicable { index: usize, reason: &'static str },
+    #[error("clip references unknown media")]
+    UnknownMedia,
+}
+
+/// Where a command's clips came from, for undo labels in the UI.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CommandLabel {
+    Insert,
+    Remove,
+    Reorder,
+    Duration,
+    Fit,
+    Rotate,
+    Transition,
+    Trim,
+    Mute,
+    Settings,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Command {
+    /// Inserts clips so that each ends up at its given index (ascending).
+    /// `media` is merged into the project's media table first.
+    InsertClips {
+        entries: Vec<(usize, Clip)>,
+        media: Vec<MediaRef>,
+    },
+    /// Removes the clips at these indices.
+    RemoveClips {
+        indices: Vec<usize>,
+    },
+    /// Reorders all clips: `order[new_index] = old_index`.
+    Reorder {
+        order: Vec<usize>,
+    },
+    /// Sets the duration of photo clips. Video clips in the selection are
+    /// rejected.
+    SetPhotoDuration {
+        indices: Vec<usize>,
+        duration: Ticks,
+    },
+    /// Sets the trim range of a video clip.
+    SetTrim {
+        index: usize,
+        in_point: Ticks,
+        out_point: Ticks,
+    },
+    SetFit {
+        indices: Vec<usize>,
+        fit: Fit,
+    },
+    SetRotate {
+        indices: Vec<usize>,
+        rotate: Quarter,
+    },
+    SetTransition {
+        indices: Vec<usize>,
+        transition: Transition,
+    },
+    SetMuted {
+        indices: Vec<usize>,
+        muted: bool,
+    },
+    SetSettings {
+        settings: ProjectSettings,
+    },
+    /// Replays several commands as one undo step.
+    Batch {
+        commands: Vec<Command>,
+    },
+    /// Restores per-clip values (inverse of the bulk setters).
+    RestoreClips {
+        entries: Vec<(usize, Clip)>,
+    },
+}
+
+impl Command {
+    #[must_use]
+    pub fn label(&self) -> CommandLabel {
+        match self {
+            Command::InsertClips { .. } => CommandLabel::Insert,
+            Command::RemoveClips { .. } => CommandLabel::Remove,
+            Command::Reorder { .. } => CommandLabel::Reorder,
+            Command::SetPhotoDuration { .. } => CommandLabel::Duration,
+            Command::SetTrim { .. } => CommandLabel::Trim,
+            Command::SetFit { .. } => CommandLabel::Fit,
+            Command::SetRotate { .. } => CommandLabel::Rotate,
+            Command::SetTransition { .. } => CommandLabel::Transition,
+            Command::SetMuted { .. } => CommandLabel::Mute,
+            Command::SetSettings { .. } => CommandLabel::Settings,
+            Command::Batch { commands } => commands
+                .first()
+                .map_or(CommandLabel::Settings, Command::label),
+            Command::RestoreClips { .. } => CommandLabel::Fit,
+        }
+    }
+
+    /// Builds a `Reorder` that moves `indices` (any order) so that they sit,
+    /// in their current relative order, before the clip currently at `to`
+    /// (`to == len` appends). Returns `None` if nothing would change.
+    #[must_use]
+    pub fn move_clips(len: usize, indices: &[usize], to: usize) -> Option<Command> {
+        let moving: BTreeSet<usize> = indices.iter().copied().filter(|i| *i < len).collect();
+        if moving.is_empty() || to > len {
+            return None;
+        }
+        let staying: Vec<usize> = (0..len).filter(|i| !moving.contains(i)).collect();
+        // Position in `staying` where the moved block goes: number of
+        // staying clips originally before `to`.
+        let split = staying.iter().filter(|i| **i < to).count();
+        let mut order: Vec<usize> = Vec::with_capacity(len);
+        order.extend_from_slice(&staying[..split]);
+        order.extend(moving.iter().copied());
+        order.extend_from_slice(&staying[split..]);
+        if order.iter().enumerate().all(|(i, o)| i == *o) {
+            None
+        } else {
+            Some(Command::Reorder { order })
+        }
+    }
+
+    /// Applies the command, returning its inverse.
+    pub fn apply(self, project: &mut Project) -> Result<Command, CommandError> {
+        match self {
+            Command::InsertClips { entries, media } => {
+                let mut sorted = entries;
+                sorted.sort_by_key(|(i, _)| *i);
+                for m in media {
+                    project.media.insert(m.id, m);
+                }
+                for (_, clip) in &sorted {
+                    if !project.media.contains_key(&clip.media) {
+                        return Err(CommandError::UnknownMedia);
+                    }
+                    check_clip(clip)?;
+                }
+                let mut indices = Vec::with_capacity(sorted.len());
+                for (i, clip) in sorted {
+                    if i > project.clips.len() {
+                        return Err(CommandError::IndexOutOfRange {
+                            index: i,
+                            len: project.clips.len(),
+                        });
+                    }
+                    project.clips.insert(i, clip);
+                    indices.push(i);
+                }
+                Ok(Command::RemoveClips { indices })
+            }
+            Command::RemoveClips { indices } => {
+                let indices = unique_sorted(&indices, project.clips.len())?;
+                let mut removed = Vec::with_capacity(indices.len());
+                for &i in indices.iter().rev() {
+                    removed.push((i, project.clips.remove(i)));
+                }
+                removed.reverse();
+                Ok(Command::InsertClips {
+                    entries: removed,
+                    media: Vec::new(),
+                })
+            }
+            Command::Reorder { order } => {
+                let len = project.clips.len();
+                if order.len() != len {
+                    return Err(CommandError::BadPermutation);
+                }
+                let mut seen = vec![false; len];
+                for &o in &order {
+                    if o >= len || seen[o] {
+                        return Err(CommandError::BadPermutation);
+                    }
+                    seen[o] = true;
+                }
+                let old = std::mem::take(&mut project.clips);
+                let mut slots: Vec<Option<Clip>> = old.into_iter().map(Some).collect();
+                project.clips = order
+                    .iter()
+                    .map(|&o| slots[o].take().unwrap_or_else(|| unreachable_clip()))
+                    .collect();
+                let mut inverse = vec![0; len];
+                for (new_i, &old_i) in order.iter().enumerate() {
+                    inverse[old_i] = new_i;
+                }
+                Ok(Command::Reorder { order: inverse })
+            }
+            Command::SetPhotoDuration { indices, duration } => {
+                if duration <= Ticks::ZERO {
+                    return Err(CommandError::NonPositiveDuration);
+                }
+                let indices = unique_sorted(&indices, project.clips.len())?;
+                for &i in &indices {
+                    if !project.clips[i].is_photo() {
+                        return Err(CommandError::NotApplicable {
+                            index: i,
+                            reason: "not a photo",
+                        });
+                    }
+                }
+                let before = snapshot(project, &indices);
+                for &i in &indices {
+                    project.clips[i].source = ClipSource::Photo { duration };
+                }
+                Ok(Command::RestoreClips { entries: before })
+            }
+            Command::SetTrim {
+                index,
+                in_point,
+                out_point,
+            } => {
+                let len = project.clips.len();
+                if index >= len {
+                    return Err(CommandError::IndexOutOfRange { index, len });
+                }
+                if in_point < Ticks::ZERO || out_point <= in_point {
+                    return Err(CommandError::InvalidTrim);
+                }
+                let clip = &project.clips[index];
+                if clip.is_photo() {
+                    return Err(CommandError::NotApplicable {
+                        index,
+                        reason: "not a video",
+                    });
+                }
+                if let Some(natural) = project.media.get(&clip.media).and_then(|m| m.duration)
+                    && out_point > natural
+                {
+                    return Err(CommandError::InvalidTrim);
+                }
+                let before = snapshot(project, &[index]);
+                project.clips[index].source = ClipSource::Video {
+                    in_point,
+                    out_point,
+                };
+                Ok(Command::RestoreClips { entries: before })
+            }
+            Command::SetFit { indices, fit } => set_field(project, &indices, |c| c.fit = fit),
+            Command::SetRotate { indices, rotate } => {
+                set_field(project, &indices, |c| c.rotate = rotate)
+            }
+            Command::SetTransition {
+                indices,
+                transition,
+            } => {
+                if transition.duration < Ticks::ZERO {
+                    return Err(CommandError::NonPositiveDuration);
+                }
+                set_field(project, &indices, |c| c.transition_in = transition)
+            }
+            Command::SetMuted { indices, muted } => {
+                set_field(project, &indices, |c| c.muted = muted)
+            }
+            Command::SetSettings { settings } => {
+                let before = std::mem::replace(&mut project.settings, settings);
+                Ok(Command::SetSettings { settings: before })
+            }
+            Command::Batch { commands } => {
+                let mut inverses = Vec::with_capacity(commands.len());
+                for cmd in commands {
+                    match cmd.apply(project) {
+                        Ok(inv) => inverses.push(inv),
+                        Err(e) => {
+                            // Roll back what was applied so far.
+                            for inv in inverses.into_iter().rev() {
+                                let _ = inv.apply(project);
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
+                inverses.reverse();
+                Ok(Command::Batch { commands: inverses })
+            }
+            Command::RestoreClips { entries } => {
+                let len = project.clips.len();
+                for (i, _) in &entries {
+                    if *i >= len {
+                        return Err(CommandError::IndexOutOfRange { index: *i, len });
+                    }
+                }
+                let indices: Vec<usize> = entries.iter().map(|(i, _)| *i).collect();
+                let before = snapshot(project, &indices);
+                for (i, clip) in entries {
+                    project.clips[i] = clip;
+                }
+                Ok(Command::RestoreClips { entries: before })
+            }
+        }
+    }
+}
+
+fn unreachable_clip() -> Clip {
+    // Only reachable if the permutation check above is wrong.
+    Clip::photo(crate::ids::MediaId::new(), Ticks::SECOND)
+}
+
+fn check_clip(clip: &Clip) -> Result<(), CommandError> {
+    match clip.source {
+        ClipSource::Photo { duration } if duration <= Ticks::ZERO => {
+            Err(CommandError::NonPositiveDuration)
+        }
+        ClipSource::Video {
+            in_point,
+            out_point,
+        } if in_point < Ticks::ZERO || out_point <= in_point => Err(CommandError::InvalidTrim),
+        _ => Ok(()),
+    }
+}
+
+fn unique_sorted(indices: &[usize], len: usize) -> Result<Vec<usize>, CommandError> {
+    let mut out: Vec<usize> = indices.to_vec();
+    out.sort_unstable();
+    for w in out.windows(2) {
+        if w[0] == w[1] {
+            return Err(CommandError::DuplicateIndex(w[0]));
+        }
+    }
+    if let Some(&max) = out.last()
+        && max >= len
+    {
+        return Err(CommandError::IndexOutOfRange { index: max, len });
+    }
+    Ok(out)
+}
+
+fn snapshot(project: &Project, indices: &[usize]) -> Vec<(usize, Clip)> {
+    indices
+        .iter()
+        .map(|&i| (i, project.clips[i].clone()))
+        .collect()
+}
+
+fn set_field(
+    project: &mut Project,
+    indices: &[usize],
+    f: impl Fn(&mut Clip),
+) -> Result<Command, CommandError> {
+    let indices = unique_sorted(indices, project.clips.len())?;
+    let before = snapshot(project, &indices);
+    for &i in &indices {
+        f(&mut project.clips[i]);
+    }
+    Ok(Command::RestoreClips { entries: before })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::MediaId;
+    use crate::project::{RefKind, TransitionKind};
+    use std::path::PathBuf;
+
+    fn media_ref(kind: RefKind, duration: Option<Ticks>) -> MediaRef {
+        MediaRef {
+            id: MediaId::new(),
+            kind,
+            path: PathBuf::from("/p"),
+            fingerprint_hash: 1,
+            size: 1,
+            pixel_size: Some((100, 50)),
+            duration,
+            captured_at_ms: None,
+            name: "p".into(),
+        }
+    }
+
+    fn project_with(n: usize) -> Project {
+        let mut p = Project::new();
+        let m = media_ref(RefKind::Photo, None);
+        let entries = (0..n)
+            .map(|i| (i, Clip::photo(m.id, Ticks::from_seconds(i as i64 + 1))))
+            .collect();
+        Command::InsertClips {
+            entries,
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        p
+    }
+
+    fn durations(p: &Project) -> Vec<i64> {
+        p.clips
+            .iter()
+            .map(|c| c.duration().flicks() / crate::time::FLICKS_PER_SECOND)
+            .collect()
+    }
+
+    #[test]
+    fn insert_then_inverse_restores() {
+        let mut p = Project::new();
+        let original = p.clone();
+        let m = media_ref(RefKind::Photo, None);
+        let inv = Command::InsertClips {
+            entries: vec![
+                (0, Clip::photo(m.id, Ticks::SECOND)),
+                (1, Clip::photo(m.id, Ticks::SECOND)),
+            ],
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(p.clips.len(), 2);
+        assert_eq!(
+            inv,
+            Command::RemoveClips {
+                indices: vec![0, 1]
+            }
+        );
+        inv.apply(&mut p).unwrap();
+        p.prune_media();
+        assert_eq!(p, original);
+    }
+
+    #[test]
+    fn insert_rejects_unknown_media_and_bad_clips() {
+        let mut p = Project::new();
+        let err = Command::InsertClips {
+            entries: vec![(0, Clip::photo(MediaId::new(), Ticks::SECOND))],
+            media: vec![],
+        }
+        .apply(&mut p)
+        .unwrap_err();
+        assert_eq!(err, CommandError::UnknownMedia);
+        let m = media_ref(RefKind::Photo, None);
+        let err = Command::InsertClips {
+            entries: vec![(0, Clip::photo(m.id, Ticks::ZERO))],
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap_err();
+        assert_eq!(err, CommandError::NonPositiveDuration);
+        assert!(p.clips.is_empty());
+    }
+
+    #[test]
+    fn remove_non_contiguous_and_undo() {
+        let mut p = project_with(5);
+        let before = p.clone();
+        let inv = Command::RemoveClips {
+            indices: vec![3, 0, 4],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(durations(&p), [2, 3]);
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        assert_eq!(
+            Command::RemoveClips { indices: vec![9] }
+                .apply(&mut p)
+                .unwrap_err(),
+            CommandError::IndexOutOfRange { index: 9, len: 5 }
+        );
+        assert_eq!(
+            Command::RemoveClips {
+                indices: vec![1, 1]
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::DuplicateIndex(1)
+        );
+    }
+
+    #[test]
+    fn reorder_and_inverse() {
+        let mut p = project_with(4);
+        let before = p.clone();
+        let inv = Command::Reorder {
+            order: vec![3, 1, 0, 2],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(durations(&p), [4, 2, 1, 3]);
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        assert_eq!(
+            Command::Reorder {
+                order: vec![0, 0, 1, 2]
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::BadPermutation
+        );
+        assert_eq!(
+            Command::Reorder { order: vec![0] }
+                .apply(&mut p)
+                .unwrap_err(),
+            CommandError::BadPermutation
+        );
+    }
+
+    #[test]
+    fn move_clips_builds_the_right_permutation() {
+        // [0 1 2 3 4], move {1,3} before 0 -> [1 3 0 2 4]
+        assert_eq!(
+            Command::move_clips(5, &[3, 1], 0),
+            Some(Command::Reorder {
+                order: vec![1, 3, 0, 2, 4]
+            })
+        );
+        // move {0} to end -> [1 2 3 4 0]
+        assert_eq!(
+            Command::move_clips(5, &[0], 5),
+            Some(Command::Reorder {
+                order: vec![1, 2, 3, 4, 0]
+            })
+        );
+        // move {1,2} before 3 (i.e. no change)
+        assert_eq!(Command::move_clips(5, &[1, 2], 3), None);
+        // move {1,2} before 4 -> [0 3 1 2 4]
+        assert_eq!(
+            Command::move_clips(5, &[1, 2], 4),
+            Some(Command::Reorder {
+                order: vec![0, 3, 1, 2, 4]
+            })
+        );
+        assert_eq!(Command::move_clips(5, &[], 0), None);
+        assert_eq!(Command::move_clips(5, &[1], 6), None);
+    }
+
+    #[test]
+    fn bulk_duration_is_one_step_and_undoes_exactly() {
+        let mut p = project_with(4);
+        let before = p.clone();
+        let inv = Command::SetPhotoDuration {
+            indices: vec![0, 2, 3],
+            duration: Ticks::from_seconds(7),
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(durations(&p), [7, 2, 7, 7]);
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        assert_eq!(
+            Command::SetPhotoDuration {
+                indices: vec![0],
+                duration: Ticks::ZERO
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::NonPositiveDuration
+        );
+    }
+
+    #[test]
+    fn video_trim_rules() {
+        let mut p = Project::new();
+        let m = media_ref(RefKind::Video, Some(Ticks::from_seconds(10)));
+        let clip = Clip::video(m.id, Ticks::from_seconds(10));
+        Command::InsertClips {
+            entries: vec![(0, clip)],
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let before = p.clone();
+        let inv = Command::SetTrim {
+            index: 0,
+            in_point: Ticks::from_seconds(2),
+            out_point: Ticks::from_seconds(5),
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(p.clips[0].duration(), Ticks::from_seconds(3));
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        assert_eq!(
+            Command::SetTrim {
+                index: 0,
+                in_point: Ticks::from_seconds(2),
+                out_point: Ticks::from_seconds(11)
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::InvalidTrim
+        );
+        assert_eq!(
+            Command::SetPhotoDuration {
+                indices: vec![0],
+                duration: Ticks::SECOND
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::NotApplicable {
+                index: 0,
+                reason: "not a photo"
+            }
+        );
+    }
+
+    #[test]
+    fn setters_and_settings_round_trip() {
+        let mut p = project_with(3);
+        let before = p.clone();
+        let t = Transition {
+            kind: TransitionKind::CrossDissolve,
+            duration: Ticks::SECOND,
+        };
+        let inv = Command::Batch {
+            commands: vec![
+                Command::SetFit {
+                    indices: vec![0, 1],
+                    fit: Fit::Cover,
+                },
+                Command::SetRotate {
+                    indices: vec![2],
+                    rotate: Quarter::Cw90,
+                },
+                Command::SetTransition {
+                    indices: vec![1, 2],
+                    transition: t,
+                },
+                Command::SetMuted {
+                    indices: vec![0],
+                    muted: true,
+                },
+                Command::SetSettings {
+                    settings: ProjectSettings {
+                        default_photo_duration: Ticks::SECOND,
+                        ..ProjectSettings::default()
+                    },
+                },
+            ],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(p.clips[0].fit, Fit::Cover);
+        assert_eq!(p.clips[2].rotate, Quarter::Cw90);
+        assert_eq!(p.clips[1].transition_in, t);
+        assert!(p.clips[0].muted);
+        assert_eq!(p.settings.default_photo_duration, Ticks::SECOND);
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn batch_rolls_back_on_failure() {
+        let mut p = project_with(3);
+        let before = p.clone();
+        let err = Command::Batch {
+            commands: vec![
+                Command::SetFit {
+                    indices: vec![0],
+                    fit: Fit::Cover,
+                },
+                Command::RemoveClips { indices: vec![42] },
+            ],
+        }
+        .apply(&mut p)
+        .unwrap_err();
+        assert!(matches!(err, CommandError::IndexOutOfRange { .. }));
+        assert_eq!(p, before);
+    }
+}
