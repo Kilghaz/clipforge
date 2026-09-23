@@ -21,6 +21,12 @@ desktop applications free of charge with these obligations:
 - Do not use Slint for embedded devices under this licence.
 - Full text: <https://github.com/slint-ui/slint/blob/master/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md>
 
+## Fluent UI System Icons
+
+The UI icons in `assets/fluent/` are a subset of Microsoft's Fluent UI
+System Icons, MIT licence (`assets/fluent/LICENSE.txt`). Attribution is
+shown in Settings → About. Regenerate with `cargo xtask fluent-icons`.
+
 ## FFmpeg
 
 - **Decoding** links `libav*` as shared or static libraries (from Milestone

@@ -6,6 +6,7 @@
 
 mod deps;
 mod fixtures;
+mod fluent_icons;
 mod icons;
 
 use anyhow::{Result, bail};
@@ -18,9 +19,10 @@ fn main() -> Result<()> {
         "check-deps" => deps::check(),
         "fixtures" => fixtures::run(&rest),
         "icons" => icons::run(),
+        "fluent-icons" => fluent_icons::run(&rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n\n  check-deps        verify the crate dependency direction from docs/PLAN.md\n  fixtures [--verify] generate test media into fixtures/ (needs ffmpeg), or verify the manifest\n  icons             regenerate assets/icons from assets/icon.svg (needs rsvg-convert or ffmpeg, iconutil on macOS)"
+                "usage: cargo xtask <command>\n\n  check-deps        verify the crate dependency direction from docs/PLAN.md\n  fixtures [--verify] generate test media into fixtures/ (needs ffmpeg), or verify the manifest\n  icons             regenerate assets/icons from assets/icon.svg (needs rsvg-convert or ffmpeg, iconutil on macOS)\n  fluent-icons [--verify] fetch the UI icon subset into assets/fluent (needs curl), or verify it is complete"
             );
             bail!("unknown command {cmd:?}");
         }

@@ -59,6 +59,7 @@ jobs:
         run: |
           cargo run --quiet --profile ci -p xtask -- check-deps
           cargo run --quiet --profile ci -p xtask -- fixtures --verify
+          cargo run --quiet --profile ci -p xtask -- fluent-icons --verify
       - name: Licences and advisories
         run: cargo deny check
       - name: Third-party licence report
