@@ -1,5 +1,16 @@
-import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
+import { LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "shell.slint";
+
+/// A virtualised list that scrolls with the wheel/trackpad only. The
+/// standard ListView flicks on drag, which would swallow the marquee and
+/// the drag-to-timeline gestures. The name and these properties are what
+/// the Slint compiler requires to virtualise the `for` rows.
+component ListView inherits Flickable {
+    interactive: false;
+    out property <length> visible-width: self.width;
+    out property <length> visible-height: self.height;
+    @children
+}
 
 export struct MediaCell {
     index: int,
