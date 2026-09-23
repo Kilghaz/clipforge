@@ -5,8 +5,9 @@
 //! 48 kHz. Both kill their child process on drop.
 
 use std::io::{BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use clipforge_core::{FrameRate, Ticks};
 
@@ -20,15 +21,21 @@ pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// Channels every audio stream is converted to.
 pub const AUDIO_CHANNELS: usize = 2;
 
-/// Hardware decoder to request on this platform; ffmpeg falls back to
-/// software when the codec is not supported.
-fn hwaccel_args() -> &'static [&'static str] {
+/// Hardware decoder to request on this platform. ffmpeg treats a missing
+/// device as a fatal option error, so [`VideoReader`] retries in software
+/// when a hardware run yields no frames and remembers that here.
+static HWACCEL_BROKEN: AtomicBool = AtomicBool::new(false);
+
+fn default_hwaccel() -> Option<&'static str> {
+    if HWACCEL_BROKEN.load(Ordering::Relaxed) {
+        return None;
+    }
     if cfg!(target_os = "macos") {
-        &["-hwaccel", "videotoolbox"]
+        Some("videotoolbox")
     } else if cfg!(windows) {
-        &["-hwaccel", "d3d11va"]
+        Some("d3d11va")
     } else {
-        &[]
+        None
     }
 }
 
@@ -57,6 +64,8 @@ pub struct VideoReader {
     height: u32,
     frame_rate: FrameRate,
     start: Ticks,
+    /// Everything needed to respawn without hardware decoding.
+    respawn: Option<(FfmpegCli, PathBuf, MediaInfo, u32)>,
     /// Index of the next frame to be read (relative to `start`).
     next: i64,
     /// Last frame read, kept for `frame_at` when the wanted time falls
@@ -86,6 +95,20 @@ impl VideoReader {
         start: Ticks,
         max_edge: u32,
     ) -> Result<VideoReader> {
+        Self::open_with(cli, path, info, start, max_edge, default_hwaccel())
+    }
+
+    /// Like [`VideoReader::open`] with an explicit hardware decoder
+    /// (`None` = software). A hardware run that produces no frames is
+    /// retried in software once.
+    pub fn open_with(
+        cli: &FfmpegCli,
+        path: &Path,
+        info: &MediaInfo,
+        start: Ticks,
+        max_edge: u32,
+        hwaccel: Option<&str>,
+    ) -> Result<VideoReader> {
         let (dw, dh) = info
             .display_size()
             .ok_or_else(|| MediaError::Unsupported("no picture".into()))?;
@@ -95,7 +118,9 @@ impl VideoReader {
         let frame_rate = info.frame_rate.unwrap_or(FrameRate::FPS_30);
         let fps = format!("{}/{}", frame_rate.numerator(), frame_rate.denominator());
         let mut args: Vec<String> = vec!["-nostdin".into(), "-loglevel".into(), "error".into()];
-        args.extend(hwaccel_args().iter().map(|s| (*s).to_owned()));
+        if let Some(hw) = hwaccel {
+            args.extend(["-hwaccel".into(), hw.to_owned()]);
+        }
         args.extend([
             "-ss".into(),
             seconds(start),
@@ -127,10 +152,35 @@ impl VideoReader {
             height,
             frame_rate,
             start,
+            respawn: hwaccel.map(|_| (cli.clone(), path.to_path_buf(), info.clone(), max_edge)),
             next: 0,
             last: None,
             finished: false,
         })
+    }
+
+    /// Replaces this reader's process with a software-decoding one if the
+    /// hardware attempt ended before delivering a single frame.
+    fn fall_back_to_software(&mut self) -> Result<bool> {
+        let Some((cli, path, info, max_edge)) = self.respawn.take() else {
+            return Ok(false);
+        };
+        if self.next != 0 {
+            return Ok(false);
+        }
+        tracing::warn!(path = %path.display(), "hardware decoding produced no frames; using software");
+        HWACCEL_BROKEN.store(true, Ordering::Relaxed);
+        let fresh = Self::open_with(&cli, &path, &info, self.start, max_edge, None)?;
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // Take the new process over; `fresh` must not kill it on drop.
+        let mut fresh = std::mem::ManuallyDrop::new(fresh);
+        std::mem::swap(&mut self.child, &mut fresh.child);
+        std::mem::swap(&mut self.out, &mut fresh.out);
+        // The old (dead) child now sits in `fresh`; reap it explicitly.
+        let _ = fresh.child.wait();
+        self.finished = false;
+        Ok(true)
     }
 
     #[must_use]
@@ -164,6 +214,9 @@ impl VideoReader {
                 Ok(Some(img))
             }
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                if self.fall_back_to_software()? {
+                    return self.next_frame();
+                }
                 self.finished = true;
                 Ok(None)
             }
@@ -378,6 +431,32 @@ mod tests {
         assert_eq!(r.size(), (36, 64));
         let f = r.next_frame().unwrap().unwrap();
         assert_eq!((f.width, f.height), (36, 64));
+    }
+
+    #[test]
+    fn unusable_hardware_decoder_falls_back_to_software() {
+        let Some(cli) = cli() else { return };
+        let path = fixture("video_sdr_h264.mp4");
+        let info = cli.probe(&path).unwrap();
+        let mut r = VideoReader::open_with(
+            &cli,
+            &path,
+            &info,
+            Ticks::ZERO,
+            64,
+            Some("definitely-not-a-hwaccel"),
+        )
+        .unwrap();
+        let mut n = 0;
+        while r.next_frame().unwrap().is_some() {
+            n += 1;
+        }
+        assert!(
+            (48..=51).contains(&n),
+            "software fallback must deliver the clip: {n}"
+        );
+        assert!(HWACCEL_BROKEN.load(Ordering::Relaxed));
+        HWACCEL_BROKEN.store(false, Ordering::Relaxed);
     }
 
     #[test]
