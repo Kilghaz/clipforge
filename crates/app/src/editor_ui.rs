@@ -18,7 +18,7 @@ use clipforge_core::{
 use clipforge_export::{EncodePlan, ExportOptions, Exporter, FileSources, Quality, TimelineFrames};
 use clipforge_jobs::{CancellationToken, JobError, Priority, Scheduler};
 use clipforge_library::{Library, ThumbLevel};
-use clipforge_media::{Backends, FfmpegLocation};
+use clipforge_media::{Backends, FfmpegCli, FfmpegLocation, MediaInfo, Prober};
 use clipforge_platform::AppDirs;
 use clipforge_render::{Compositor, Frame, RenderQuality, SourceImage, SourceProvider};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
@@ -26,6 +26,7 @@ use tracing::{info, warn};
 
 use crate::editor_view::{self, Selection, clips_for, layout, media_ref_for};
 use crate::format;
+use crate::player::Player;
 use crate::ui::{EditorState, MainWindow, TimelineClip};
 
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
@@ -36,11 +37,15 @@ pub(crate) struct EditorController {
     _timer: Timer,
 }
 
-/// Preview pixels come from the library's 1280 px thumbnails.
-#[derive(Default)]
+/// Preview pixels: stills from the library's 1280 px thumbnails, video
+/// frames from the player's background fetchers.
 struct PreviewSources {
     images: RefCell<HashMap<MediaId, SourceImage>>,
     missing: RefCell<HashSet<MediaId>>,
+    player: Rc<Player>,
+    /// Path and probe info per video, for opening fetchers.
+    videos: RefCell<HashMap<MediaId, (PathBuf, MediaInfo)>>,
+    backends: Backends,
 }
 
 impl SourceProvider for PreviewSources {
@@ -50,6 +55,33 @@ impl SourceProvider for PreviewSources {
             self.missing.borrow_mut().insert(media);
         }
         hit
+    }
+
+    fn video_frame(
+        &self,
+        media: MediaId,
+        source_time: Ticks,
+        _max_edge: u32,
+    ) -> Option<SourceImage> {
+        self.player.video_frame(media, source_time, || {
+            let videos = self.videos.borrow();
+            let (path, info) = videos.get(&media)?;
+            Some((path.clone(), info.clone()))
+        })
+    }
+}
+
+impl PreviewSources {
+    /// Makes sure the player can open `media` (probes once).
+    fn register_video(&self, media: MediaId, path: &std::path::Path) {
+        if self.videos.borrow().contains_key(&media) {
+            return;
+        }
+        if let Ok(info) = self.backends.probe(path) {
+            self.videos
+                .borrow_mut()
+                .insert(media, (path.to_path_buf(), info));
+        }
     }
 }
 
@@ -84,6 +116,7 @@ struct Inner {
     preview_dirty: bool,
     last_preview: Instant,
     dirty_since: Option<Instant>,
+    last_prune: Instant,
     drag: Option<(usize, bool)>,
     export: Option<ExportRun>,
 }
@@ -113,7 +146,7 @@ impl EditorController {
             window: window.as_weak(),
             library,
             scheduler,
-            backends,
+            backends: backends.clone(),
             dirs,
             project,
             history: History::new(),
@@ -124,12 +157,22 @@ impl EditorController {
             last_tick: Instant::now(),
             pps: editor_view::DEFAULT_PIXELS_PER_SECOND,
             compositor: Compositor::new(),
-            preview: PreviewSources::default(),
+            preview: PreviewSources {
+                images: RefCell::new(HashMap::new()),
+                missing: RefCell::new(HashSet::new()),
+                player: Rc::new(Player::new(
+                    FfmpegCli::discover(),
+                    clipforge_render::PREVIEW_LONG_EDGE,
+                )),
+                videos: RefCell::new(HashMap::new()),
+                backends: backends.clone(),
+            },
             clips_model,
             strip_thumbs: HashMap::new(),
             preview_dirty: true,
             last_preview: Instant::now() - PREVIEW_MIN_INTERVAL,
             dirty_since: None,
+            last_prune: Instant::now(),
             drag: None,
             export: None,
         }));
@@ -164,6 +207,16 @@ impl EditorController {
             .set_transition(idx, secs));
         on!(on_rotate_selected, |i| i.rotate_selected());
         on!(on_aspect_changed, |i, idx| i.set_aspect(idx));
+        on!(on_muted_changed, |i, muted| i.set_muted(muted));
+        on!(on_volume_changed, |i, percent| i.set_volume(percent));
+        on!(on_trim_dragged, |i, idx, left, x| i
+            .trim_dragged(idx, left, x));
+        on!(on_trim_released, |i, idx, left, x| i
+            .trim_released(idx, left, x));
+        on!(on_step_frames, |i, n| i.step_frames(n));
+        on!(on_step_seconds, |i, secs| i.step_seconds(secs));
+        on!(on_pause, |i| i.set_playing(false));
+        on!(on_play, |i| i.set_playing(true));
         on!(on_new_project, |i| i.new_project());
         on!(on_open_project, |i| i.open_project());
         on!(on_save_project, |i| {
@@ -470,6 +523,161 @@ impl Inner {
         self.preview_dirty = true;
     }
 
+    fn set_muted(&mut self, muted: bool) {
+        let indices: Vec<usize> = self
+            .targets()
+            .into_iter()
+            .filter(|&i| !self.project.clips[i].is_photo())
+            .collect();
+        if indices.is_empty() {
+            return;
+        }
+        self.apply(Command::SetMuted { indices, muted });
+    }
+
+    fn set_volume(&mut self, percent: f32) {
+        let indices: Vec<usize> = self
+            .targets()
+            .into_iter()
+            .filter(|&i| !self.project.clips[i].is_photo())
+            .collect();
+        if indices.is_empty() {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let percent = percent.round().clamp(0.0, 300.0) as u16;
+        self.apply(Command::SetVolume { indices, percent });
+    }
+
+    /// New trim range for dragging one edge of clip `index` to strip `x`.
+    fn trim_for(&self, index: usize, left: bool, x: f32) -> Option<(Ticks, Ticks)> {
+        let clip = self.project.clips.get(index)?;
+        let clipforge_core::ClipSource::Video {
+            in_point,
+            out_point,
+        } = clip.source
+        else {
+            return None;
+        };
+        let natural = self
+            .project
+            .media
+            .get(&clip.media)
+            .and_then(|m| m.duration)?;
+        let boxes = layout(&self.project.clips, self.pps);
+        let b = boxes.get(index)?;
+        let edge = if left { b.x } else { b.x + b.width };
+        let delta = Ticks::from_seconds_f64(f64::from((x - edge) / self.pps));
+        let min_len = Ticks::from_millis(200);
+        Some(if left {
+            (
+                (in_point + delta).clamp(Ticks::ZERO, out_point - min_len),
+                out_point,
+            )
+        } else {
+            (
+                in_point,
+                (out_point + delta).clamp(in_point + min_len, natural),
+            )
+        })
+    }
+
+    fn trim_dragged(&mut self, idx: i32, left: bool, x: f32) {
+        let Ok(index) = usize::try_from(idx) else {
+            return;
+        };
+        let Some((new_in, new_out)) = self.trim_for(index, left, x) else {
+            return;
+        };
+        let boxes = layout(&self.project.clips, self.pps);
+        let Some(b) = boxes.get(index) else { return };
+        let clipforge_core::ClipSource::Video {
+            in_point,
+            out_point,
+        } = self.project.clips[index].source
+        else {
+            return;
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let marker = if left {
+            b.x + ((new_in - in_point).as_seconds_f64() as f32) * self.pps
+        } else {
+            b.x + b.width + ((new_out - out_point).as_seconds_f64() as f32) * self.pps
+        };
+        if let Some(w) = self.state() {
+            let s = w.global::<EditorState>();
+            s.set_trim_marker(idx);
+            s.set_trim_marker_x(marker);
+        }
+        // Scrub to the edge so the preview shows the new in/out frame.
+        let places = clipforge_core::timeline::placements(&self.project.clips);
+        if let Some(p) = places.get(index) {
+            self.playhead = if left {
+                p.start
+            } else {
+                p.end - Ticks::from_flicks(1)
+            };
+            self.preview_dirty = true;
+        }
+    }
+
+    fn trim_released(&mut self, idx: i32, left: bool, x: f32) {
+        if let Some(w) = self.state() {
+            w.global::<EditorState>().set_trim_marker(-1);
+        }
+        let Ok(index) = usize::try_from(idx) else {
+            return;
+        };
+        let Some((in_point, out_point)) = self.trim_for(index, left, x) else {
+            return;
+        };
+        self.apply(Command::SetTrim {
+            index,
+            in_point,
+            out_point,
+        });
+        self.preview_dirty = true;
+    }
+
+    fn step_frames(&mut self, n: i32) {
+        self.set_playing(false);
+        let fd = self.project.settings.frame_rate.frame_duration();
+        let total = total_duration(&self.project.clips);
+        self.playhead = (self.playhead + fd * i64::from(n)).clamp(Ticks::ZERO, total);
+        self.preview_dirty = true;
+        self.sync_transport();
+    }
+
+    fn step_seconds(&mut self, secs: f32) {
+        self.set_playing(false);
+        let total = total_duration(&self.project.clips);
+        self.playhead =
+            (self.playhead + Ticks::from_seconds_f64(f64::from(secs))).clamp(Ticks::ZERO, total);
+        self.preview_dirty = true;
+        self.sync_transport();
+    }
+
+    fn set_playing(&mut self, playing: bool) {
+        if playing == self.playing {
+            return;
+        }
+        if playing {
+            if self.project.clips.is_empty() {
+                return;
+            }
+            if self.playhead >= total_duration(&self.project.clips) {
+                self.playhead = Ticks::ZERO;
+            }
+            self.playing = true;
+            self.last_tick = Instant::now();
+            self.preview.player.play_audio(&self.project, self.playhead);
+        } else {
+            self.playing = false;
+            self.preview.player.stop_audio();
+        }
+        self.sync_transport();
+    }
+
     // ----- selection & drag -----------------------------------------------
 
     fn clip_pressed(&mut self, idx: i32, shift: bool, toggle: bool) {
@@ -555,21 +763,14 @@ impl Inner {
     fn scrub(&mut self, x: f32) {
         let boxes = layout(&self.project.clips, self.pps);
         self.playhead = editor_view::time_at_x(&self.project.clips, &boxes, x);
-        self.playing = false;
+        self.set_playing(false);
         self.preview_dirty = true;
         self.sync_transport();
     }
 
     fn toggle_play(&mut self) {
-        if self.project.clips.is_empty() {
-            return;
-        }
-        if !self.playing && self.playhead >= total_duration(&self.project.clips) {
-            self.playhead = Ticks::ZERO;
-        }
-        self.playing = !self.playing;
-        self.last_tick = Instant::now();
-        self.sync_transport();
+        let next = !self.playing;
+        self.set_playing(next);
     }
 
     fn tick(&mut self) {
@@ -581,10 +782,17 @@ impl Inner {
             let total = total_duration(&self.project.clips);
             if self.playhead >= total {
                 self.playhead = total;
-                self.playing = false;
+                self.set_playing(false);
             }
             self.preview_dirty = true;
             self.sync_transport();
+        }
+        if self.preview.player.take_changed() {
+            self.preview_dirty = true;
+        }
+        if now.duration_since(self.last_prune) > Duration::from_secs(2) {
+            self.last_prune = now;
+            self.preview.player.prune();
         }
         if self.preview_dirty && now - self.last_preview >= PREVIEW_MIN_INTERVAL {
             self.render_preview();
@@ -644,6 +852,11 @@ impl Inner {
     // ----- sync to Slint ----------------------------------------------------
 
     fn sync_all(&mut self) {
+        for m in self.project.media.values() {
+            if m.kind == clipforge_core::RefKind::Video {
+                self.preview.register_video(m.id, &m.path);
+            }
+        }
         self.sync_timeline();
         self.sync_transport();
         self.sync_inspector();
@@ -686,6 +899,8 @@ impl Inner {
                     TransitionKind::CrossDissolve => 1,
                     TransitionKind::FadeThroughBlack => 2,
                 },
+                is_video: !clip.is_photo(),
+                muted: clip.muted,
             });
         }
         // Reuse the model in place to avoid flicker.
@@ -769,6 +984,18 @@ impl Inner {
         } else {
             0
         });
+        let targets = self.targets();
+        let videos: Vec<&clipforge_core::Clip> = targets
+            .iter()
+            .map(|&i| &self.project.clips[i])
+            .filter(|c| !c.is_photo())
+            .collect();
+        s.set_has_video_target(!videos.is_empty());
+        s.set_only_video_target(!videos.is_empty() && videos.len() == targets.len());
+        if let Some(v) = videos.first() {
+            s.set_muted(v.muted);
+            s.set_volume_percent(f32::from(v.volume_percent));
+        }
     }
 
     fn sync_project(&self) {

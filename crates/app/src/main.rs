@@ -15,6 +15,7 @@ mod format;
 mod language;
 mod library_ui;
 mod library_view;
+mod player;
 mod settings;
 
 use anyhow::{Context, Result};

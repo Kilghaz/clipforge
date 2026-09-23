@@ -195,22 +195,31 @@ impl Selection {
     }
 }
 
-/// Builds a project media reference from a library record. Only probed
-/// photos can be placed on the timeline in this milestone.
+/// Builds a project media reference from a library record. Photos and
+/// videos with a known duration can be placed on the timeline.
 #[must_use]
 pub(crate) fn media_ref_for(record: &MediaRecord) -> Option<MediaRef> {
-    if record.probe != ProbeState::Done || record.kind != MediaKind::Photo {
+    if record.probe != ProbeState::Done {
         return None;
     }
     let info = record.info.as_ref()?;
+    let kind = match record.kind {
+        MediaKind::Photo => RefKind::Photo,
+        MediaKind::Video if info.duration.is_some_and(|d| d > Ticks::ZERO) => RefKind::Video,
+        _ => return None,
+    };
     Some(MediaRef {
         id: record.id,
-        kind: RefKind::Photo,
+        kind,
         path: record.path.clone(),
         fingerprint_hash: record.fingerprint.hash,
         size: record.fingerprint.size,
         pixel_size: info.display_size(),
-        duration: None,
+        duration: if kind == RefKind::Video {
+            info.duration
+        } else {
+            None
+        },
         captured_at_ms: info.captured_at_ms,
         name: record.file_name(),
     })
@@ -221,7 +230,10 @@ pub(crate) fn media_ref_for(record: &MediaRecord) -> Option<MediaRef> {
 pub(crate) fn clips_for(project: &Project, refs: &[MediaRef]) -> Vec<Clip> {
     refs.iter()
         .map(|r| {
-            let mut c = Clip::photo(r.id, project.settings.default_photo_duration);
+            let mut c = match (r.kind, r.duration) {
+                (RefKind::Video, Some(d)) => Clip::video(r.id, d),
+                _ => Clip::photo(r.id, project.settings.default_photo_duration),
+            };
             c.fit = project.settings.default_fit;
             c.transition_in = project.settings.default_transition;
             c
@@ -350,8 +362,16 @@ mod tests {
             captured_at_ms: None,
             name: "a".into(),
         };
-        let c = clips_for(&p, &[r]);
+        let c = clips_for(&p, std::slice::from_ref(&r));
         assert_eq!(c[0].duration(), Ticks::from_seconds(7));
         assert_eq!(c[0].fit, clipforge_core::Fit::Cover);
+        let v = MediaRef {
+            kind: RefKind::Video,
+            duration: Some(Ticks::from_seconds(12)),
+            ..r
+        };
+        let c = clips_for(&p, &[v]);
+        assert!(!c[0].is_photo());
+        assert_eq!(c[0].duration(), Ticks::from_seconds(12));
     }
 }

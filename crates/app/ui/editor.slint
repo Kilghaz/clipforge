@@ -24,6 +24,8 @@ export struct TimelineClip {
     duration-text: string,
     // 0 cut, 1 dissolve, 2 fade through black
     transition: int,
+    is-video: bool,
+    muted: bool,
 }
 
 /// All editor state, owned and driven by Rust.
@@ -46,6 +48,14 @@ export global EditorState {
     in-out property <int> fit-index;
     in-out property <int> transition-index;
     in-out property <float> transition-seconds: 1;
+    /// Selection contains videos (shows audio controls) / only videos.
+    in-out property <bool> has-video-target;
+    in-out property <bool> only-video-target;
+    in-out property <bool> muted;
+    in-out property <float> volume-percent: 100;
+    /// Trim drag feedback: index being trimmed (or -1) and the marker x.
+    in-out property <int> trim-marker: -1;
+    in-out property <float> trim-marker-x;
 
     // Project
     in-out property <string> project-title;
@@ -80,6 +90,16 @@ export global EditorState {
     callback transition-changed(int, float);
     callback rotate-selected();
     callback aspect-changed(int);
+    callback muted-changed(bool);
+    callback volume-changed(float);
+    /// Trim handle drag: clip index, left edge?, pointer x in strip px.
+    callback trim-dragged(int, bool, float);
+    callback trim-released(int, bool, float);
+    /// Step the playhead by whole frames (negative = back) or seconds.
+    callback step-frames(int);
+    callback step-seconds(float);
+    callback pause();
+    callback play();
     callback new-project();
     callback open-project();
     callback save-project();
@@ -135,6 +155,42 @@ component ClipView inherits Rectangle {
         height: parent.height;
         background: root.item.transition == 1 ? #f39c1266 : #ffffff33;
     }
+    if root.item.is-video : Rectangle {
+        x: parent.width - 22px;
+        y: 6px;
+        width: 18px;
+        height: 16px;
+        border-radius: 4px;
+        background: #00000099;
+        Text { text: root.item.muted ? "🔇" : "▶"; color: white; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+    }
+    // Trim handles (videos only): drag the edges to change in/out points.
+    if root.item.is-video : TouchArea {
+        x: 0;
+        width: 10px;
+        mouse-cursor: MouseCursor.col-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.move && self.pressed {
+                EditorState.trim-dragged(root.item.index, true, root.item.x + self.mouse-x / 1px);
+            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                EditorState.trim-released(root.item.index, true, root.item.x + self.mouse-x / 1px);
+            }
+        }
+        Rectangle { width: 4px; height: parent.height; x: 0; background: #ffffff55; }
+    }
+    if root.item.is-video : TouchArea {
+        x: parent.width - 10px;
+        width: 10px;
+        mouse-cursor: MouseCursor.col-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.move && self.pressed {
+                EditorState.trim-dragged(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
+            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                EditorState.trim-released(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
+            }
+        }
+        Rectangle { width: 4px; height: parent.height; x: 6px; background: #ffffff55; }
+    }
 }
 
 component Inspector inherits Rectangle {
@@ -153,8 +209,8 @@ component Inspector inherits Rectangle {
                 font-size: 12px;
                 wrap: word-wrap;
             }
-            Text { text: @tr("Photo duration (seconds)"); color: #d0d0d0; font-size: 12px; }
-            HorizontalLayout {
+            if !EditorState.only-video-target : Text { text: @tr("Photo duration (seconds)"); color: #d0d0d0; font-size: 12px; }
+            if !EditorState.only-video-target : HorizontalLayout {
                 spacing: 8px;
                 Slider {
                     minimum: 0.5;
@@ -165,9 +221,33 @@ component Inspector inherits Rectangle {
                 }
                 Text { text: round(EditorState.duration-seconds * 10) / 10 + " s"; color: #d0d0d0; width: 44px; vertical-alignment: center; }
             }
-            HorizontalLayout {
+            if !EditorState.only-video-target : HorizontalLayout {
                 spacing: 6px;
                 for s in [2, 3, 4, 5, 8] : Button { text: s + " s"; clicked => { EditorState.duration-seconds = s; EditorState.duration-changed(s); } }
+            }
+            if EditorState.has-video-target : Text { text: @tr("Audio"); color: #d0d0d0; font-size: 12px; }
+            if EditorState.has-video-target : CheckBox {
+                text: @tr("Mute");
+                checked <=> EditorState.muted;
+                toggled => { EditorState.muted-changed(self.checked); }
+            }
+            if EditorState.has-video-target : HorizontalLayout {
+                spacing: 8px;
+                Slider {
+                    enabled: !EditorState.muted;
+                    minimum: 0;
+                    maximum: 200;
+                    step: 5;
+                    value <=> EditorState.volume-percent;
+                    released(v) => { EditorState.volume-changed(v); }
+                }
+                Text { text: round(EditorState.volume-percent) + " %"; color: #d0d0d0; width: 48px; vertical-alignment: center; }
+            }
+            if EditorState.has-video-target : Text {
+                text: @tr("Drag the edges of a video clip to trim it.");
+                color: #8d8d8d;
+                font-size: 11px;
+                wrap: word-wrap;
             }
             Text { text: @tr("Fit"); color: #d0d0d0; font-size: 12px; }
             ComboBox {
@@ -267,6 +347,12 @@ export component EditorPage inherits Rectangle {
             if (event.modifiers.meta || event.modifiers.control) && event.text == "a" { EditorState.select-all(); return accept; }
             if event.text == Key.Delete || event.text == Key.Backspace { EditorState.delete-selected(); return accept; }
             if event.text == Key.Space { EditorState.toggle-play(); return accept; }
+            if event.text == "k" { EditorState.pause(); return accept; }
+            if event.text == "l" { EditorState.play(); return accept; }
+            if event.text == "j" { EditorState.step-seconds(-1); return accept; }
+            if event.text == Key.LeftArrow { EditorState.step-frames(event.modifiers.shift ? -10 : -1); return accept; }
+            if event.text == Key.RightArrow { EditorState.step-frames(event.modifiers.shift ? 10 : 1); return accept; }
+            if event.text == Key.Home { EditorState.scrub(0); return accept; }
             return reject;
         }
 
@@ -359,6 +445,13 @@ export component EditorPage inherits Rectangle {
                             y: 18px;
                             width: clip.width * 1px;
                             height: 100px;
+                        }
+                        if EditorState.trim-marker >= 0 : Rectangle {
+                            x: EditorState.trim-marker-x * 1px - 1px;
+                            y: 12px;
+                            width: 3px;
+                            height: 112px;
+                            background: #ffffff;
                         }
                         if EditorState.drop-marker >= 0 : Rectangle {
                             x: EditorState.drop-marker-x * 1px - 1px;

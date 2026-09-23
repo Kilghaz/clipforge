@@ -173,11 +173,11 @@ msgstr "Loslassen, um zur Mediathek hinzuzufügen"
 msgid "Untitled slideshow"
 msgstr "Unbenannte Diashow"
 
-msgid "Added {} photos to the timeline"
-msgstr "{} Fotos zur Timeline hinzugefügt"
+msgid "Added {} items to the timeline"
+msgstr "{} Elemente zur Timeline hinzugefügt"
 
-msgid "{} items skipped (only photos with metadata can be added yet)"
-msgstr "{} Elemente übersprungen (bisher können nur Fotos mit Metadaten hinzugefügt werden)"
+msgid "{} items skipped (audio files and items without metadata cannot be added yet)"
+msgstr "{} Elemente übersprungen (Audiodateien und Elemente ohne Metadaten können noch nicht hinzugefügt werden)"
 
 msgid "ffmpeg was not found. Install it or place it next to the app."
 msgstr "ffmpeg wurde nicht gefunden. Installiere es oder lege es neben die App."
@@ -337,3 +337,9 @@ msgstr "1 Foto"
 
 msgid "{} photos"
 msgstr "{} Fotos"
+
+msgid "Mute"
+msgstr "Stumm"
+
+msgid "Drag the edges of a video clip to trim it."
+msgstr "Ziehe die Ränder eines Videoclips, um ihn zu trimmen."

@@ -39,6 +39,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 fast_image_resize = { version = "6", features = ["image"] }
 kamadak-exif = "0.6"
 rfd = { version = "0.17", default-features = false }
+cpal = "0.18"
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg"] }
 slint-build = "1.18"
 i-slint-backend-winit = { version = "1.18", default-features = false, features = ["renderer-femtovg", "accessibility"] }
