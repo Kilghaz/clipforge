@@ -12,7 +12,8 @@ media catalogue plus thumbnail/proxy cache. `render` is the wgpu compositor
 (pure function of project and time). `export` plans encodes and drives an
 ffmpeg sidecar process. `jobs` is the vocabulary for cancellable background
 work. `platform` wraps OS specifics. `i18n` knows the shipped languages.
-`app` is the only crate that touches Slint. Dependency direction (enforced by
+`app` is the only crate that touches Slint. Anything the user sees follows
+`docs/ux/DESIGN.md` (see rule 13). Dependency direction (enforced by
 `cargo xtask check-deps`, which also runs as a unit test):
 
 ```
@@ -70,6 +71,17 @@ Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest carg
 12. **Architecture decisions get an ADR** in `docs/adr/` (copy
     `0000-template.md`). Changing a decision means a new ADR that supersedes
     the old one, not an edit.
+13. **UI follows `docs/ux/DESIGN.md`** (ADR-0009), not taste. Before
+    designing a feature, look up its topic there and read the linked source
+    pages: Fluent 2 / macOS HIG for platform behaviour, Adobe Spectrum for
+    editor components and visuals, Primer for workflow patterns and wording,
+    NN/G for usability. Write down the behaviour decisions before coding.
+    Prefer a Slint `std-widgets` component, then a component modelled on the
+    Spectrum / Fluent definition, then a new design. Colours come from
+    `Palette` and `ui/theme.slint`, spacing from the 4/8/12/16/24/32/40 scale,
+    icons from the Fluent icon subset; the app is dark only. After
+    implementing, run the "After implementing" checklist in `DESIGN.md`
+    (NN/G heuristics plus the visual pass) and fix what fails.
 
 ## Definition of done
 
@@ -77,6 +89,9 @@ Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest carg
 - `cargo fmt`, `cargo clippy -D warnings`, `cargo deny check` clean.
 - New strings translated; new commands/jobs documented in
   `docs/ARCHITECTURE.md` if they add a concept.
+- UI changes: `docs/ux/DESIGN.md` checklist run and passed; new custom
+  components listed in its "ClipForge components" table; shortcuts added to
+  `docs/ux/keyboard.md`.
 - No performance regression against the budgets in `docs/PLAN.md` §3.4.
 - Commit messages: conventional (`feat(core): …`, `fix(library): …`,
   `test(render): …`, `docs: …`, `chore: …`).
@@ -90,6 +105,13 @@ suite, expose it in the `app` view model, wire a Slint callback.
 **Add a transition (render):** add a WGSL shader in `render/shaders/`, a
 `TransitionKind` variant, a golden test at progress 0 / 0.5 / 1, a name in
 the `.slint` transition palette with `@tr()`, and a German translation.
+
+**Add a UI feature (app):** find the topic in `docs/ux/DESIGN.md` §1 and
+read the linked pages; note the behaviour decisions (selection, undo,
+feedback, keyboard, empty and error states); write the view-model tests;
+build with `std-widgets` or a component from §4; wire `@tr()` strings and
+the German `.po`; run the §5 checklist; update `keyboard.md` and
+`manual-checks.md`.
 
 **Add an export option:** extend `ExportOptions`, map it in
 `EncodePlan::build`, extend the planner tests, then the dialog.
@@ -107,4 +129,5 @@ crates/jobs      priorities, cancellation          crates/i18n      languages
 crates/app       Slint UI (ui/*.slint, lang/*.po)  xtask/           dev tasks
 docs/PLAN.md     the plan                          docs/adr/        decisions
 docs/ARCHITECTURE.md  living overview              fixtures/        generated test media
+docs/ux/DESIGN.md     design + usability guide    docs/ux/         keyboard map, manual checks
 ```
