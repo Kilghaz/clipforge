@@ -27,6 +27,8 @@ use crate::record::{CloudState, ThumbLevel, ThumbRecord};
 const IMPORT_BATCH: usize = 200;
 /// Items probed per background job.
 const PROBE_BATCH: usize = 25;
+/// Thumbnail cache size the app trims to at startup (2 GB).
+pub const DEFAULT_CACHE_CAP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// What the UI hears about.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +96,26 @@ impl Library {
     ) -> LibResult<Library> {
         let catalogue = Catalogue::open(&dirs.data.join("library.sqlite"))?;
         let cache = ThumbCache::new(dirs.cache.join("thumbs"));
-        Ok(Self::with_parts(catalogue, cache, backends, scheduler))
+        let lib = Self::with_parts(catalogue, cache, backends, scheduler);
+        lib.schedule_cache_trim(DEFAULT_CACHE_CAP_BYTES);
+        Ok(lib)
+    }
+
+    /// Trims the thumbnail cache to `max_bytes` in an idle job.
+    pub fn schedule_cache_trim(&self, max_bytes: u64) {
+        let shared = Arc::clone(&self.shared);
+        self.scheduler
+            .submit(Priority::Idle, "cache-trim", move |ctx| {
+                ctx.check()?;
+                match shared.cache.evict_to(max_bytes) {
+                    Ok(removed) if removed > 0 => {
+                        tracing::info!(removed, "trimmed thumbnail cache")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "cache trim failed"),
+                }
+                Ok(())
+            });
     }
 
     /// Assembles a library from parts (tests, previews).
@@ -167,6 +188,15 @@ impl Library {
             return Some(path);
         }
         let key = (id, level);
+        // Audio, placeholders, failed probes and thumbnails that already
+        // failed this session get no job and no event.
+        if record.kind == clipforge_media::MediaKind::Audio
+            || record.cloud_state == CloudState::Placeholder
+            || matches!(record.probe, crate::record::ProbeState::Failed(_))
+            || lock(&self.shared.failed_thumbs).contains(&key)
+        {
+            return None;
+        }
         {
             let mut jobs = lock(&self.shared.thumb_jobs);
             if let Some(job_id) = jobs.get(&key) {
@@ -324,6 +354,7 @@ fn make_thumb(
         Err(e) => return Err(JobError::Failed(e.to_string())),
     };
     let fail = |message: String| {
+        lock(&shared.failed_thumbs).insert((id, level));
         let _ = shared.events.send(LibraryEvent::ThumbFailed {
             id,
             level,
@@ -579,11 +610,10 @@ mod tests {
             lib.request_thumb(id, ThumbLevel::Small, Priority::Interactive)
                 .is_none()
         );
-        run_all(&lib);
-        assert!(
-            drain(&lib)
-                .iter()
-                .any(|e| matches!(e, LibraryEvent::ThumbFailed { id: i, .. } if *i == id))
+        assert_eq!(
+            lib.scheduler().queued(),
+            0,
+            "placeholders never get a thumbnail job"
         );
     }
 
@@ -598,6 +628,127 @@ mod tests {
         assert_eq!(lib.remove(&[rec.id]).unwrap(), 1);
         assert!(lib.catalogue().is_empty().unwrap());
         assert!(!lib.cache().exists(rec.fingerprint, ThumbLevel::Small));
+    }
+
+    #[test]
+    fn failed_thumbs_are_not_retried_and_audio_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library(dir.path());
+        lib.import(vec![
+            fixtures().join("broken_truncated.jpg"),
+            fixtures().join("audio_mono.wav"),
+        ]);
+        run_all(&lib);
+        drain(&lib);
+        let recs = lib.catalogue().query(&Query::all()).unwrap();
+        assert_eq!(recs.len(), 2);
+        for r in &recs {
+            assert!(
+                lib.request_thumb(r.id, ThumbLevel::Small, Priority::Interactive)
+                    .is_none()
+            );
+        }
+        assert_eq!(lib.scheduler().queued(), 0);
+    }
+
+    #[test]
+    fn a_thumb_that_fails_is_memoised_until_reprobe() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library(dir.path());
+        lib.import(vec![fixtures().join("photo_landscape.jpg")]);
+        run_all(&lib);
+        drain(&lib);
+        let id = lib.catalogue().query(&Query::all()).unwrap()[0].id;
+        lock(&lib.shared.failed_thumbs).insert((id, ThumbLevel::Preview));
+        assert!(
+            lib.request_thumb(id, ThumbLevel::Preview, Priority::Interactive)
+                .is_none()
+        );
+        assert_eq!(lib.scheduler().queued(), 0);
+        let shared = Arc::clone(&lib.shared);
+        lib.scheduler()
+            .submit(Priority::Background, "probe", move |ctx| {
+                run_probe(&shared, ctx, &[id])
+            });
+        run_all(&lib);
+        assert!(
+            lib.request_thumb(id, ThumbLevel::Preview, Priority::Interactive)
+                .is_none()
+        );
+        assert_eq!(lib.scheduler().queued(), 1, "retried after re-probe");
+    }
+
+    /// Budget check from docs/PLAN.md §3.4. Run with:
+    /// `cargo test -p clipforge-library --release -- --ignored perf_import --nocapture`
+    #[test]
+    #[ignore = "performance measurement, run manually"]
+    fn perf_import_5000_jpegs() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = std::fs::read(fixtures().join("photo_landscape.jpg")).unwrap();
+        let photos = dir.path().join("photos");
+        std::fs::create_dir_all(&photos).unwrap();
+        for i in 0..5000u32 {
+            // Trailing bytes after the JPEG end marker are ignored by
+            // decoders but make every file's fingerprint unique.
+            let mut bytes = src.clone();
+            bytes.extend_from_slice(&i.to_le_bytes());
+            std::fs::write(photos.join(format!("IMG_{i:05}.jpg")), bytes).unwrap();
+        }
+        let scheduler = Arc::new(Scheduler::new(
+            std::thread::available_parallelism().map_or(4, |n| n.get()),
+        ));
+        let lib = Library::with_parts(
+            Catalogue::open(&dir.path().join("cat.sqlite")).unwrap(),
+            ThumbCache::new(dir.path().join("thumbs")),
+            Backends::new(None),
+            scheduler,
+        );
+        let t0 = std::time::Instant::now();
+        lib.import(vec![photos]);
+        let mut registered_at = None;
+        let mut probed = 0;
+        let deadline = t0 + std::time::Duration::from_secs(300);
+        while std::time::Instant::now() < deadline {
+            match lib
+                .events()
+                .recv_timeout(std::time::Duration::from_millis(500))
+            {
+                Ok(LibraryEvent::ImportFinished { added, .. }) => {
+                    assert_eq!(added, 5000);
+                    registered_at = Some(t0.elapsed());
+                }
+                Ok(LibraryEvent::ItemUpdated(_)) => {
+                    probed += 1;
+                    if probed == 5000 {
+                        break;
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    if lib.scheduler().queued() == 0 && registered_at.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+        let total = t0.elapsed();
+        let q = std::time::Instant::now();
+        let ids = lib.catalogue().query_ids(&Query::all()).unwrap();
+        let query_time = q.elapsed();
+        eprintln!(
+            "registered 5000 files in {:?}; probed {probed} with small thumbs in {total:?}; query_ids {} rows in {query_time:?}",
+            registered_at.unwrap(),
+            ids.len()
+        );
+        assert!(
+            registered_at.unwrap() < std::time::Duration::from_secs(5),
+            "rows must appear within 5 s"
+        );
+        assert!(
+            total < std::time::Duration::from_secs(120),
+            "5000 JPEG probes + thumbs under 2 min"
+        );
+        assert!(query_time < std::time::Duration::from_millis(100));
     }
 
     #[test]

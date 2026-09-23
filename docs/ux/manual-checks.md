@@ -18,3 +18,18 @@ Things CI cannot verify. Run before tagging a milestone.
       `codesign --verify --deep --strict ClipForge.app` reports "valid on disk".
 - [ ] The NSIS installer from CI artefacts installs and starts on Windows
       after the SmartScreen "Run anyway".
+
+## Milestone 1
+
+- [ ] Add folder… with a few hundred photos: rows appear immediately, the
+      thumbnails fill in within seconds, scrolling stays smooth.
+- [ ] Search, type filter and sort react instantly; the item count is right.
+- [ ] Clicking a cell shows details and a larger preview in the inspector;
+      HDR videos show the HDR badge.
+- [ ] An iCloud Drive file that is not downloaded shows the cloud badge and
+      "Not downloaded"; no download is triggered by scrolling or selecting.
+- [ ] Remove from library removes the item, the file stays on disk.
+- [ ] Show in folder opens Finder/Explorer with the file selected.
+- [ ] Restarting the app keeps the library and shows cached thumbnails at once.
+- [ ] `CLIPFORGE_IMPORT=/path/to/folder cargo run -p clipforge-app` imports at
+      startup (developer shortcut).

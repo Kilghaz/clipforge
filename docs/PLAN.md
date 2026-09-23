@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: v1 (2026-09-22). Milestone 0 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
+Status: v1 (2026-09-22). Milestones 0 and 1 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -469,3 +469,16 @@ Kept short; the ADRs hold the reasoning.
   covered via the `image` crate with an in-test generated file.
 - **M0, packaging:** cargo-packager formats are passed on the command line
   per OS because the config schema does not allow per-platform `formats`.
+- **M1, probing:** video/audio metadata and video frames come from the
+  `ffprobe`/`ffmpeg` executables (process-isolated, timeout-guarded) rather
+  than in-process libav. In-process decoding is still planned for playback
+  in M3 (ADR-0003); for the library the sidecar is simpler and safer.
+- **M1, OS thumbnails:** not implemented yet. The own pipeline turned out fast
+  enough (5 000 JPEGs in 1.8 s) that the Quick Look / Shell fast path is
+  deferred until placeholders or RAW files make it necessary.
+- **M1, drag-and-drop:** Slint 1.18's winit backend does not forward OS file
+  drops. Files are added through the buttons/menu and native pickers; native
+  drop targets (NSDraggingDestination / IDropTarget in `platform`) are the
+  next item.
+- **M1, thumbnail levels:** 256 / 640 / 1280 instead of 128 / 512 / 1280 to
+  match Retina grid cells and the inspector.
