@@ -340,14 +340,13 @@ impl Player {
     ) -> Option<SourceImage> {
         let cli = self.cli.as_ref()?;
         let mut fetchers = self.fetchers.lock().ok()?;
-        if !fetchers.contains_key(&media) {
-            let (path, info) = open()?;
-            fetchers.insert(
-                media,
-                FrameFetcher::start(cli.clone(), path, info, self.max_edge),
-            );
-        }
-        let f = fetchers.get_mut(&media)?;
+        let f = match fetchers.entry(media) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let (path, info) = open()?;
+                e.insert(FrameFetcher::start(cli.clone(), path, info, self.max_edge))
+            }
+        };
         let latest = f.latest();
         if latest.as_ref().is_none_or(|(have, _)| *have != t) {
             f.request(t);
@@ -360,9 +359,12 @@ impl Player {
         let Ok(fetchers) = self.fetchers.lock() else {
             return false;
         };
-        fetchers.values().fold(false, |acc, f| {
-            f.shared.changed.swap(false, Ordering::SeqCst) || acc
-        })
+        // Every flag must be cleared, so no short-circuiting `any`.
+        let mut changed = false;
+        for f in fetchers.values() {
+            changed |= f.shared.changed.swap(false, Ordering::SeqCst);
+        }
+        changed
     }
 
     /// Drops fetchers nobody asked for recently.
