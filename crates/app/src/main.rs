@@ -110,6 +110,8 @@ fn main() -> Result<()> {
     library_controller.connect_editor(
         editor_controller.add_media_handle(),
         editor_controller.preview_thumb_handle(),
+        editor_controller.drop_hover_handle(),
+        editor_controller.drop_insert_handle(),
     );
     if let Ok(paths) = std::env::var("CLIPFORGE_IMPORT") {
         library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());

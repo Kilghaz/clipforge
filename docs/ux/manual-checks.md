@@ -44,6 +44,15 @@ Things CI cannot verify. Run before tagging a milestone.
       thumbnails, the preview shows the first photo. Double-click adds one.
 - [ ] The ▴ button in the library panel opens the details of the selected
       item (Show in folder, Remove).
+- [ ] Library selection: click, shift-click range, Cmd/Ctrl-click toggle,
+      and a rubber band dragged from empty space between cells (shift or
+      Cmd/Ctrl while starting the band adds to the selection). "Add N to
+      timeline" reflects the count.
+- [ ] Drag one or more selected library cells onto the timeline: a badge
+      follows the pointer, turns blue over the strip, the orange marker shows
+      the insertion point, and releasing inserts the photos there.
+- [ ] Dragging the divider resizes the library panel smoothly without the
+      panel jittering or thumbnails flickering.
 - [ ] Click, shift-click and Cmd/Ctrl-click select clips as expected;
       Cmd/Ctrl+A selects all; Delete removes; Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z undo/redo.
 - [ ] Drag a clip (or a selection) to a new position; the orange marker

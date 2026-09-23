@@ -328,3 +328,12 @@ msgstr "Alle hinzufügen"
 
 msgid "Remove"
 msgstr "Entfernen"
+
+msgid "Add {} to timeline"
+msgstr "{} zur Timeline hinzufügen"
+
+msgid "1 photo"
+msgstr "1 Foto"
+
+msgid "{} photos"
+msgstr "{} Fotos"

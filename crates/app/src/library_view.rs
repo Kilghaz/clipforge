@@ -6,10 +6,19 @@ use std::collections::VecDeque;
 use clipforge_library::{Query, Sort};
 use clipforge_media::MediaKind;
 
-/// Width of one grid cell including its gap, in logical pixels.
+/// Width of one grid cell including its gap, in logical pixels. Must match
+/// `CellView` (104 px) plus the row spacing (8 px) in `library.slint`.
 pub(crate) const CELL_WIDTH: f32 = 112.0;
-/// Horizontal padding of the grid, in logical pixels.
+/// Visible width of a cell (without the gap).
+pub(crate) const CELL_VISIBLE_WIDTH: f32 = 104.0;
+/// Height of a grid row; must match the row height in `library.slint`.
+pub(crate) const ROW_HEIGHT: f32 = 116.0;
+/// Visible height of a cell.
+pub(crate) const CELL_VISIBLE_HEIGHT: f32 = 112.0;
+/// Left padding of the grid, in logical pixels.
 pub(crate) const GRID_PADDING: f32 = 12.0;
+/// Pointer travel before a press turns into a drag.
+pub(crate) const DRAG_THRESHOLD: f32 = 6.0;
 
 /// Number of columns that fit into `width`. Never below one.
 #[must_use]
@@ -136,6 +145,146 @@ impl ViewState {
     }
 }
 
+/// Cell rectangle in grid coordinates (origin at the top-left of row 0).
+#[must_use]
+pub(crate) fn cell_rect(index: usize, columns: usize) -> (f32, f32, f32, f32) {
+    let columns = columns.max(1);
+    let row = index / columns;
+    let col = index % columns;
+    #[allow(clippy::cast_precision_loss)]
+    (
+        GRID_PADDING + col as f32 * CELL_WIDTH,
+        row as f32 * ROW_HEIGHT,
+        CELL_VISIBLE_WIDTH,
+        CELL_VISIBLE_HEIGHT,
+    )
+}
+
+/// Indices of the cells intersecting the rectangle spanned by two corners
+/// (grid coordinates, any order), in index order.
+#[must_use]
+pub(crate) fn cells_in_rect(
+    items: usize,
+    columns: usize,
+    a: (f32, f32),
+    b: (f32, f32),
+) -> Vec<usize> {
+    let columns = columns.max(1);
+    let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+    let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+    if items == 0 || x1 < 0.0 || y1 < 0.0 {
+        return Vec::new();
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let first_row = (y0.max(0.0) / ROW_HEIGHT).floor() as usize;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let last_row = (y1.max(0.0) / ROW_HEIGHT).floor() as usize;
+    let mut out = Vec::new();
+    for row in first_row..=last_row.min(row_count(items, columns).saturating_sub(1)) {
+        #[allow(clippy::cast_precision_loss)]
+        let row_top = row as f32 * ROW_HEIGHT;
+        if y0 > row_top + CELL_VISIBLE_HEIGHT || y1 < row_top {
+            continue;
+        }
+        for col in 0..columns {
+            let index = row * columns + col;
+            if index >= items {
+                break;
+            }
+            let (cx, _, cw, _) = cell_rect(index, columns);
+            if x1 >= cx && x0 <= cx + cw {
+                out.push(index);
+            }
+        }
+    }
+    out
+}
+
+/// Multi-selection over the ordered grid items.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GridSelection {
+    pub ids: std::collections::HashSet<clipforge_core::MediaId>,
+    /// Anchor for shift-range selection, as an index into the current order.
+    pub anchor: Option<usize>,
+}
+
+impl GridSelection {
+    /// Click semantics: plain replaces, shift extends from the anchor,
+    /// toggle (Cmd/Ctrl) flips one item.
+    pub(crate) fn click(
+        &mut self,
+        ids: &[clipforge_core::MediaId],
+        index: usize,
+        shift: bool,
+        toggle: bool,
+    ) {
+        let Some(&clicked) = ids.get(index) else {
+            return;
+        };
+        if shift {
+            let anchor = self.anchor.unwrap_or(index).min(ids.len() - 1);
+            let (lo, hi) = if anchor <= index {
+                (anchor, index)
+            } else {
+                (index, anchor)
+            };
+            if !toggle {
+                self.ids.clear();
+            }
+            self.ids.extend(ids[lo..=hi].iter().copied());
+        } else if toggle {
+            if !self.ids.remove(&clicked) {
+                self.ids.insert(clicked);
+            }
+            self.anchor = Some(index);
+        } else {
+            self.ids.clear();
+            self.ids.insert(clicked);
+            self.anchor = Some(index);
+        }
+    }
+
+    /// Marquee result: replaces the selection, or adds to `base` when
+    /// `additive` (shift/Cmd held when the drag started).
+    pub(crate) fn marquee(
+        &mut self,
+        ids: &[clipforge_core::MediaId],
+        hits: &[usize],
+        base: &std::collections::HashSet<clipforge_core::MediaId>,
+        additive: bool,
+    ) {
+        self.ids = if additive {
+            base.clone()
+        } else {
+            std::collections::HashSet::new()
+        };
+        self.ids
+            .extend(hits.iter().filter_map(|i| ids.get(*i).copied()));
+    }
+
+    /// Selected ids in grid order.
+    #[must_use]
+    pub(crate) fn ordered(&self, ids: &[clipforge_core::MediaId]) -> Vec<clipforge_core::MediaId> {
+        ids.iter()
+            .copied()
+            .filter(|id| self.ids.contains(id))
+            .collect()
+    }
+
+    pub(crate) fn retain_existing(&mut self, ids: &[clipforge_core::MediaId]) {
+        let existing: std::collections::HashSet<_> = ids.iter().copied().collect();
+        self.ids.retain(|id| existing.contains(id));
+        if self.anchor.is_some_and(|a| a >= ids.len()) {
+            self.anchor = None;
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.ids.clear();
+        self.anchor = None;
+    }
+}
+
 /// Remembers which grid cells were shown recently so thumbnails for cells
 /// far away can be dropped from memory.
 #[derive(Debug, Default)]
@@ -226,6 +375,83 @@ mod tests {
         assert!(!q.descending);
         assert_eq!(KindFilter::from_index(99), KindFilter::All);
         assert_eq!(SortChoice::from_index(-1), SortChoice::Date);
+    }
+
+    #[test]
+    fn cell_rects_and_marquee_hits() {
+        let (x, y, w, h) = cell_rect(5, 3);
+        assert_eq!(
+            (x, y, w, h),
+            (
+                GRID_PADDING + 2.0 * CELL_WIDTH,
+                ROW_HEIGHT,
+                CELL_VISIBLE_WIDTH,
+                CELL_VISIBLE_HEIGHT
+            )
+        );
+        // A rectangle covering the middle of row 0 and row 1 in a 3-column grid of 7 items.
+        let hits = cells_in_rect(
+            7,
+            3,
+            (GRID_PADDING + CELL_WIDTH + 10.0, 10.0),
+            (GRID_PADDING + 2.0 * CELL_WIDTH + 10.0, ROW_HEIGHT + 10.0),
+        );
+        assert_eq!(hits, [1, 2, 4, 5]);
+        // Corners given in the other order give the same result.
+        let same = cells_in_rect(
+            7,
+            3,
+            (GRID_PADDING + 2.0 * CELL_WIDTH + 10.0, ROW_HEIGHT + 10.0),
+            (GRID_PADDING + CELL_WIDTH + 10.0, 10.0),
+        );
+        assert_eq!(same, hits);
+        // A rectangle in the gap between cells hits nothing.
+        assert!(
+            cells_in_rect(
+                7,
+                3,
+                (GRID_PADDING + CELL_VISIBLE_WIDTH + 1.0, 5.0),
+                (GRID_PADDING + CELL_WIDTH - 1.0, 6.0)
+            )
+            .is_empty()
+        );
+        // Beyond the last row is clamped; last partial row respected.
+        assert_eq!(
+            cells_in_rect(7, 3, (0.0, 2.0 * ROW_HEIGHT), (10_000.0, 10_000.0)),
+            [6]
+        );
+        assert!(cells_in_rect(0, 3, (0.0, 0.0), (100.0, 100.0)).is_empty());
+        assert!(cells_in_rect(7, 3, (-50.0, -50.0), (-1.0, -1.0)).is_empty());
+    }
+
+    #[test]
+    fn grid_selection_semantics() {
+        use clipforge_core::MediaId;
+        let ids: Vec<MediaId> = (0..6).map(|_| MediaId::new()).collect();
+        let mut s = GridSelection::default();
+        s.click(&ids, 1, false, false);
+        assert_eq!(s.ordered(&ids), [ids[1]]);
+        s.click(&ids, 4, true, false);
+        assert_eq!(s.ordered(&ids), ids[1..=4]);
+        s.click(&ids, 0, false, true);
+        assert_eq!(s.ordered(&ids).len(), 5);
+        s.click(&ids, 2, false, true);
+        assert!(!s.ids.contains(&ids[2]));
+        s.click(&ids, 5, true, true);
+        assert!(
+            s.ids.contains(&ids[3]) && s.ids.contains(&ids[5]),
+            "shift+toggle adds a range"
+        );
+        let base = s.ids.clone();
+        s.marquee(&ids, &[0, 1], &base, false);
+        assert_eq!(s.ordered(&ids), ids[0..=1]);
+        s.marquee(&ids, &[5], &base, true);
+        assert!(s.ids.contains(&ids[5]) && s.ids.contains(&ids[0]));
+        s.retain_existing(&ids[..2]);
+        assert_eq!(s.ordered(&ids), [ids[0], ids[1]]);
+        s.click(&ids, 99, false, false);
+        s.clear();
+        assert!(s.ids.is_empty());
     }
 
     #[test]

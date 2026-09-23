@@ -1,4 +1,5 @@
 import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
+import { Shell } from "shell.slint";
 
 export struct MediaCell {
     index: int,
@@ -55,6 +56,13 @@ export global LibraryState {
     in-out property <bool> descending: true;
     /// True while files are dragged over the window.
     in-out property <bool> drop-hover;
+    /// Marquee rectangle in grid coordinates (px); visible while selecting.
+    in-out property <bool> marquee-visible;
+    in-out property <float> marquee-x;
+    in-out property <float> marquee-y;
+    in-out property <float> marquee-w;
+    in-out property <float> marquee-h;
+    in-out property <int> selected-count;
 
     callback add-files();
     callback add-folder();
@@ -62,7 +70,16 @@ export global LibraryState {
     callback filter-changed(int);
     callback sort-changed(int);
     callback direction-toggled();
-    callback cell-clicked(int);
+    /// Press on a cell with modifiers (shift, toggle).
+    callback cell-pressed(int, bool, bool);
+    /// Pointer moved while a cell is pressed; window coordinates in px.
+    callback cell-drag-moved(int, float, float);
+    /// Pointer released after a cell press; window coordinates in px.
+    callback cell-released(int, float, float);
+    /// Marquee (rubber band) in grid coordinates: start/move/end.
+    callback marquee-start(float, float, bool);
+    callback marquee-move(float, float);
+    callback marquee-end();
     callback cell-shown(int);
     callback grid-width-changed(length);
     callback remove-selected();
@@ -93,7 +110,10 @@ component KindBadge inherits Rectangle {
 
 component CellView inherits Rectangle {
     in property <MediaCell> cell;
-    callback clicked();
+    callback pressed(bool, bool);
+    callback dragged(float, float);
+    callback released(float, float);
+    callback double-clicked();
     callback shown();
     width: 104px;
     height: 112px;
@@ -103,10 +123,18 @@ component CellView inherits Rectangle {
     border-color: #3d5afe;
 
     init => { root.shown(); }
-    callback double-clicked();
     touch := TouchArea {
-        clicked => { root.clicked(); }
         double-clicked => { root.double-clicked(); }
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left { return; }
+            if e.kind == PointerEventKind.down {
+                root.pressed(e.modifiers.shift, e.modifiers.control || e.modifiers.meta);
+            } else if e.kind == PointerEventKind.move && self.pressed {
+                root.dragged((root.absolute-position.x + self.mouse-x) / 1px, (root.absolute-position.y + self.mouse-y) / 1px);
+            } else if e.kind == PointerEventKind.up {
+                root.released((root.absolute-position.x + self.mouse-x) / 1px, (root.absolute-position.y + self.mouse-y) / 1px);
+            }
+        }
     }
 
     VerticalLayout {
@@ -243,6 +271,46 @@ export component LibraryPage inherits Rectangle {
             vertical-stretch: 1;
             changed width => { LibraryState.grid-width-changed(self.width); }
             init => { LibraryState.grid-width-changed(self.width); }
+            lv := ListView {
+                for row[r] in root.rows : Rectangle {
+                    height: 116px;
+                    // Empty space in a row starts a marquee selection.
+                    TouchArea {
+                        pointer-event(e) => {
+                            if e.button != PointerEventButton.left { return; }
+                            if e.kind == PointerEventKind.down {
+                                LibraryState.marquee-start(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px, e.modifiers.shift || e.modifiers.control || e.modifiers.meta);
+                            } else if e.kind == PointerEventKind.move && self.pressed {
+                                LibraryState.marquee-move(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px);
+                            } else if e.kind == PointerEventKind.up {
+                                LibraryState.marquee-end();
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        spacing: 8px;
+                        alignment: start;
+                        for cell in row.cells : CellView {
+                            cell: cell;
+                            pressed(shift, toggle) => { LibraryState.cell-pressed(cell.index, shift, toggle); }
+                            dragged(x, y) => { LibraryState.cell-drag-moved(cell.index, x, y); }
+                            released(x, y) => { LibraryState.cell-released(cell.index, x, y); }
+                            double-clicked => { LibraryState.cell-double-clicked(cell.index); }
+                            shown => { LibraryState.cell-shown(cell.index); }
+                        }
+                    }
+                }
+            }
+            if LibraryState.marquee-visible : Rectangle {
+                x: LibraryState.marquee-x * 1px;
+                y: LibraryState.marquee-y * 1px + lv.content-y;
+                width: LibraryState.marquee-w * 1px;
+                height: LibraryState.marquee-h * 1px;
+                background: #3d5afe33;
+                border-width: 1px;
+                border-color: #3d5afe;
+            }
             if root.rows.length == 0 : VerticalLayout {
                 alignment: center;
                 spacing: 12px;
@@ -262,20 +330,6 @@ export component LibraryPage inherits Rectangle {
                     wrap: word-wrap;
                 }
             }
-            if root.rows.length > 0 : ListView {
-                for row in root.rows : HorizontalLayout {
-                    height: 116px;
-                    padding-left: 12px;
-                    spacing: 8px;
-                    alignment: start;
-                    for cell in row.cells : CellView {
-                        cell: cell;
-                        clicked => { LibraryState.cell-clicked(cell.index); }
-                        double-clicked => { LibraryState.cell-double-clicked(cell.index); }
-                        shown => { LibraryState.cell-shown(cell.index); }
-                    }
-                }
-            }
         }
         // Actions
         Rectangle {
@@ -286,9 +340,9 @@ export component LibraryPage inherits Rectangle {
                 padding-right: 8px;
                 spacing: 6px;
                 Button {
-                    text: @tr("Add to timeline");
+                    text: LibraryState.selected-count > 1 ? @tr("Add {} to timeline", LibraryState.selected-count) : @tr("Add to timeline");
                     primary: true;
-                    enabled: root.inspector.visible;
+                    enabled: LibraryState.selected-count > 0;
                     clicked => { LibraryState.add-selected-to-timeline(); }
                 }
                 Button {

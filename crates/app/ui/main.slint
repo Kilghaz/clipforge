@@ -1,10 +1,10 @@
 import { Button } from "std-widgets.slint";
 import { SettingsPage } from "settings.slint";
 import { LibraryPage, LibraryState, MediaCell, GridRow, InspectorInfo } from "library.slint";
-import { EditorPage, EditorState, TimelineClip } from "editor.slint";
+import { EditorPage, EditorState, TimelineClip, StripRect } from "editor.slint";
 import { Shell } from "shell.slint";
 
-export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, Shell }
+export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, StripRect, Shell }
 
 /// Strings Rust needs in the current UI language.
 export global Strings {
@@ -32,6 +32,8 @@ export component MainWindow inherits Window {
 
     callback quit();
     callback language-selected(int);
+    /// Timeline strip geometry, read by Rust during library drags.
+    out property <StripRect> editor-strip-rect: editor.strip-rect;
 
     MenuBar {
         Menu {
@@ -77,19 +79,37 @@ export component MainWindow inherits Window {
             background: divider-touch.has-hover || divider-touch.pressed ? #3d5afe : #101114;
             divider-touch := TouchArea {
                 mouse-cursor: Shell.library-visible ? MouseCursor.col-resize : MouseCursor.default;
-                property <length> start-width;
-                pointer-event(e) => {
-                    if e.kind == PointerEventKind.down { self.start-width = Shell.library-width; }
-                }
                 moved => {
                     if self.pressed && Shell.library-visible {
-                        Shell.library-width = max(260px, min(root.width - 600px, self.start-width + (self.mouse-x - self.pressed-x)));
+                        // The panel starts at the window's left edge, so the
+                        // pointer's window x is the new width (stable while the
+                        // divider itself moves under the pointer).
+                        Shell.library-width = max(260px, min(root.width - 600px, divider.absolute-position.x + self.mouse-x - 3px));
                     }
                 }
             }
         }
-        EditorPage {
+        editor := EditorPage {
             horizontal-stretch: 1;
+        }
+    }
+
+    if Shell.drag-active : Rectangle {
+        x: Shell.drag-x + 12px;
+        y: Shell.drag-y + 12px;
+        width: 150px;
+        height: 32px;
+        border-radius: 8px;
+        background: Shell.drag-over-timeline ? #3d5afe : #40444d;
+        Text {
+            text: Shell.drag-count == 1 ? @tr("1 photo") : @tr("{} photos", Shell.drag-count);
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            width: parent.width;
+            height: parent.height;
         }
     }
 

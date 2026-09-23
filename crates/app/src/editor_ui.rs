@@ -196,6 +196,19 @@ impl EditorController {
         Rc::new(move |ids| inner.borrow_mut().add_media(&ids))
     }
 
+    /// Drag hover from the library: `Some(x)` in strip content pixels shows
+    /// the drop marker, `None` hides it.
+    pub(crate) fn drop_hover_handle(&self) -> Rc<dyn Fn(Option<f32>)> {
+        let inner = Rc::clone(&self.inner);
+        Rc::new(move |x| inner.borrow_mut().library_drop_hover(x))
+    }
+
+    /// Drop from the library at strip content x.
+    pub(crate) fn drop_insert_handle(&self) -> Rc<dyn Fn(Vec<MediaId>, f32)> {
+        let inner = Rc::clone(&self.inner);
+        Rc::new(move |ids, x| inner.borrow_mut().insert_media_at_x(&ids, x))
+    }
+
     pub(crate) fn preview_thumb_handle(&self) -> Rc<dyn Fn(MediaId, PathBuf)> {
         let inner = Rc::clone(&self.inner);
         Rc::new(move |id, path| inner.borrow_mut().load_preview_image(id, &path))
@@ -235,6 +248,38 @@ impl Inner {
     }
 
     fn add_media(&mut self, ids: &[MediaId]) {
+        let at = self.project.clips.len();
+        self.insert_media(ids, at);
+    }
+
+    fn insert_media_at_x(&mut self, ids: &[MediaId], x: f32) {
+        let boxes = layout(&self.project.clips, self.pps);
+        let at = editor_view::drop_index(&boxes, x);
+        self.insert_media(ids, at);
+        self.library_drop_hover(None);
+    }
+
+    fn library_drop_hover(&mut self, x: Option<f32>) {
+        let Some(w) = self.state() else { return };
+        let s = w.global::<EditorState>();
+        match x {
+            Some(x) => {
+                let boxes = layout(&self.project.clips, self.pps);
+                let to = editor_view::drop_index(&boxes, x);
+                let marker_x = if to < boxes.len() {
+                    boxes[to].x
+                } else {
+                    editor_view::strip_width(&boxes)
+                };
+                s.set_drop_marker(i32::try_from(to).unwrap_or(-1));
+                s.set_drop_marker_x(marker_x);
+            }
+            None => s.set_drop_marker(-1),
+        }
+    }
+
+    fn insert_media(&mut self, ids: &[MediaId], at: usize) {
+        let at = at.min(self.project.clips.len());
         let mut refs = Vec::new();
         let mut skipped = 0usize;
         {
@@ -251,7 +296,6 @@ impl Inner {
             return;
         }
         let clips = clips_for(&self.project, &refs);
-        let at = self.project.clips.len();
         let entries = clips
             .into_iter()
             .enumerate()

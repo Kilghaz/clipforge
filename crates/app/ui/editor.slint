@@ -1,6 +1,16 @@
 import { Button, ComboBox, SpinBox, CheckBox, Slider, ProgressIndicator, LineEdit, ScrollView } from "std-widgets.slint";
 import { Shell } from "shell.slint";
 
+/// Where the timeline strip is on screen, for cross-panel drops.
+export struct StripRect {
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    /// Horizontal scroll offset of the strip content (px, >= 0).
+    scroll: float,
+}
+
 export struct TimelineClip {
     index: int,
     id: string,
@@ -329,10 +339,10 @@ export component EditorPage inherits Rectangle {
                     }
                 }
                 // Timeline strip
-                Rectangle {
+                strip := Rectangle {
                     height: 132px;
                     background: #191a1e;
-                    Flickable {
+                    flick := Flickable {
                         content-width: max(EditorState.strip-width * 1px + 200px, self.width);
                         content-height: self.height;
                         TouchArea {
@@ -371,4 +381,13 @@ export component EditorPage inherits Rectangle {
         }
     }
     if EditorState.export-open : ExportDialog { }
+
+    /// On-screen rectangle of the timeline strip, for cross-panel drops.
+    out property <StripRect> strip-rect: {
+        x: strip.absolute-position.x / 1px,
+        y: strip.absolute-position.y / 1px,
+        width: strip.width / 1px,
+        height: strip.height / 1px,
+        scroll: -flick.content-x / 1px,
+    };
 }

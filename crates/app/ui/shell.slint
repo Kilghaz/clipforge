@@ -1,6 +1,13 @@
-/// Window-level layout state.
+/// Window-level layout and cross-panel drag state.
 export global Shell {
     in-out property <bool> library-visible: true;
     in-out property <length> library-width: 380px;
     in-out property <bool> settings-open: false;
+
+    /// Drag from the library towards the timeline (window coordinates).
+    in-out property <bool> drag-active;
+    in-out property <length> drag-x;
+    in-out property <length> drag-y;
+    in-out property <int> drag-count;
+    in-out property <bool> drag-over-timeline;
 }

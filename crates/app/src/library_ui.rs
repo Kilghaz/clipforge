@@ -18,8 +18,10 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, Vec
 use tracing::{debug, warn};
 
 use crate::format;
-use crate::library_view::{self, ThumbWindow, ViewState, columns_for_width, row_count, row_of};
-use crate::ui::{GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell};
+use crate::library_view::{
+    self, GridSelection, ThumbWindow, ViewState, columns_for_width, row_count, row_of,
+};
+use crate::ui::{GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell};
 
 /// How many cells keep a decoded thumbnail in memory.
 const THUMB_WINDOW: usize = 800;
@@ -41,13 +43,43 @@ struct Inner {
     rows: Rc<VecModel<GridRow>>,
     row_models: Vec<Rc<VecModel<MediaCell>>>,
     thumbs: ThumbWindow,
-    selected: Option<MediaId>,
+    /// Decoded small thumbnails for cells inside the thumb window.
+    images: HashMap<MediaId, slint::Image>,
+    selection: GridSelection,
     dirty: bool,
     last_refresh: Instant,
     /// Editor hook: add these library items to the timeline.
     add_to_timeline: Option<Rc<dyn Fn(Vec<MediaId>)>>,
     /// Editor hook: a preview-size thumbnail is ready.
     preview_ready: Option<Rc<dyn Fn(MediaId, PathBuf)>>,
+    /// Editor hook: drag hover over the strip (`Some(x)` in strip content px) or leave.
+    drop_hover: Option<Rc<dyn Fn(Option<f32>)>>,
+    /// Editor hook: drop these items at strip content x.
+    drop_insert: Option<DropInsertHook>,
+    /// Press-and-drag state.
+    press: Option<Press>,
+    marquee: Option<Marquee>,
+}
+
+/// Rubber-band selection in progress.
+#[derive(Clone)]
+struct Marquee {
+    /// Start point in grid coordinates.
+    start: (f32, f32),
+    /// Selection when the marquee began (kept when additive).
+    base: std::collections::HashSet<MediaId>,
+    additive: bool,
+}
+
+/// Callback that inserts library items into the timeline at a strip x.
+type DropInsertHook = Rc<dyn Fn(Vec<MediaId>, f32)>;
+
+struct Press {
+    index: usize,
+    start: Option<(f32, f32)>,
+    dragging: bool,
+    /// Whether the press should turn into a plain select on release.
+    select_on_release: bool,
 }
 
 impl LibraryController {
@@ -63,11 +95,16 @@ impl LibraryController {
             rows: Rc::clone(&rows),
             row_models: Vec::new(),
             thumbs: ThumbWindow::new(THUMB_WINDOW),
-            selected: None,
+            images: HashMap::new(),
+            selection: GridSelection::default(),
             dirty: true,
             last_refresh: Instant::now() - REFRESH_INTERVAL,
             add_to_timeline: None,
             preview_ready: None,
+            drop_hover: None,
+            drop_insert: None,
+            press: None,
+            marquee: None,
         }));
         let state = window.global::<LibraryState>();
         state.set_rows(ModelRc::from(rows));
@@ -104,8 +141,25 @@ impl LibraryController {
             i.sync_toolbar();
             i.mark_dirty();
         });
-        on!(on_cell_clicked, |i, idx| i
-            .select(usize::try_from(idx).ok()));
+        on!(on_cell_pressed, |i, idx, shift, toggle| {
+            if let Ok(idx) = usize::try_from(idx) {
+                i.cell_pressed(idx, shift, toggle);
+            }
+        });
+        on!(on_cell_drag_moved, |i, idx, x, y| {
+            if let Ok(idx) = usize::try_from(idx) {
+                i.cell_drag_moved(idx, x, y);
+            }
+        });
+        on!(on_cell_released, |i, idx, x, y| {
+            if let Ok(idx) = usize::try_from(idx) {
+                i.cell_released(idx, x, y);
+            }
+        });
+        on!(on_marquee_start, |i, x, y, additive| i
+            .marquee_start(x, y, additive));
+        on!(on_marquee_move, |i, x, y| i.marquee_move(x, y));
+        on!(on_marquee_end, |i| i.marquee_end());
         on!(on_cell_shown, |i, idx| {
             if let Ok(idx) = usize::try_from(idx) {
                 i.cell_shown(idx);
@@ -115,8 +169,9 @@ impl LibraryController {
         on!(on_remove_selected, |i| i.remove_selected());
         on!(on_reveal_selected, |i| i.reveal_selected());
         on!(on_add_selected_to_timeline, |i| {
-            if let (Some(id), Some(hook)) = (i.selected, i.add_to_timeline.clone()) {
-                hook(vec![id]);
+            let ids = i.selection.ordered(&i.ids);
+            if let (false, Some(hook)) = (ids.is_empty(), i.add_to_timeline.clone()) {
+                hook(ids);
             }
         });
         on!(on_add_all_to_timeline, |i| {
@@ -155,15 +210,20 @@ impl LibraryController {
         self.inner.borrow().start_import(paths);
     }
 
-    /// Connects the editor: adding items to the timeline and preview thumbs.
+    /// Connects the editor: adding items to the timeline, preview thumbs and
+    /// drag-and-drop into the strip.
     pub(crate) fn connect_editor(
         &self,
         add: Rc<dyn Fn(Vec<MediaId>)>,
         preview_ready: Rc<dyn Fn(MediaId, PathBuf)>,
+        drop_hover: Rc<dyn Fn(Option<f32>)>,
+        drop_insert: DropInsertHook,
     ) {
         let mut i = self.inner.borrow_mut();
         i.add_to_timeline = Some(add);
         i.preview_ready = Some(preview_ready);
+        i.drop_hover = Some(drop_hover);
+        i.drop_insert = Some(drop_insert);
     }
 
     /// A cloneable closure that starts an import; for event hooks that
@@ -218,11 +278,9 @@ impl Inner {
                 .set_total_count(i32::try_from(total).unwrap_or(i32::MAX));
         }
         self.rebuild_rows();
-        if let Some(sel) = self.selected
-            && !self.index_of.contains_key(&sel)
-        {
-            self.select(None);
-        }
+        self.selection.retain_existing(&self.ids);
+        self.sync_selection_count();
+        self.refresh_inspector();
     }
 
     /// Creates empty cells; content is filled lazily when a cell is shown.
@@ -235,12 +293,18 @@ impl Inner {
             let start = r * self.columns;
             let end = (start + self.columns).min(self.ids.len());
             let cells: Vec<MediaCell> = (start..end)
-                .map(|i| MediaCell {
-                    index: i32::try_from(i).unwrap_or(0),
-                    id: SharedString::from(self.ids[i].to_string()),
-                    pending: true,
-                    selected: self.selected == Some(self.ids[i]),
-                    ..Default::default()
+                .map(|i| {
+                    let id = self.ids[i];
+                    let image = self.images.get(&id).cloned();
+                    MediaCell {
+                        index: i32::try_from(i).unwrap_or(0),
+                        id: SharedString::from(id.to_string()),
+                        pending: image.is_none(),
+                        has_image: image.is_some(),
+                        image: image.unwrap_or_default(),
+                        selected: self.selection.ids.contains(&id),
+                        ..Default::default()
+                    }
                 })
                 .collect();
             let model = Rc::new(VecModel::from(cells));
@@ -277,6 +341,7 @@ impl Inner {
                 c.has_image = false;
             });
             if let Some(old_id) = self.ids.get(old) {
+                self.images.remove(old_id);
                 self.library.demote_thumb(*old_id, ThumbLevel::Small);
             }
         }
@@ -296,9 +361,20 @@ impl Inner {
             self.library
                 .request_thumb(id, ThumbLevel::Small, Priority::Interactive)
         };
-        let image = thumb.and_then(|p| slint::Image::load_from_path(&p).ok());
+        let image = match self.images.get(&id) {
+            Some(img) => Some(img.clone()),
+            None => {
+                let loaded = thumb.and_then(|p| slint::Image::load_from_path(&p).ok());
+                if let Some(img) = &loaded {
+                    self.images.insert(id, img.clone());
+                }
+                loaded
+            }
+        };
+        let selected = self.selection.ids.contains(&id);
         self.update_cell(index, |c| {
             fill_cell(c, &record);
+            c.selected = selected;
             if let Some(img) = image {
                 c.image = img;
                 c.has_image = true;
@@ -306,24 +382,173 @@ impl Inner {
         });
     }
 
-    fn select(&mut self, index: Option<usize>) {
-        let new_id = index.and_then(|i| self.ids.get(i).copied());
-        if let Some(old) = self.selected.and_then(|id| self.index_of.get(&id).copied()) {
-            self.update_cell(old, |c| c.selected = false);
+    // ----- selection, marquee, drag ------------------------------------------
+
+    fn set_selection_from(&mut self, before: &std::collections::HashSet<MediaId>) {
+        let changed: Vec<MediaId> = before
+            .symmetric_difference(&self.selection.ids)
+            .copied()
+            .collect();
+        for id in changed {
+            if let Some(&index) = self.index_of.get(&id) {
+                let on = self.selection.ids.contains(&id);
+                self.update_cell(index, |c| c.selected = on);
+            }
         }
-        if let Some(i) = index {
-            self.update_cell(i, |c| c.selected = true);
-        }
-        self.selected = new_id;
+        self.sync_selection_count();
         self.refresh_inspector();
+    }
+
+    fn sync_selection_count(&self) {
+        if let Some(w) = self.state() {
+            w.global::<LibraryState>()
+                .set_selected_count(to_i32(self.selection.ids.len()));
+        }
+    }
+
+    fn cell_pressed(&mut self, index: usize, shift: bool, toggle: bool) {
+        let before = self.selection.ids.clone();
+        let already = self
+            .ids
+            .get(index)
+            .is_some_and(|id| self.selection.ids.contains(id));
+        let mut select_on_release = false;
+        if shift || toggle {
+            self.selection.click(&self.ids, index, shift, toggle);
+        } else if already {
+            // Keep the group so it can be dragged; plain-select on release if no drag happens.
+            select_on_release = true;
+        } else {
+            self.selection.click(&self.ids, index, false, false);
+        }
+        self.set_selection_from(&before);
+        self.press = Some(Press {
+            index,
+            start: None,
+            dragging: false,
+            select_on_release,
+        });
+    }
+
+    fn cell_drag_moved(&mut self, index: usize, x: f32, y: f32) {
+        let Some(press) = self.press.as_mut() else {
+            return;
+        };
+        if press.index != index {
+            return;
+        }
+        let start = *press.start.get_or_insert((x, y));
+        if !press.dragging {
+            if (x - start.0).abs().max((y - start.1).abs()) < library_view::DRAG_THRESHOLD {
+                return;
+            }
+            press.dragging = true;
+            press.select_on_release = false;
+        }
+        let count = self.selection.ordered(&self.ids).len();
+        let over = self.strip_x_for(x, y);
+        if let Some(w) = self.state() {
+            let sh = w.global::<Shell>();
+            sh.set_drag_active(true);
+            sh.set_drag_x(x);
+            sh.set_drag_y(y);
+            sh.set_drag_count(to_i32(count));
+            sh.set_drag_over_timeline(over.is_some());
+        }
+        if let Some(hook) = self.drop_hover.clone() {
+            hook(over);
+        }
+    }
+
+    fn cell_released(&mut self, index: usize, x: f32, y: f32) {
+        let Some(press) = self.press.take() else {
+            return;
+        };
+        if press.index != index {
+            return;
+        }
+        if press.dragging {
+            if let Some(w) = self.state() {
+                w.global::<Shell>().set_drag_active(false);
+            }
+            if let Some(hook) = self.drop_hover.clone() {
+                hook(None);
+            }
+            if let (Some(strip_x), Some(insert)) =
+                (self.strip_x_for(x, y), self.drop_insert.clone())
+            {
+                let ids = self.selection.ordered(&self.ids);
+                if !ids.is_empty() {
+                    insert(ids, strip_x);
+                }
+            }
+        } else if press.select_on_release {
+            let before = self.selection.ids.clone();
+            self.selection.click(&self.ids, index, false, false);
+            self.set_selection_from(&before);
+        }
+    }
+
+    /// If the window point is over the timeline strip, its x in strip content pixels.
+    fn strip_x_for(&self, x: f32, y: f32) -> Option<f32> {
+        let w = self.state()?;
+        let r = w.get_editor_strip_rect();
+        (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height)
+            .then_some(x - r.x + r.scroll)
+    }
+
+    fn marquee_start(&mut self, x: f32, y: f32, additive: bool) {
+        let before = self.selection.ids.clone();
+        if !additive {
+            self.selection.clear();
+            self.set_selection_from(&before);
+        }
+        self.marquee = Some(Marquee {
+            start: (x, y),
+            base: self.selection.ids.clone(),
+            additive,
+        });
+        if let Some(w) = self.state() {
+            w.global::<LibraryState>().set_marquee_visible(false);
+        }
+    }
+
+    fn marquee_move(&mut self, x: f32, y: f32) {
+        let Some(m) = self.marquee.clone() else {
+            return;
+        };
+        let (sx, sy) = m.start;
+        let hits = library_view::cells_in_rect(self.ids.len(), self.columns, m.start, (x, y));
+        let before = self.selection.ids.clone();
+        self.selection
+            .marquee(&self.ids, &hits, &m.base, m.additive);
+        self.set_selection_from(&before);
+        if let Some(w) = self.state() {
+            let s = w.global::<LibraryState>();
+            s.set_marquee_visible(true);
+            s.set_marquee_x(sx.min(x));
+            s.set_marquee_y(sy.min(y));
+            s.set_marquee_w((x - sx).abs());
+            s.set_marquee_h((y - sy).abs());
+        }
+    }
+
+    fn marquee_end(&mut self) {
+        self.marquee = None;
+        if let Some(w) = self.state() {
+            w.global::<LibraryState>().set_marquee_visible(false);
+        }
     }
 
     fn refresh_inspector(&self) {
         let Some(w) = self.state() else { return };
         let s = w.global::<LibraryState>();
-        let record = self
-            .selected
-            .and_then(|id| self.library.catalogue().get(id).ok());
+        let single = if self.selection.ids.len() == 1 {
+            self.selection.ids.iter().next().copied()
+        } else {
+            None
+        };
+        let record = single.and_then(|id| self.library.catalogue().get(id).ok());
         match record {
             None => {
                 s.set_inspector(InspectorInfo::default());
@@ -384,7 +609,7 @@ impl Inner {
                     {
                         self.populate(index, id);
                     }
-                    if self.selected == Some(id) {
+                    if self.selection.ids.len() == 1 && self.selection.ids.contains(&id) {
                         self.refresh_inspector();
                     }
                     // Sorting by date may change once capture time is known.
@@ -396,6 +621,7 @@ impl Inner {
                             && self.thumbs.contains(index)
                             && let Ok(img) = slint::Image::load_from_path(&path)
                         {
+                            self.images.insert(id, img.clone());
                             self.update_cell(index, |c| {
                                 c.image = img;
                                 c.has_image = true;
@@ -404,7 +630,8 @@ impl Inner {
                         }
                     }
                     ThumbLevel::Medium => {
-                        if self.selected == Some(id)
+                        if self.selection.ids.len() == 1
+                            && self.selection.ids.contains(&id)
                             && let Ok(img) = slint::Image::load_from_path(&path)
                         {
                             s.set_inspector_image(img);
@@ -450,20 +677,24 @@ impl Inner {
     }
 
     fn remove_selected(&mut self) {
-        if let Some(id) = self.selected {
-            if let Err(e) = self.library.remove(&[id]) {
-                warn!(error = %e, "remove failed");
-            }
-            self.selected = None;
-            self.refresh();
-            self.refresh_inspector();
+        let ids = self.selection.ordered(&self.ids);
+        if ids.is_empty() {
+            return;
         }
+        if let Err(e) = self.library.remove(&ids) {
+            warn!(error = %e, "remove failed");
+        }
+        self.selection.clear();
+        self.refresh();
     }
 
     fn reveal_selected(&self) {
         if let Some(record) = self
-            .selected
-            .and_then(|id| self.library.catalogue().get(id).ok())
+            .selection
+            .ids
+            .iter()
+            .next()
+            .and_then(|id| self.library.catalogue().get(*id).ok())
             && let Err(e) = clipforge_platform::reveal_in_file_manager(&record.path)
         {
             warn!(error = %e, "reveal failed");
