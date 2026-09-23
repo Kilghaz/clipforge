@@ -433,6 +433,47 @@ impl Prober for FfmpegCli {
     }
 }
 
+impl FfmpegCli {
+    /// One frame of a video at source time `t`, scaled to `max_edge`, in
+    /// display orientation. For scrubbing; playback uses `VideoReader`.
+    pub fn frame_at(
+        &self,
+        path: &Path,
+        info: &MediaInfo,
+        t: Ticks,
+        max_edge: u32,
+    ) -> Result<DecodedImage> {
+        let (dw, dh) = info
+            .display_size()
+            .ok_or_else(|| MediaError::Unsupported("no picture".into()))?;
+        let (w, h) = crate::probe::fit_within(dw, dh, max_edge);
+        let p = path.to_string_lossy();
+        let args: Vec<String> = vec![
+            "-v".into(),
+            "error".into(),
+            "-nostdin".into(),
+            "-ss".into(),
+            format!("{:.6}", t.as_seconds_f64().max(0.0)),
+            "-i".into(),
+            p.into_owned(),
+            "-frames:v".into(),
+            "1".into(),
+            "-vf".into(),
+            format!("scale={w}:{h}:flags=bicubic"),
+            "-f".into(),
+            "image2pipe".into(),
+            "-vcodec".into(),
+            "png".into(),
+            "-".into(),
+        ];
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let png = self.run(&self.location.ffmpeg, &arg_refs, path)?;
+        let img = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+            .map_err(|e| MediaError::corrupt("ffmpeg frame", e))?;
+        scale_and_rotate(img, max_edge, Rotation::None)
+    }
+}
+
 impl StillDecoder for FfmpegCli {
     /// Videos: a frame at 10 % of the duration (skips black lead-ins).
     /// Stills: the image itself. ffmpeg's autorotate is disabled so that

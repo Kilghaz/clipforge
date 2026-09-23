@@ -19,6 +19,7 @@ pub mod image_backend;
 pub mod info;
 pub mod kind;
 pub mod probe;
+pub mod stream;
 
 pub use backends::Backends;
 pub use error::MediaError;
@@ -27,6 +28,7 @@ pub use image_backend::ImageBackend;
 pub use info::{MediaInfo, Rotation};
 pub use kind::{ColorTransfer, MediaKind};
 pub use probe::{DecodedImage, Prober, StillDecoder};
+pub use stream::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AudioReader, VideoReader};
 
 #[cfg(test)]
 pub(crate) mod test_support {
