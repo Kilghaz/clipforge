@@ -13,4 +13,8 @@ Things CI cannot verify. Run before tagging a milestone.
       German).
 - [ ] macOS uses the Cupertino style, Windows the Fluent style.
 - [ ] File → Quit closes the app cleanly (no log errors).
-- [ ] The packaged `.app`/installer from CI artefacts starts.
+- [ ] The packaged `.dmg` from CI artefacts mounts, the app starts after the
+      one-time Gatekeeper "Open Anyway" (see README), and
+      `codesign --verify --deep --strict ClipForge.app` reports "valid on disk".
+- [ ] The NSIS installer from CI artefacts installs and starts on Windows
+      after the SmartScreen "Run anyway".

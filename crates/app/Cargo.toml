@@ -47,6 +47,9 @@ before-packaging-command = ""
 
 [package.metadata.packager.macos]
 minimum-system-version = "14.0"
+# Ad-hoc signature: seals the bundle so macOS does not report it as damaged.
+# Replace with a Developer ID identity (and notarize) for real distribution.
+signing-identity = "-"
 
 [package.metadata.packager.nsis]
 installer-mode = "currentUser"

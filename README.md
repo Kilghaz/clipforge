@@ -27,6 +27,24 @@ cargo install cargo-packager --locked
 cargo build --release -p clipforge-app && cargo packager --release -p clipforge-app
 ```
 
+## Running a CI build
+
+CI attaches a `.dmg` (macOS) and an NSIS installer (Windows) to every run on
+`main` (Actions → run → Artifacts). The builds are ad-hoc signed but not
+notarized, so both operating systems warn once:
+
+- **macOS:** open the `.dmg`, drag ClipForge to Applications, start it once.
+  macOS says it cannot verify the app. Go to System Settings → Privacy &
+  Security, scroll down, click "Open Anyway", confirm. Alternative from a
+  terminal: `xattr -dr com.apple.quarantine /Applications/ClipForge.app`.
+  This is needed until the app is signed with a Developer ID and notarized
+  (see `LICENSES.md` and ADR-0001 for what that would take).
+- **Windows:** SmartScreen shows "Windows protected your PC". Click
+  "More info" → "Run anyway".
+
+Locally built binaries (`cargo run`, `cargo packager`) never trigger this
+because they carry no quarantine flag.
+
 ## Licensing
 
 ClipForge is currently a private project without a published licence. If it
