@@ -6,6 +6,8 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod info;
 pub mod kind;
 
+pub use info::{MediaInfo, Rotation};
 pub use kind::{ColorTransfer, MediaKind};

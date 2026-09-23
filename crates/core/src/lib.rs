@@ -8,9 +8,11 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod ids;
 pub mod settings;
 pub mod time;
 
+pub use ids::MediaId;
 pub use settings::{Aspect, Resolution};
 pub use time::{FrameRate, Ticks};
 

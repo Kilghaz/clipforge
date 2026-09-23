@@ -2,15 +2,20 @@
 //!
 //! Every slow operation in ClipForge (probing, thumbnails, proxies, export)
 //! is a job: it has a [`Priority`], observes a [`CancellationToken`] and
-//! reports [`Progress`]. The scheduler itself arrives with the media library
-//! in Milestone 1; this crate only defines the vocabulary so that all other
-//! crates agree on it.
+//! reports [`Progress`]. The [`Scheduler`] runs jobs on a pool of worker
+//! threads, highest priority first, and lets the owner re-prioritise or
+//! cancel jobs that have not started yet (thumbnails for cells that scrolled
+//! out of view, for example).
 
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+mod scheduler;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+pub use scheduler::{JobContext, JobError, JobEvent, JobHandle, JobId, JobOutcome, Scheduler};
 
 /// Scheduling priority. Lower variants run first.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
