@@ -1,5 +1,8 @@
 import { Button, ComboBox, SpinBox, CheckBox, Slider, ProgressIndicator, LineEdit, ScrollView } from "std-widgets.slint";
 import { Shell } from "shell.slint";
+import { LibraryState } from "library.slint";
+import { Theme, Icons } from "theme.slint";
+import { Icon, IconButton, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
 
 /// Where the timeline strip is on screen, for cross-panel drops.
 export struct StripRect {
@@ -108,13 +111,19 @@ export global EditorState {
     callback export-cancel();
 }
 
+/// Timeline clip: Spectrum "Card" with a type colour, selection ring,
+/// transition overlay, mute badge and (videos) trim handles.
 component ClipView inherits Rectangle {
     in property <TimelineClip> item;
-    border-radius: 6px;
-    background: root.item.selected ? #3d5afe55 : #2c303a;
+    property <bool> hovered: touch.has-hover || trim-left.has-hover || trim-right.has-hover;
+    border-radius: Theme.radius-m;
+    background: root.item.selected ? Theme.selection-tint : (touch.has-hover ? Theme.surface-card.brighter(0.15) : Theme.surface-card);
     border-width: root.item.selected ? 2px : 1px;
-    border-color: root.item.selected ? #3d5afe : #40444d;
+    border-color: root.item.selected ? Theme.selection : Theme.border;
     clip: true;
+    animate background { duration: Theme.motion-fast; }
+    accessible-role: button;
+    accessible-label: root.item.title;
 
     touch := TouchArea {
         pointer-event(e) => {
@@ -128,12 +137,12 @@ component ClipView inherits Rectangle {
         }
     }
     VerticalLayout {
-        padding: 4px;
-        spacing: 2px;
+        padding: Theme.space-xs;
+        spacing: Theme.space-xs;
         Rectangle {
             vertical-stretch: 1;
-            border-radius: 4px;
-            background: #1b1d22;
+            border-radius: Theme.radius-s;
+            background: Theme.surface-canvas;
             clip: true;
             if root.item.has-thumb : Image {
                 source: root.item.thumb;
@@ -141,34 +150,42 @@ component ClipView inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
             }
+            // Type colour along the top edge.
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 3px;
+                background: root.item.is-video ? Theme.video : Theme.photo;
+            }
         }
         HorizontalLayout {
-            spacing: 4px;
-            Text { text: root.item.title; color: #d0d0d0; font-size: 10px; overflow: elide; horizontal-stretch: 1; }
-            Text { text: root.item.duration-text; color: #8d8d8d; font-size: 10px; }
+            spacing: Theme.space-xs;
+            Text { text: root.item.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; }
+            Caption { text: root.item.duration-text; }
         }
     }
+    // Transition into this clip, drawn over the overlap.
     if root.item.transition != 0 : Rectangle {
         x: 0;
         y: 0;
         width: max(root.item.overlap * 1px, 10px);
         height: parent.height;
-        background: root.item.transition == 1 ? #f39c1266 : #ffffff33;
+        background: root.item.transition == 1 ? Theme.title-clip.with-alpha(0.4) : Theme.text.with-alpha(0.2);
     }
-    if root.item.is-video : Rectangle {
-        x: parent.width - 22px;
-        y: 6px;
-        width: 18px;
-        height: 16px;
-        border-radius: 4px;
-        background: #00000099;
-        Text { text: root.item.muted ? "🔇" : "▶"; color: white; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+    if root.item.is-video && root.item.muted : Badge {
+        x: parent.width - self.width - Theme.space-s;
+        y: Theme.space-s;
+        icon: Icons.speaker-mute;
+        label: @tr("Muted");
     }
     // Trim handles (videos only): drag the edges to change in/out points.
-    if root.item.is-video : TouchArea {
+    // Shown on hover so the affordance is discoverable without clutter.
+    trim-left := TouchArea {
         x: 0;
         width: 10px;
-        mouse-cursor: MouseCursor.col-resize;
+        enabled: root.item.is-video;
+        mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
             if e.kind == PointerEventKind.move && self.pressed {
                 EditorState.trim-dragged(root.item.index, true, root.item.x + self.mouse-x / 1px);
@@ -176,12 +193,13 @@ component ClipView inherits Rectangle {
                 EditorState.trim-released(root.item.index, true, root.item.x + self.mouse-x / 1px);
             }
         }
-        Rectangle { width: 4px; height: parent.height; x: 0; background: #ffffff55; }
+        if root.item.is-video : Rectangle { width: 4px; height: parent.height; x: 0; background: Theme.text; opacity: root.hovered || root.item.selected ? 0.7 : 0.25; animate opacity { duration: Theme.motion-fast; } }
     }
-    if root.item.is-video : TouchArea {
+    trim-right := TouchArea {
         x: parent.width - 10px;
         width: 10px;
-        mouse-cursor: MouseCursor.col-resize;
+        enabled: root.item.is-video;
+        mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
             if e.kind == PointerEventKind.move && self.pressed {
                 EditorState.trim-dragged(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
@@ -189,152 +207,185 @@ component ClipView inherits Rectangle {
                 EditorState.trim-released(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
             }
         }
-        Rectangle { width: 4px; height: parent.height; x: 6px; background: #ffffff55; }
+        if root.item.is-video : Rectangle { width: 4px; height: parent.height; x: 6px; background: Theme.text; opacity: root.hovered || root.item.selected ? 0.7 : 0.25; animate opacity { duration: Theme.motion-fast; } }
+    }
+}
+
+/// Labelled slider with a live value read-out (Spectrum "Slider").
+component ValueSlider inherits HorizontalLayout {
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <float> step;
+    in property <bool> enabled: true;
+    in property <string> value-text;
+    in property <string> label;
+    in-out property <float> value;
+    callback released(float);
+    spacing: Theme.space-s;
+    Slider {
+        minimum: root.minimum;
+        maximum: root.maximum;
+        step: root.step;
+        enabled: root.enabled;
+        value <=> root.value;
+        released(v) => { root.released(v); }
+        accessible-label: root.label;
+    }
+    Text {
+        text: root.value-text;
+        color: root.enabled ? Theme.text : Theme.text-disabled;
+        font-size: Theme.font-secondary;
+        width: 48px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
     }
 }
 
 component Inspector inherits Rectangle {
-    background: #232323;
+    background: Theme.surface-pane;
     width: 280px;
     ScrollView {
         VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
+            padding: Theme.space-l;
+            spacing: Theme.space-m;
             alignment: start;
             Text {
                 text: EditorState.selected-count == 0
-                    ? @tr("No selection – changes apply to all {} clips", EditorState.clip-count)
+                    ? (EditorState.clip-count == 0 ? @tr("Settings for new clips") : @tr("No selection: changes apply to all {} clips", EditorState.clip-count))
                     : (EditorState.selected-count == 1 ? @tr("1 clip selected") : @tr("{} clips selected", EditorState.selected-count));
-                color: #9a9a9a;
-                font-size: 12px;
+                color: Theme.text-secondary;
+                font-size: Theme.font-secondary;
                 wrap: word-wrap;
             }
-            if !EditorState.only-video-target : Text { text: @tr("Photo duration (seconds)"); color: #d0d0d0; font-size: 12px; }
+            if !EditorState.only-video-target : SectionLabel { text: @tr("Photo duration"); }
+            if !EditorState.only-video-target : ValueSlider {
+                minimum: 0.5;
+                maximum: 20;
+                step: 0.5;
+                value <=> EditorState.duration-seconds;
+                value-text: round(EditorState.duration-seconds * 10) / 10 + " s";
+                label: @tr("Photo duration");
+                released(v) => { EditorState.duration-changed(v); }
+            }
             if !EditorState.only-video-target : HorizontalLayout {
-                spacing: 8px;
-                Slider {
-                    minimum: 0.5;
-                    maximum: 20;
-                    step: 0.5;
-                    value <=> EditorState.duration-seconds;
-                    released(v) => { EditorState.duration-changed(v); }
+                spacing: Theme.space-xs;
+                for s in [2, 3, 4, 5, 8] : Button {
+                    text: s + " s";
+                    checkable: true;
+                    checked: EditorState.duration-seconds == s;
+                    clicked => { EditorState.duration-seconds = s; EditorState.duration-changed(s); }
                 }
-                Text { text: round(EditorState.duration-seconds * 10) / 10 + " s"; color: #d0d0d0; width: 44px; vertical-alignment: center; }
             }
-            if !EditorState.only-video-target : HorizontalLayout {
-                spacing: 6px;
-                for s in [2, 3, 4, 5, 8] : Button { text: s + " s"; clicked => { EditorState.duration-seconds = s; EditorState.duration-changed(s); } }
-            }
-            if EditorState.has-video-target : Text { text: @tr("Audio"); color: #d0d0d0; font-size: 12px; }
+            if EditorState.has-video-target : SectionLabel { text: @tr("Audio"); }
             if EditorState.has-video-target : CheckBox {
                 text: @tr("Mute");
                 checked <=> EditorState.muted;
                 toggled => { EditorState.muted-changed(self.checked); }
             }
-            if EditorState.has-video-target : HorizontalLayout {
-                spacing: 8px;
-                Slider {
-                    enabled: !EditorState.muted;
-                    minimum: 0;
-                    maximum: 200;
-                    step: 5;
-                    value <=> EditorState.volume-percent;
-                    released(v) => { EditorState.volume-changed(v); }
-                }
-                Text { text: round(EditorState.volume-percent) + " %"; color: #d0d0d0; width: 48px; vertical-alignment: center; }
+            if EditorState.has-video-target : ValueSlider {
+                enabled: !EditorState.muted;
+                minimum: 0;
+                maximum: 200;
+                step: 5;
+                value <=> EditorState.volume-percent;
+                value-text: round(EditorState.volume-percent) + " %";
+                label: @tr("Volume");
+                released(v) => { EditorState.volume-changed(v); }
             }
-            if EditorState.has-video-target : Text {
-                text: @tr("Drag the edges of a video clip to trim it.");
-                color: #8d8d8d;
-                font-size: 11px;
-                wrap: word-wrap;
-            }
-            Text { text: @tr("Fit"); color: #d0d0d0; font-size: 12px; }
+            if EditorState.has-video-target : Caption { text: @tr("Drag the edges of a video clip to trim it."); wrap: word-wrap; overflow: clip; }
+            SectionLabel { text: @tr("Fit"); }
             ComboBox {
                 model: [@tr("Fit inside (bars)"), @tr("Fill frame (crop)")];
                 current-index <=> EditorState.fit-index;
                 selected => { EditorState.fit-changed(self.current-index); }
+                accessible-label: @tr("Fit");
             }
-            Button { text: @tr("Rotate 90°"); clicked => { EditorState.rotate-selected(); } }
-            Text { text: @tr("Transition into clip"); color: #d0d0d0; font-size: 12px; }
+            Button { text: @tr("Rotate 90°"); icon: Icons.arrow-rotate-clockwise; colorize-icon: true; clicked => { EditorState.rotate-selected(); } }
+            SectionLabel { text: @tr("Transition into clip"); }
             ComboBox {
                 model: [@tr("Cut"), @tr("Cross dissolve"), @tr("Fade through black")];
                 current-index <=> EditorState.transition-index;
                 selected => { EditorState.transition-changed(self.current-index, EditorState.transition-seconds); }
+                accessible-label: @tr("Transition into clip");
             }
-            HorizontalLayout {
-                spacing: 8px;
-                Slider {
-                    enabled: EditorState.transition-index != 0;
-                    minimum: 0.2;
-                    maximum: 3;
-                    step: 0.1;
-                    value <=> EditorState.transition-seconds;
-                    released(v) => { EditorState.transition-changed(EditorState.transition-index, v); }
-                }
-                Text { text: round(EditorState.transition-seconds * 10) / 10 + " s"; color: #d0d0d0; width: 44px; vertical-alignment: center; }
+            ValueSlider {
+                enabled: EditorState.transition-index != 0;
+                minimum: 0.2;
+                maximum: 3;
+                step: 0.1;
+                value <=> EditorState.transition-seconds;
+                value-text: round(EditorState.transition-seconds * 10) / 10 + " s";
+                label: @tr("Transition duration");
+                released(v) => { EditorState.transition-changed(EditorState.transition-index, v); }
             }
-            Rectangle { height: 8px; }
-            Text { text: @tr("Project"); color: #d0d0d0; font-size: 12px; }
+            Divider { }
+            SectionLabel { text: @tr("Project"); }
             ComboBox {
                 model: [@tr("Landscape 16:9"), @tr("Portrait 9:16")];
                 current-index <=> EditorState.aspect-index;
                 selected => { EditorState.aspect-changed(self.current-index); }
+                accessible-label: @tr("Orientation");
             }
-            Rectangle { height: 8px; }
-            Button { text: @tr("Select all"); clicked => { EditorState.select-all(); } }
-            Button { text: @tr("Remove from timeline"); enabled: EditorState.selected-count > 0; clicked => { EditorState.delete-selected(); } }
+            Divider { }
+            Button { text: @tr("Select all"); icon: Icons.select-all; colorize-icon: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.select-all(); } }
+            Button {
+                text: EditorState.selected-count > 1 ? @tr("Remove {} from timeline", EditorState.selected-count) : @tr("Remove from timeline");
+                icon: Icons.delete;
+                colorize-icon: true;
+                enabled: EditorState.selected-count > 0;
+                clicked => { EditorState.delete-selected(); }
+            }
         }
     }
 }
 
-component ExportDialog inherits Rectangle {
-    background: #000000aa;
-    TouchArea { }
-    Rectangle {
-        width: 420px;
-        height: 360px;
-        border-radius: 12px;
-        background: #2a2d34;
-        VerticalLayout {
-            padding: 24px;
-            spacing: 14px;
-            Text { text: @tr("Export video"); color: white; font-size: 20px; font-weight: 700; }
-            HorizontalLayout {
-                spacing: 12px;
-                Text { text: @tr("Resolution"); color: #d0d0d0; vertical-alignment: center; width: 110px; }
-                ComboBox { model: [@tr("Full HD (1080p)"), @tr("4K (2160p)")]; current-index <=> EditorState.export-resolution-index; enabled: EditorState.export-status != 1; }
-            }
-            HorizontalLayout {
-                spacing: 12px;
-                Text { text: @tr("Quality"); color: #d0d0d0; vertical-alignment: center; width: 110px; }
-                ComboBox { model: [@tr("Good"), @tr("Better"), @tr("Best")]; current-index <=> EditorState.export-quality-index; enabled: EditorState.export-status != 1; }
-            }
-            CheckBox { text: @tr("Optimize for YouTube"); checked <=> EditorState.export-youtube; enabled: EditorState.export-status != 1; }
-            CheckBox { text: @tr("HDR (available once HDR sources are supported)"); checked: false; enabled: false; }
-            Rectangle { vertical-stretch: 1; }
-            if EditorState.export-status == 1 : ProgressIndicator { progress: EditorState.export-progress; }
-            if EditorState.export-status != 0 : Text {
-                text: EditorState.export-status == 1 ? @tr("Exporting… {}%", round(EditorState.export-progress * 100))
-                    : EditorState.export-status == 2 ? @tr("Done: {}", EditorState.export-message)
-                    : @tr("Export failed: {}", EditorState.export-message);
-                color: EditorState.export-status == 3 ? #ff6b6b : #d0d0d0;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: end;
-                if EditorState.export-status == 1 : Button { text: @tr("Cancel"); clicked => { EditorState.export-cancel(); } }
-                if EditorState.export-status != 1 : Button { text: @tr("Close"); clicked => { EditorState.export-open = false; } }
-                if EditorState.export-status != 1 : Button { text: @tr("Export…"); primary: true; clicked => { EditorState.export-start(); } }
-            }
+component ExportDialog inherits DialogFrame {
+    title: @tr("Export video");
+    dialog-width: 480px;
+    dialog-height: 380px;
+    dismissed => { if EditorState.export-status != 1 { EditorState.export-open = false; } }
+    HorizontalLayout {
+        spacing: Theme.space-m;
+        BodyText { text: @tr("Resolution"); width: 120px; }
+        ComboBox { model: [@tr("Full HD (1080p)"), @tr("4K (2160p)")]; current-index <=> EditorState.export-resolution-index; enabled: EditorState.export-status != 1; accessible-label: @tr("Resolution"); }
+    }
+    HorizontalLayout {
+        spacing: Theme.space-m;
+        BodyText { text: @tr("Quality"); width: 120px; }
+        ComboBox { model: [@tr("Good"), @tr("Better"), @tr("Best")]; current-index <=> EditorState.export-quality-index; enabled: EditorState.export-status != 1; accessible-label: @tr("Quality"); }
+    }
+    CheckBox { text: @tr("Optimize for YouTube"); checked <=> EditorState.export-youtube; enabled: EditorState.export-status != 1; }
+    CheckBox { text: @tr("HDR (available once HDR sources are supported)"); checked: false; enabled: false; }
+    Rectangle { vertical-stretch: 1; }
+    if EditorState.export-status == 1 : ProgressIndicator { progress: EditorState.export-progress; }
+    if EditorState.export-status != 0 : HorizontalLayout {
+        spacing: Theme.space-s;
+        if EditorState.export-status != 1 : Icon {
+            source: EditorState.export-status == 2 ? Icons.checkmark-circle : Icons.error-circle;
+            color: EditorState.export-status == 2 ? Theme.success : Theme.danger;
         }
+        Text {
+            text: EditorState.export-status == 1 ? @tr("Exporting… {}%", round(EditorState.export-progress * 100))
+                : EditorState.export-status == 2 ? @tr("Saved to {}", EditorState.export-message)
+                : @tr("Export failed: {}", EditorState.export-message);
+            color: Theme.text;
+            font-size: Theme.font-secondary;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+    }
+    DialogButtons {
+        macos: Shell.macos;
+        primary-text: @tr("Export…");
+        primary-visible: EditorState.export-status != 1;
+        secondary-text: EditorState.export-status == 1 ? @tr("Cancel") : @tr("Close");
+        primary => { EditorState.export-start(); }
+        secondary => { if EditorState.export-status == 1 { EditorState.export-cancel(); } else { EditorState.export-open = false; } }
     }
 }
 
 export component EditorPage inherits Rectangle {
-    background: #1e1e1e;
+    background: Theme.surface-window;
     forward-focus: keys;
 
     keys := FocusScope {
@@ -361,73 +412,84 @@ export component EditorPage inherits Rectangle {
                 horizontal-stretch: 1;
                 // Toolbar
                 Rectangle {
-                    height: 48px;
-                    background: #232323;
+                    height: Theme.toolbar-height;
+                    background: Theme.surface-pane;
                     HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        spacing: 8px;
-                        Button { text: Shell.library-visible ? "◧" : "◨"; width: 36px; clicked => { Shell.library-visible = !Shell.library-visible; } }
-                        Button { text: "↶"; enabled: EditorState.can-undo; clicked => { EditorState.undo(); } }
-                        Button { text: "↷"; enabled: EditorState.can-redo; clicked => { EditorState.redo(); } }
-                        Rectangle { horizontal-stretch: 1; }
-                        Text {
-                            text: EditorState.project-title + (EditorState.dirty ? " •" : "");
-                            color: #d0d0d0;
-                            vertical-alignment: center;
+                        padding-left: Theme.space-s;
+                        padding-right: Theme.space-l;
+                        spacing: Theme.space-s;
+                        IconButton {
+                            icon: Shell.library-visible ? Icons.panel-left-contract : Icons.panel-left-expand;
+                            tooltip: Shell.library-visible ? @tr("Hide library") : @tr("Show library");
+                            clicked => { Shell.library-visible = !Shell.library-visible; }
                         }
+                        IconButton { icon: Icons.arrow-undo; tooltip: Shell.macos ? @tr("Undo (⌘Z)") : @tr("Undo (Ctrl+Z)"); enabled: EditorState.can-undo; clicked => { EditorState.undo(); } }
+                        IconButton { icon: Icons.arrow-redo; tooltip: Shell.macos ? @tr("Redo (⇧⌘Z)") : @tr("Redo (Ctrl+Shift+Z)"); enabled: EditorState.can-redo; clicked => { EditorState.redo(); } }
                         Rectangle { horizontal-stretch: 1; }
-                        Button { text: @tr("Export…"); primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
-                        Button { text: "⚙"; width: 36px; clicked => { Shell.settings-open = true; } }
+                        BodyText { text: EditorState.project-title + (EditorState.dirty ? " •" : ""); }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button { text: @tr("Export…"); icon: Icons.share; colorize-icon: true; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        IconButton { icon: Icons.settings; tooltip: @tr("Settings"); clicked => { Shell.settings-open = true; } }
                     }
                 }
+                Divider { }
                 // Preview
                 Rectangle {
                     vertical-stretch: 1;
-                    background: #111;
+                    background: Theme.surface-canvas;
                     Image {
                         source: EditorState.preview;
                         image-fit: contain;
-                        width: parent.width - 32px;
-                        height: parent.height - 32px;
-                        x: 16px;
-                        y: 16px;
+                        width: parent.width - 2 * Theme.space-l;
+                        height: parent.height - 2 * Theme.space-l;
+                        x: Theme.space-l;
+                        y: Theme.space-l;
                     }
-                    if EditorState.clip-count == 0 : Text {
-                        text: @tr("Double-click photos in the library, or use “Add all”, to start your slideshow.");
-                        color: #7a7a7a;
-                        font-size: 16px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        width: parent.width;
+                    if EditorState.clip-count == 0 : EmptyState {
+                        width: min(parent.width, 480px);
+                        x: (parent.width - self.width) / 2;
                         height: parent.height;
+                        icon: Icons.filmstrip;
+                        title: @tr("Your slideshow is empty");
+                        description: @tr("Double-click items in the library or drag them onto the timeline below. Everything you change can be undone.");
+                        action-text: @tr("Add all from library");
+                        action-enabled: LibraryState.total-count > 0;
+                        action => { LibraryState.add-all-to-timeline(); }
                     }
                 }
+                Divider { }
                 // Transport
                 Rectangle {
-                    height: 40px;
-                    background: #232323;
+                    height: Theme.bar-height;
+                    background: Theme.surface-pane;
                     HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        spacing: 12px;
-                        Button { text: EditorState.playing ? "❚❚" : "▶"; width: 44px; clicked => { EditorState.toggle-play(); } }
-                        Text { text: EditorState.time-text + " / " + EditorState.total-text; color: #d0d0d0; vertical-alignment: center; }
+                        padding-left: Theme.space-s;
+                        padding-right: Theme.space-l;
+                        spacing: Theme.space-m;
+                        IconButton {
+                            icon: EditorState.playing ? Icons.pause : Icons.play;
+                            tooltip: EditorState.playing ? @tr("Pause (Space)") : @tr("Play (Space)");
+                            enabled: EditorState.clip-count > 0;
+                            clicked => { EditorState.toggle-play(); }
+                        }
+                        BodyText { text: EditorState.time-text + " / " + EditorState.total-text; font-size: Theme.font-secondary; }
                         Rectangle { horizontal-stretch: 1; }
-                        Text { text: @tr("Zoom"); color: #8d8d8d; vertical-alignment: center; }
+                        Caption { text: @tr("Zoom"); }
                         Slider {
                             width: 140px;
                             minimum: 10;
                             maximum: 200;
                             value <=> EditorState.pixels-per-second;
                             changed(v) => { EditorState.zoom-changed(v); }
+                            accessible-label: @tr("Timeline zoom");
                         }
                     }
                 }
+                Divider { }
                 // Timeline strip
                 strip := Rectangle {
                     height: 132px;
-                    background: #191a1e;
+                    background: Theme.surface-window;
                     flick := Flickable {
                         content-width: max(EditorState.strip-width * 1px + 200px, self.width);
                         content-height: self.height;
@@ -448,28 +510,36 @@ export component EditorPage inherits Rectangle {
                         }
                         if EditorState.trim-marker >= 0 : Rectangle {
                             x: EditorState.trim-marker-x * 1px - 1px;
-                            y: 12px;
-                            width: 3px;
+                            y: Theme.space-m;
+                            width: 2px;
                             height: 112px;
-                            background: #ffffff;
+                            background: Theme.text;
                         }
+                        // Insertion point while dragging from the library.
                         if EditorState.drop-marker >= 0 : Rectangle {
                             x: EditorState.drop-marker-x * 1px - 1px;
-                            y: 12px;
+                            y: Theme.space-m;
                             width: 3px;
                             height: 112px;
-                            background: #f39c12;
+                            border-radius: 1px;
+                            background: Theme.accent;
                         }
                         Rectangle {
                             x: EditorState.playhead-x * 1px - 1px;
                             y: 0;
                             width: 2px;
                             height: parent.height;
-                            background: #ff5e62;
+                            background: Theme.playhead;
                         }
+                    }
+                    if Shell.drag-over-timeline : Rectangle {
+                        background: Theme.drop-target;
+                        border-width: 2px;
+                        border-color: Theme.accent;
                     }
                 }
             }
+            VDivider { }
             Inspector { }
         }
     }

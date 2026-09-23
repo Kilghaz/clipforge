@@ -64,6 +64,9 @@ fn main() -> Result<()> {
     language::apply(current.language);
 
     window.set_app_version(env!("CARGO_PKG_VERSION").into());
+    window
+        .global::<ui::Shell>()
+        .set_macos(cfg!(target_os = "macos"));
     let system_label = window.global::<Strings>().get_system_language();
     window.set_language_options(ModelRc::new(VecModel::from(language::picker_options(
         &system_label,

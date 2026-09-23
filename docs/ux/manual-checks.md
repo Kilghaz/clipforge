@@ -6,8 +6,9 @@ Things CI cannot verify. Run before tagging a milestone.
 
 - [ ] `cargo run -p clipforge-app` opens a window with menu bar
       (File, Edit, View), the library panel on the left and the editor on
-      the right. The divider resizes the panel; ◧ / View menu hides it;
-      ⚙ opens Settings as an overlay.
+      the right. The divider resizes the panel (double-click resets it); the
+      panel button / View menu hides it; the gear button opens Settings as
+      a dialog (Escape closes it).
 - [ ] Settings → Interface language → "Deutsch" switches all visible strings
       immediately, including the menu and the "System language" entry.
 - [ ] Restarting the app keeps the chosen language.
@@ -86,3 +87,19 @@ Things CI cannot verify. Run before tagging a milestone.
       (check a clap or a beat against the frame in a player).
 - [ ] 4K HEVC iPhone clip: scrubbing responds within ~0.2 s and playback is
       smooth on the Mac; note the frame rate on Windows.
+
+## Design guide pass (ADR-0009)
+
+- [ ] The whole UI is dark on both platforms; no light widgets appear.
+- [ ] Every icon-only button shows a tooltip after a short hover; no emoji
+      glyphs remain anywhere.
+- [ ] Empty library and empty timeline show the empty-state text with a
+      working primary action.
+- [ ] Settings and Export dialogs: Escape closes them (not during an export);
+      button order is `[Primary] [Cancel]` on Windows and reversed on macOS.
+- [ ] Library cells and timeline clips: hover tint, accent selection ring;
+      video trim handles brighten on hover.
+- [ ] Drag ghost shows an icon and "{n} items" and turns accent-coloured over
+      the timeline; the timeline shows a tinted drop zone.
+- [ ] German: all new strings translated, nothing truncated in the inspector
+      or the library action bar at the minimum window width.

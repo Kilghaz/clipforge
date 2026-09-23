@@ -35,9 +35,6 @@ msgstr "Ansicht"
 msgid "Library"
 msgstr "Mediathek"
 
-msgid "Editor"
-msgstr "Editor"
-
 msgid "Language"
 msgstr "Sprache"
 
@@ -98,15 +95,6 @@ msgstr "1 Element"
 msgid "{} items"
 msgstr "{} Elemente"
 
-msgid "Your library is empty."
-msgstr "Deine Mediathek ist leer."
-
-msgid "Nothing matches your search."
-msgstr "Nichts passt zu deiner Suche."
-
-msgid "Drop photos, videos and music here, or use the + buttons. Files stay where they are."
-msgstr "Ziehe Fotos, Videos und Musik hierher oder nutze die +‑Schaltflächen. Die Dateien bleiben, wo sie sind."
-
 msgid "Scanning…"
 msgstr "Durchsuche…"
 
@@ -115,9 +103,6 @@ msgstr "Füge {} von {} hinzu…"
 
 msgid "Added {} files, {} were already in the library."
 msgstr "{} Dateien hinzugefügt, {} waren bereits in der Mediathek."
-
-msgid "Select an item to see its details."
-msgstr "Wähle ein Element aus, um Details zu sehen."
 
 msgid "Not downloaded"
 msgstr "Nicht heruntergeladen"
@@ -140,17 +125,11 @@ msgstr "Dauer"
 msgid "Captured"
 msgstr "Aufgenommen"
 
-msgid "Codec"
-msgstr "Codec"
-
 msgid "File size"
 msgstr "Dateigröße"
 
 msgid "Status"
 msgstr "Status"
-
-msgid "Location"
-msgstr "Speicherort"
 
 msgid "Reading metadata…"
 msgstr "Lese Metadaten…"
@@ -206,23 +185,14 @@ msgstr "Alle Clips auswählen"
 msgid "Remove Selected Clips"
 msgstr "Ausgewählte Clips entfernen"
 
-msgid "Add all to timeline"
-msgstr "Alle zur Timeline hinzufügen"
-
 msgid "Add to timeline"
 msgstr "Zur Timeline hinzufügen"
-
-msgid "No selection – changes apply to all {} clips"
-msgstr "Keine Auswahl – Änderungen gelten für alle {} Clips"
 
 msgid "1 clip selected"
 msgstr "1 Clip ausgewählt"
 
 msgid "{} clips selected"
 msgstr "{} Clips ausgewählt"
-
-msgid "Photo duration (seconds)"
-msgstr "Anzeigedauer pro Foto (Sekunden)"
 
 msgid "Fit"
 msgstr "Einpassen"
@@ -296,9 +266,6 @@ msgstr "HDR (verfügbar, sobald HDR-Quellen unterstützt werden)"
 msgid "Exporting… {}%"
 msgstr "Exportiere… {}%"
 
-msgid "Done: {}"
-msgstr "Fertig: {}"
-
 msgid "Export failed: {}"
 msgstr "Export fehlgeschlagen: {}"
 
@@ -310,9 +277,6 @@ msgstr "Schließen"
 
 msgid "Export…"
 msgstr "Exportieren…"
-
-msgid "Double-click photos in the library, or use “Add all”, to start your slideshow."
-msgstr "Doppelklicke Fotos in der Mediathek oder nutze „Alle hinzufügen“, um deine Diashow zu beginnen."
 
 msgid "Zoom"
 msgstr "Zoom"
@@ -326,20 +290,122 @@ msgstr "Mediathek einblenden"
 msgid "Add all"
 msgstr "Alle hinzufügen"
 
-msgid "Remove"
-msgstr "Entfernen"
-
 msgid "Add {} to timeline"
 msgstr "{} zur Timeline hinzufügen"
-
-msgid "1 photo"
-msgstr "1 Foto"
-
-msgid "{} photos"
-msgstr "{} Fotos"
 
 msgid "Mute"
 msgstr "Stumm"
 
 msgid "Drag the edges of a video clip to trim it."
 msgstr "Ziehe die Ränder eines Videoclips, um ihn zu trimmen."
+
+msgid "1 selected"
+msgstr "1 ausgewählt"
+
+msgid "{} selected"
+msgstr "{} ausgewählt"
+
+msgid "Add all from library"
+msgstr "Alles aus der Mediathek hinzufügen"
+
+msgid "Add the photos, videos and music for your slideshow. Files stay where they are; nothing is copied."
+msgstr "Füge die Fotos, Videos und Musik für deine Diashow hinzu. Die Dateien bleiben, wo sie sind; nichts wird kopiert."
+
+msgid "Could not be read"
+msgstr "Konnte nicht gelesen werden"
+
+msgid "Double-click items in the library or drag them onto the timeline below. Everything you change can be undone."
+msgstr "Doppelklicke Elemente in der Mediathek oder ziehe sie auf die Zeitleiste unten. Alles lässt sich rückgängig machen."
+
+msgid "Filter by type"
+msgstr "Nach Typ filtern"
+
+msgid "Hide details"
+msgstr "Details ausblenden"
+
+msgid "Show details"
+msgstr "Details anzeigen"
+
+msgid "Hide library"
+msgstr "Mediathek ausblenden"
+
+msgid "Show library"
+msgstr "Mediathek anzeigen"
+
+msgid "Made with Slint. Icons: Fluent UI System Icons (MIT)."
+msgstr "Erstellt mit Slint. Symbole: Fluent UI System Icons (MIT)."
+
+msgid "Muted"
+msgstr "Stumm"
+
+msgid "Newest first. Click for oldest first"
+msgstr "Neueste zuerst. Klicken für älteste zuerst"
+
+msgid "Oldest first. Click for newest first"
+msgstr "Älteste zuerst. Klicken für neueste zuerst"
+
+msgid "No selection: changes apply to all {} clips"
+msgstr "Keine Auswahl: Änderungen gelten für alle {} Clips"
+
+msgid "Nothing matches your search"
+msgstr "Nichts passt zu deiner Suche"
+
+msgid "Orientation"
+msgstr "Ausrichtung"
+
+msgid "Pause (Space)"
+msgstr "Pause (Leertaste)"
+
+msgid "Play (Space)"
+msgstr "Wiedergabe (Leertaste)"
+
+msgid "Photo duration"
+msgstr "Fotodauer"
+
+msgid "Redo (Ctrl+Shift+Z)"
+msgstr "Wiederholen (Strg+Umschalt+Z)"
+
+msgid "Undo (Ctrl+Z)"
+msgstr "Rückgängig (Strg+Z)"
+
+msgid "Redo (⇧⌘Z)"
+msgstr "Wiederholen (⇧⌘Z)"
+
+msgid "Undo (⌘Z)"
+msgstr "Rückgängig (⌘Z)"
+
+msgid "Remove {} from timeline"
+msgstr "{} aus der Zeitleiste entfernen"
+
+msgid "Saved to {}"
+msgstr "Gespeichert unter {}"
+
+msgid "Search the library"
+msgstr "Mediathek durchsuchen"
+
+msgid "Settings for new clips"
+msgstr "Einstellungen für neue Clips"
+
+msgid "Settings…"
+msgstr "Einstellungen…"
+
+msgid "Sort by"
+msgstr "Sortieren nach"
+
+msgid "Timeline zoom"
+msgstr "Zeitleisten-Zoom"
+
+msgid "Transition duration"
+msgstr "Übergangsdauer"
+
+msgid "Try another word or set the type filter to \"All\"."
+msgstr "Versuche ein anderes Wort oder stelle den Typfilter auf „Alle“."
+
+msgid "Volume"
+msgstr "Lautstärke"
+
+msgid "Your library is empty"
+msgstr "Deine Mediathek ist leer"
+
+msgid "Your slideshow is empty"
+msgstr "Deine Diashow ist leer"

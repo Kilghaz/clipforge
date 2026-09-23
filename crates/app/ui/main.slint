@@ -1,8 +1,10 @@
-import { Button } from "std-widgets.slint";
+import { Button, Palette } from "std-widgets.slint";
 import { SettingsPage } from "settings.slint";
 import { LibraryPage, LibraryState, MediaCell, GridRow, InspectorInfo } from "library.slint";
 import { EditorPage, EditorState, TimelineClip, StripRect } from "editor.slint";
 import { Shell } from "shell.slint";
+import { Theme, Icons } from "theme.slint";
+import { Icon, DialogFrame, DialogButtons } from "components.slint";
 
 export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, StripRect, Shell }
 
@@ -24,6 +26,9 @@ export component MainWindow inherits Window {
     min-width: 900px;
     min-height: 560px;
     icon: @image-url("../../../assets/icons/256x256.png");
+    background: Theme.surface-window;
+    // Dark only (ADR-0009); the style's palette follows.
+    init => { Palette.color-scheme = ColorScheme.dark; }
 
     // Settings state, owned by Rust.
     in-out property <int> language-index: 0;
@@ -43,12 +48,12 @@ export component MainWindow inherits Window {
             MenuItem { title: @tr("Save Project"); activated => { EditorState.save-project(); } }
             MenuItem { title: @tr("Save Project As…"); activated => { EditorState.save-project-as(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Export Video…"); activated => { EditorState.export-open = true; } }
+            MenuItem { title: @tr("Export Video…"); enabled: EditorState.clip-count > 0; activated => { EditorState.export-open = true; } }
             MenuSeparator {}
             MenuItem { title: @tr("Add files to library…"); activated => { LibraryState.add-files(); } }
             MenuItem { title: @tr("Add folder to library…"); activated => { LibraryState.add-folder(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Settings"); activated => { Shell.settings-open = true; } }
+            MenuItem { title: @tr("Settings…"); activated => { Shell.settings-open = true; } }
             MenuSeparator {}
             MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
         }
@@ -57,8 +62,8 @@ export component MainWindow inherits Window {
             MenuItem { title: @tr("Undo"); enabled: EditorState.can-undo; activated => { EditorState.undo(); } }
             MenuItem { title: @tr("Redo"); enabled: EditorState.can-redo; activated => { EditorState.redo(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Select All Clips"); activated => { EditorState.select-all(); } }
-            MenuItem { title: @tr("Remove Selected Clips"); activated => { EditorState.delete-selected(); } }
+            MenuItem { title: @tr("Select All Clips"); enabled: EditorState.clip-count > 0; activated => { EditorState.select-all(); } }
+            MenuItem { title: @tr("Remove Selected Clips"); enabled: EditorState.selected-count > 0; activated => { EditorState.delete-selected(); } }
         }
         Menu {
             title: @tr("View");
@@ -73,18 +78,28 @@ export component MainWindow inherits Window {
         if Shell.library-visible : LibraryPage {
             width: Shell.library-width;
         }
-        // Divider: drag to resize the library panel.
+        // Divider: 1 px line with an 8 px grab area; drag to resize the
+        // library panel, double-click to reset (Fluent "SplitView").
         divider := Rectangle {
-            width: 6px;
-            background: divider-touch.has-hover || divider-touch.pressed ? #3d5afe : #101114;
+            width: Shell.library-visible ? 8px : 0px;
+            background: Theme.surface-window;
+            Rectangle {
+                width: divider-touch.has-hover || divider-touch.pressed ? 3px : 1px;
+                height: parent.height;
+                x: (parent.width - self.width) / 2;
+                background: divider-touch.has-hover || divider-touch.pressed ? Theme.accent : Theme.border;
+                animate width, background { duration: Theme.motion-fast; }
+            }
             divider-touch := TouchArea {
-                mouse-cursor: Shell.library-visible ? MouseCursor.col-resize : MouseCursor.default;
+                enabled: Shell.library-visible;
+                mouse-cursor: MouseCursor.col-resize;
+                double-clicked => { Shell.library-width = 380px; }
                 moved => {
-                    if self.pressed && Shell.library-visible {
+                    if self.pressed {
                         // The panel starts at the window's left edge, so the
                         // pointer's window x is the new width (stable while the
                         // divider itself moves under the pointer).
-                        Shell.library-width = max(260px, min(root.width - 600px, divider.absolute-position.x + self.mouse-x - 3px));
+                        Shell.library-width = max(260px, min(root.width - 600px, divider.absolute-position.x + self.mouse-x - 4px));
                     }
                 }
             }
@@ -94,47 +109,50 @@ export component MainWindow inherits Window {
         }
     }
 
+    // Drag ghost: what is being dragged and whether the drop will land.
     if Shell.drag-active : Rectangle {
-        x: Shell.drag-x + 12px;
-        y: Shell.drag-y + 12px;
-        width: 150px;
-        height: 32px;
-        border-radius: 8px;
-        background: Shell.drag-over-timeline ? #3d5afe : #40444d;
-        Text {
-            text: Shell.drag-count == 1 ? @tr("1 photo") : @tr("{} photos", Shell.drag-count);
-            color: white;
-            font-size: 12px;
-            font-weight: 600;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            width: parent.width;
-            height: parent.height;
+        x: Shell.drag-x + Theme.space-m;
+        y: Shell.drag-y + Theme.space-m;
+        height: Theme.control-height;
+        width: ghost.preferred-width + 2 * Theme.space-m;
+        border-radius: Theme.radius-l;
+        border-width: 1px;
+        border-color: Shell.drag-over-timeline ? Theme.accent : Theme.border;
+        background: Shell.drag-over-timeline ? Theme.accent : Theme.surface-card;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000080;
+        ghost := HorizontalLayout {
+            padding-left: Theme.space-m;
+            padding-right: Theme.space-m;
+            spacing: Theme.space-s;
+            alignment: center;
+            Icon { source: Icons.image-multiple; size: Theme.icon-s; color: Shell.drag-over-timeline ? Palette.accent-foreground : Theme.text; }
+            Text {
+                text: Shell.drag-count == 1 ? @tr("1 item") : @tr("{} items", Shell.drag-count);
+                color: Shell.drag-over-timeline ? Palette.accent-foreground : Theme.text;
+                font-size: Theme.font-secondary;
+                font-weight: Theme.weight-semibold;
+                vertical-alignment: center;
+            }
         }
     }
 
-    if Shell.settings-open : Rectangle {
-        background: #000000aa;
-        TouchArea { clicked => { Shell.settings-open = false; } }
-        Rectangle {
-            width: 520px;
-            height: 380px;
-            border-radius: 12px;
-            background: #1e1e1e;
-            clip: true;
-            TouchArea { }
-            SettingsPage {
-                language-index <=> root.language-index;
-                language-options: root.language-options;
-                app-version: root.app-version;
-                language-selected(i) => { root.language-selected(i); }
-            }
-            Button {
-                text: @tr("Close");
-                x: parent.width - self.width - 16px;
-                y: parent.height - self.height - 16px;
-                clicked => { Shell.settings-open = false; }
-            }
+    if Shell.settings-open : DialogFrame {
+        title: @tr("Settings");
+        dialog-width: 520px;
+        dialog-height: 360px;
+        dismissed => { Shell.settings-open = false; }
+        SettingsPage {
+            language-index <=> root.language-index;
+            language-options: root.language-options;
+            app-version: root.app-version;
+            language-selected(i) => { root.language-selected(i); }
+        }
+        Rectangle { vertical-stretch: 1; }
+        DialogButtons {
+            macos: Shell.macos;
+            primary-text: @tr("Close");
+            primary => { Shell.settings-open = false; }
         }
     }
 }

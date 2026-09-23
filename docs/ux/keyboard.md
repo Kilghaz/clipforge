@@ -3,6 +3,7 @@
 | Key | Action | Since |
 |---|---|---|
 | Cmd/Ctrl+, | Settings | M0 |
+| Esc | Close the Settings / Export dialog (not while exporting) | M3 |
 | Cmd/Ctrl+Q | Quit | M0 |
 | Space | Play / pause | M3 |
 | J / K / L | Reverse / pause / forward | M3 |

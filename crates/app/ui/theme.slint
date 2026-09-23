@@ -1,0 +1,110 @@
+// Design tokens for ClipForge (docs/ux/DESIGN.md §2, ADR-0009).
+//
+// Colours come from the active style's `Palette` so fluent (Windows) and
+// cupertino (macOS) stay consistent; only the semantic tokens below are fixed
+// values. Spacing, radii and type sizes are Spectrum's scale. Nothing in the
+// UI hard-codes a size or colour that is not defined here.
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    // Spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 40.
+    out property <length> space-xs: 4px;
+    out property <length> space-s: 8px;
+    out property <length> space-m: 12px;
+    out property <length> space-l: 16px;
+    out property <length> space-xl: 24px;
+    out property <length> space-xxl: 32px;
+
+    // Corner radii: controls / cards and clips / dialogs and popovers.
+    out property <length> radius-s: 4px;
+    out property <length> radius-m: 6px;
+    out property <length> radius-l: 8px;
+
+    // Sizing.
+    out property <length> control-height: 32px;
+    out property <length> control-height-s: 24px;
+    out property <length> icon-s: 16px;
+    out property <length> icon-m: 20px;
+    out property <length> toolbar-height: 48px;
+    out property <length> bar-height: 40px;
+    out property <length> statusbar-height: 24px;
+
+    // Type scale.
+    out property <length> font-caption: 11px;
+    out property <length> font-secondary: 12px;
+    out property <length> font-body: 14px;
+    out property <length> font-title: 16px;
+    out property <length> font-dialog: 20px;
+    out property <int> weight-regular: 400;
+    out property <int> weight-semibold: 600;
+
+    // Motion.
+    out property <duration> motion-fast: 120ms;
+    out property <duration> motion-panel: 220ms;
+
+    // Surfaces, lowest to highest layer.
+    out property <brush> surface-window: Palette.background;
+    out property <brush> surface-pane: Palette.alternate-background;
+    out property <brush> surface-card: Palette.control-background;
+    out property <brush> surface-canvas: #0d0d0d;
+    out property <brush> scrim: #000000a6;
+    out property <brush> border: Palette.border;
+
+    // Text.
+    out property <brush> text: Palette.foreground;
+    out property <brush> text-secondary: Palette.foreground.transparentize(0.38);
+    out property <brush> text-disabled: Palette.foreground.transparentize(0.64);
+
+    // Semantic colours (contrast >= 3:1 on surface-card, no red/green-only pair).
+    out property <color> photo: #3d8fe0;
+    out property <color> video: #a06cf5;
+    out property <color> audio: #2fae7a;
+    out property <color> title-clip: #e5a23a;
+    out property <color> warning: #e8a838;
+    out property <color> danger: #e5484d;
+    out property <color> success: #2fae7a;
+    out property <color> playhead: #f25f5c;
+    out property <brush> accent: Palette.accent-background;
+    out property <brush> selection: Palette.accent-background;
+    out property <brush> selection-tint: Palette.accent-background.transparentize(0.78);
+    out property <brush> hover-tint: Palette.foreground.transparentize(0.92);
+    out property <brush> drop-target: Palette.accent-background.transparentize(0.8);
+}
+
+/// Fluent UI System Icons subset, fetched by `cargo xtask fluent-icons`.
+export global Icons {
+    out property <image> add: @image-url("../../../assets/fluent/add.svg");
+    out property <image> arrow-redo: @image-url("../../../assets/fluent/arrow_redo.svg");
+    out property <image> arrow-rotate-clockwise: @image-url("../../../assets/fluent/arrow_rotate_clockwise.svg");
+    out property <image> arrow-sort-down: @image-url("../../../assets/fluent/arrow_sort_down.svg");
+    out property <image> arrow-sort-up: @image-url("../../../assets/fluent/arrow_sort_up.svg");
+    out property <image> arrow-undo: @image-url("../../../assets/fluent/arrow_undo.svg");
+    out property <image> checkmark-circle: @image-url("../../../assets/fluent/checkmark_circle.svg");
+    out property <image> chevron-down: @image-url("../../../assets/fluent/chevron_down.svg");
+    out property <image> chevron-up: @image-url("../../../assets/fluent/chevron_up.svg");
+    out property <image> cloud: @image-url("../../../assets/fluent/cloud.svg");
+    out property <image> delete: @image-url("../../../assets/fluent/delete.svg");
+    out property <image> dismiss: @image-url("../../../assets/fluent/dismiss.svg");
+    out property <image> document-add: @image-url("../../../assets/fluent/document_add.svg");
+    out property <image> error-circle: @image-url("../../../assets/fluent/error_circle.svg");
+    out property <image> filmstrip: @image-url("../../../assets/fluent/filmstrip.svg");
+    out property <image> folder-add: @image-url("../../../assets/fluent/folder_add.svg");
+    out property <image> folder-open: @image-url("../../../assets/fluent/folder_open.svg");
+    out property <image> image: @image-url("../../../assets/fluent/image.svg");
+    out property <image> image-multiple: @image-url("../../../assets/fluent/image_multiple.svg");
+    out property <image> info: @image-url("../../../assets/fluent/info.svg");
+    out property <image> music-note: @image-url("../../../assets/fluent/music_note_2.svg");
+    out property <image> panel-left-contract: @image-url("../../../assets/fluent/panel_left_contract.svg");
+    out property <image> panel-left-expand: @image-url("../../../assets/fluent/panel_left_expand.svg");
+    out property <image> pause: @image-url("../../../assets/fluent/pause.svg");
+    out property <image> play: @image-url("../../../assets/fluent/play.svg");
+    out property <image> save: @image-url("../../../assets/fluent/save.svg");
+    out property <image> search: @image-url("../../../assets/fluent/search.svg");
+    out property <image> select-all: @image-url("../../../assets/fluent/select_all_on.svg");
+    out property <image> settings: @image-url("../../../assets/fluent/settings.svg");
+    out property <image> share: @image-url("../../../assets/fluent/share.svg");
+    out property <image> speaker: @image-url("../../../assets/fluent/speaker_2.svg");
+    out property <image> speaker-mute: @image-url("../../../assets/fluent/speaker_mute.svg");
+    out property <image> video: @image-url("../../../assets/fluent/video.svg");
+    out property <image> warning: @image-url("../../../assets/fluent/warning.svg");
+}

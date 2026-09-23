@@ -129,12 +129,23 @@ not belong in a desktop app.
 
 ### ClipForge components
 
+All live in `crates/app/ui/components.slint` unless noted; tokens in
+`crates/app/ui/theme.slint` (`Theme`, `Icons`).
+
 | Component | Based on | Notes |
 |---|---|---|
-| Library grid cell | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, duration, selection ring, drag source. |
-| Timeline clip | Spectrum "Card" + custom | Type colour token, trim handles, muted badge, drop target between clips. |
-| Panel divider | Fluent "SplitView" | 4 px hit area widened to 8 px; double-click resets. |
-| Drop overlay | Fluent drag-and-drop visuals | Whole-window `drop-target` tint + centred message. |
+| `Icon` | Fluent iconography | SVG recoloured via `colorize`; 16 or 20 px. |
+| `IconButton` | Fluent "Button", Spectrum "Action button" | std `Button` with icon + mandatory `Tooltip` and accessible label. |
+| `SectionLabel`, `Caption`, `BodyText` | Spectrum typography | The three text roles; no other sizes in screens. |
+| `Divider`, `VDivider` | Fluent separators | 1 px `Palette.border`. |
+| `Badge` | Spectrum "Badge" | Icon-only status over thumbnails/clips, tinted by semantic colour. |
+| `EmptyState` | Primer "Empty states", Spectrum "Illustrated message" | Icon, title, description, primary + secondary action. |
+| `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`. |
+| Library grid cell (`library.slint`) | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, hover tint, accent selection ring, drag source. Geometry mirrored in `library_view.rs`. |
+| Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, transition overlay, mute badge, trim handles shown on hover. |
+| `ValueSlider` (`editor.slint`) | Spectrum "Slider" | Slider with live value read-out and accessible label. |
+| Panel divider (`main.slint`) | Fluent "SplitView" | 1 px line, 8 px grab area, accent on hover, double-click resets. |
+| Drop overlay / drag ghost | Fluent drag-and-drop visuals | Tinted zone + border while hovering; ghost shows icon and count, accent when droppable. |
 
 (Add a row whenever a custom component lands.)
 

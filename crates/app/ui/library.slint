@@ -1,5 +1,7 @@
 import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "shell.slint";
+import { Theme, Icons } from "theme.slint";
+import { Icon, IconButton, SectionLabel, Caption, BodyText, Divider, Badge, EmptyState } from "components.slint";
 
 export struct MediaCell {
     index: int,
@@ -91,25 +93,19 @@ export global LibraryState {
     callback cell-double-clicked(int);
 }
 
-component KindBadge inherits Rectangle {
+/// Media type / status badge in the thumbnail corner.
+component KindBadge inherits Badge {
     in property <int> kind;
     in property <bool> cloud;
     in property <bool> failed;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: root.failed ? #c0392b : (root.cloud ? #2980b9 : #00000088);
-    Text {
-        text: root.failed ? "!" : (root.cloud ? "☁" : (root.kind == 1 ? "▶" : (root.kind == 2 ? "♪" : "")));
-        color: white;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        width: parent.width;
-        height: parent.height;
-    }
+    icon: root.failed ? Icons.error-circle : (root.cloud ? Icons.cloud : (root.kind == 1 ? Icons.video : Icons.music-note));
+    tint: root.failed ? Theme.danger : (root.cloud ? Theme.text : (root.kind == 1 ? Theme.video : Theme.audio));
+    label: root.failed ? @tr("Could not be read") : (root.cloud ? @tr("Not downloaded") : (root.kind == 1 ? @tr("Video") : @tr("Audio")));
 }
 
+/// Library grid cell: Spectrum "Card" (quiet) with Fluent grid selection.
+/// Geometry (104 × 112, row 116, padding 12, spacing 8) is mirrored in
+/// `library_view.rs`; change both together.
 component CellView inherits Rectangle {
     in property <MediaCell> cell;
     callback pressed(bool, bool);
@@ -119,10 +115,13 @@ component CellView inherits Rectangle {
     callback shown();
     width: 104px;
     height: 112px;
-    border-radius: 8px;
-    background: root.cell.selected ? #3d5afe33 : (touch.has-hover ? #ffffff10 : transparent);
+    border-radius: Theme.radius-m;
+    background: root.cell.selected ? Theme.selection-tint : (touch.has-hover ? Theme.hover-tint : transparent);
     border-width: root.cell.selected ? 2px : 0px;
-    border-color: #3d5afe;
+    border-color: Theme.selection;
+    animate background { duration: Theme.motion-fast; }
+    accessible-role: button;
+    accessible-label: root.cell.title;
 
     init => { root.shown(); }
     touch := TouchArea {
@@ -140,56 +139,46 @@ component CellView inherits Rectangle {
     }
 
     VerticalLayout {
-        padding: 4px;
-        spacing: 3px;
+        padding: Theme.space-xs;
+        spacing: Theme.space-xs;
         Rectangle {
             height: 78px;
-            border-radius: 6px;
+            border-radius: Theme.radius-s;
             clip: true;
-            background: #2a2d34;
+            background: Theme.surface-card;
             if root.cell.has-image : Image {
                 source: root.cell.image;
                 image-fit: contain;
                 width: parent.width;
                 height: parent.height;
             }
-            if !root.cell.has-image && root.cell.pending : Text {
-                text: "…";
-                color: #666;
-                font-size: 22px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                width: parent.width;
-                height: parent.height;
-            }
-            if !root.cell.has-image && !root.cell.pending : Text {
-                text: root.cell.kind == 2 ? "♪" : (root.cell.kind == 1 ? "▶" : "▣");
-                color: #555;
-                font-size: 30px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                width: parent.width;
-                height: parent.height;
+            // Placeholder while the thumbnail loads or when none exists.
+            if !root.cell.has-image : Icon {
+                source: root.cell.kind == 2 ? Icons.music-note : (root.cell.kind == 1 ? Icons.video : Icons.image);
+                size: 28px;
+                color: root.cell.pending ? Theme.text-disabled : Theme.text-secondary;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
             }
             if root.cell.kind != 0 || root.cell.cloud || root.cell.failed : KindBadge {
                 kind: root.cell.kind;
                 cloud: root.cell.cloud;
                 failed: root.cell.failed;
-                x: parent.width - self.width - 6px;
-                y: 6px;
+                x: parent.width - self.width - Theme.space-xs;
+                y: Theme.space-xs;
             }
         }
         Text {
             text: root.cell.title;
-            color: #e6e6e6;
-            font-size: 10px;
+            color: Theme.text;
+            font-size: Theme.font-caption;
             overflow: elide;
             horizontal-alignment: center;
         }
         Text {
             text: root.cell.subtitle;
-            color: #8d8d8d;
-            font-size: 9px;
+            color: Theme.text-secondary;
+            font-size: Theme.font-caption;
             overflow: elide;
             horizontal-alignment: center;
         }
@@ -199,10 +188,10 @@ component CellView inherits Rectangle {
 component InfoRow inherits HorizontalLayout {
     in property <string> label;
     in property <string> value;
-    spacing: 8px;
+    spacing: Theme.space-s;
     visible: root.value != "";
-    Text { text: root.label; color: #8d8d8d; font-size: 11px; width: 72px; }
-    Text { text: root.value; color: #e6e6e6; font-size: 11px; overflow: elide; horizontal-stretch: 1; }
+    Caption { text: root.label; width: 80px; }
+    Text { text: root.value; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; }
 }
 
 export component LibraryPage inherits Rectangle {
@@ -211,66 +200,70 @@ export component LibraryPage inherits Rectangle {
     property <InspectorInfo> inspector: LibraryState.inspector;
     property <bool> details-open: false;
 
-    background: #1a1b1f;
+    background: Theme.surface-pane;
 
     VerticalLayout {
-        // Header
+        // Header: title, count, add actions.
         Rectangle {
-            height: 44px;
-            background: #232323;
+            height: Theme.toolbar-height;
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 8px;
-                spacing: 6px;
-                Text { text: @tr("Library"); color: white; font-size: 15px; font-weight: 700; vertical-alignment: center; }
+                padding-left: Theme.space-l;
+                padding-right: Theme.space-s;
+                spacing: Theme.space-s;
                 Text {
-                    text: root.total-count == 1 ? @tr("1 item") : @tr("{} items", root.total-count);
-                    color: #8d8d8d;
-                    font-size: 11px;
+                    text: @tr("Library");
+                    color: Theme.text;
+                    font-size: Theme.font-title;
+                    font-weight: Theme.weight-semibold;
                     vertical-alignment: center;
                 }
+                Caption { text: root.total-count == 1 ? @tr("1 item") : @tr("{} items", root.total-count); }
                 Rectangle { horizontal-stretch: 1; }
-                Button { text: "+"; width: 32px; clicked => { LibraryState.add-files(); } }
-                Button { text: "📁"; width: 36px; clicked => { LibraryState.add-folder(); } }
+                IconButton { icon: Icons.document-add; tooltip: @tr("Add files…"); clicked => { LibraryState.add-files(); } }
+                IconButton { icon: Icons.folder-add; tooltip: @tr("Add folder…"); clicked => { LibraryState.add-folder(); } }
             }
         }
-        // Filters
+        // Search, filter, sort.
         Rectangle {
-            height: 40px;
-            background: #232323;
+            height: Theme.bar-height;
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 8px;
-                padding-bottom: 6px;
-                spacing: 6px;
+                padding-left: Theme.space-l;
+                padding-right: Theme.space-s;
+                padding-bottom: Theme.space-s;
+                spacing: Theme.space-s;
                 LineEdit {
                     horizontal-stretch: 1;
                     placeholder-text: @tr("Search");
                     text <=> LibraryState.search-text;
                     edited(t) => { LibraryState.search-changed(t); }
+                    accessible-label: @tr("Search the library");
                 }
                 ComboBox {
                     width: 96px;
                     model: [@tr("All"), @tr("Photos"), @tr("Videos"), @tr("Audio")];
                     current-index <=> LibraryState.filter-index;
                     selected => { LibraryState.filter-changed(self.current-index); }
+                    accessible-label: @tr("Filter by type");
                 }
                 ComboBox {
                     width: 96px;
                     model: [@tr("Date"), @tr("Name"), @tr("Type"), @tr("Added")];
                     current-index <=> LibraryState.sort-index;
                     selected => { LibraryState.sort-changed(self.current-index); }
+                    accessible-label: @tr("Sort by");
                 }
-                Button {
-                    text: LibraryState.descending ? "↓" : "↑";
-                    width: 30px;
+                IconButton {
+                    icon: LibraryState.descending ? Icons.arrow-sort-down : Icons.arrow-sort-up;
+                    tooltip: LibraryState.descending ? @tr("Newest first. Click for oldest first") : @tr("Oldest first. Click for newest first");
                     clicked => { LibraryState.direction-toggled(); }
                 }
             }
         }
+        Divider { }
         // Grid
         grid := Rectangle {
             vertical-stretch: 1;
+            background: Theme.surface-window;
             // `init` runs before Rust has wired its callbacks, so the width
             // is also published as a property that Rust reads itself.
             changed width => { LibraryState.grid-width = self.width; LibraryState.grid-width-changed(self.width); }
@@ -291,8 +284,8 @@ export component LibraryPage inherits Rectangle {
                         }
                     }
                     HorizontalLayout {
-                        padding-left: 12px;
-                        spacing: 8px;
+                        padding-left: Theme.space-m;
+                        spacing: Theme.space-s;
                         alignment: start;
                         for cell in row.cells : CellView {
                             cell: cell;
@@ -310,38 +303,33 @@ export component LibraryPage inherits Rectangle {
                 y: LibraryState.marquee-y * 1px + lv.content-y;
                 width: LibraryState.marquee-w * 1px;
                 height: LibraryState.marquee-h * 1px;
-                background: #3d5afe33;
+                background: Theme.selection-tint;
                 border-width: 1px;
-                border-color: #3d5afe;
+                border-color: Theme.selection;
             }
-            if root.rows.length == 0 : VerticalLayout {
-                alignment: center;
-                spacing: 12px;
-                padding: 16px;
-                Text {
-                    text: root.total-count == 0 ? @tr("Your library is empty.") : @tr("Nothing matches your search.");
-                    color: #9a9a9a;
-                    font-size: 15px;
-                    horizontal-alignment: center;
-                    wrap: word-wrap;
-                }
-                if root.total-count == 0 : Text {
-                    text: @tr("Drop photos, videos and music here, or use the + buttons. Files stay where they are.");
-                    color: #6f6f6f;
-                    font-size: 12px;
-                    horizontal-alignment: center;
-                    wrap: word-wrap;
-                }
+            if root.rows.length == 0 && root.total-count == 0 : EmptyState {
+                icon: Icons.image-multiple;
+                title: @tr("Your library is empty");
+                description: @tr("Add the photos, videos and music for your slideshow. Files stay where they are; nothing is copied.");
+                action-text: @tr("Add folder…");
+                secondary-text: @tr("Add files…");
+                action => { LibraryState.add-folder(); }
+                secondary => { LibraryState.add-files(); }
+            }
+            if root.rows.length == 0 && root.total-count > 0 : EmptyState {
+                icon: Icons.search;
+                title: @tr("Nothing matches your search");
+                description: @tr("Try another word or set the type filter to \"All\".");
             }
         }
-        // Actions
+        Divider { }
+        // Selection actions (NN/G bulk actions: contextual bar with count).
         Rectangle {
-            height: 44px;
-            background: #232323;
+            height: Theme.toolbar-height;
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 8px;
-                spacing: 6px;
+                padding-left: Theme.space-l;
+                padding-right: Theme.space-s;
+                spacing: Theme.space-s;
                 Button {
                     text: LibraryState.selected-count > 1 ? @tr("Add {} to timeline", LibraryState.selected-count) : @tr("Add to timeline");
                     primary: true;
@@ -354,25 +342,25 @@ export component LibraryPage inherits Rectangle {
                     clicked => { LibraryState.add-all-to-timeline(); }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                Button {
-                    text: root.details-open ? "▾" : "▴";
-                    width: 30px;
+                IconButton {
+                    icon: root.details-open ? Icons.chevron-down : Icons.chevron-up;
+                    tooltip: root.details-open ? @tr("Hide details") : @tr("Show details");
                     enabled: root.inspector.visible;
                     clicked => { root.details-open = !root.details-open; }
                 }
             }
         }
-        // Details (collapsible)
+        // Details (collapsible inspector for the selected item).
         if root.details-open && root.inspector.visible : Rectangle {
             height: 200px;
-            background: #1e1f24;
+            background: Theme.surface-window;
             HorizontalLayout {
-                padding: 12px;
-                spacing: 12px;
+                padding: Theme.space-l;
+                spacing: Theme.space-m;
                 Rectangle {
                     width: 120px;
-                    border-radius: 6px;
-                    background: #2a2d34;
+                    border-radius: Theme.radius-m;
+                    background: Theme.surface-card;
                     clip: true;
                     if LibraryState.inspector-has-image : Image {
                         source: LibraryState.inspector-image;
@@ -382,42 +370,45 @@ export component LibraryPage inherits Rectangle {
                     }
                 }
                 VerticalLayout {
-                    spacing: 4px;
+                    spacing: Theme.space-xs;
                     alignment: start;
-                    Text { text: root.inspector.title; color: white; font-size: 12px; font-weight: 600; overflow: elide; }
+                    BodyText { text: root.inspector.title; font-weight: Theme.weight-semibold; }
                     InfoRow { label: @tr("Type"); value: root.inspector.kind == 0 ? @tr("Photo") : root.inspector.kind == 1 ? @tr("Video") : root.inspector.kind == 2 ? @tr("Audio") : @tr("Unknown"); }
                     InfoRow { label: @tr("Dimensions"); value: root.inspector.dimensions; }
                     InfoRow { label: @tr("Duration"); value: root.inspector.duration; }
                     InfoRow { label: @tr("Captured"); value: root.inspector.captured; }
                     InfoRow { label: @tr("File size"); value: root.inspector.size; }
                     InfoRow { label: @tr("Status"); value: root.inspector.status-kind == 0 ? @tr("Reading metadata…") : root.inspector.status-kind == 1 ? @tr("Ready") : root.inspector.status-kind == 3 ? @tr("Not downloaded") : @tr("Error: {}", root.inspector.error); }
+                    Rectangle { vertical-stretch: 1; }
                     HorizontalLayout {
-                        spacing: 6px;
+                        spacing: Theme.space-s;
                         alignment: start;
-                        if root.inspector.hdr : Rectangle { background: #f39c12; border-radius: 4px; height: 18px; width: 36px; Text { text: "HDR"; color: black; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
-                        Button { text: @tr("Show in folder"); clicked => { LibraryState.reveal-selected(); } }
-                        Button { text: @tr("Remove"); clicked => { LibraryState.remove-selected(); } }
+                        if root.inspector.hdr : Rectangle {
+                            background: Theme.warning;
+                            border-radius: Theme.radius-s;
+                            height: Theme.control-height-s;
+                            width: 40px;
+                            Text { text: "HDR"; color: #000000; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                        }
+                        Button { text: @tr("Show in folder"); icon: Icons.folder-open; colorize-icon: true; clicked => { LibraryState.reveal-selected(); } }
+                        Button { text: @tr("Remove from library"); icon: Icons.delete; colorize-icon: true; clicked => { LibraryState.remove-selected(); } }
                     }
                 }
             }
         }
-        // Status bar
+        Divider { }
+        // Status bar: import progress (visibility of system status).
         Rectangle {
-            height: 24px;
-            background: #232323;
+            height: Theme.statusbar-height;
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 8px;
-                spacing: 8px;
-                Text {
+                padding-left: Theme.space-l;
+                padding-right: Theme.space-s;
+                spacing: Theme.space-s;
+                Caption {
                     text: LibraryState.status-kind == 1 ? @tr("Scanning…")
                         : LibraryState.status-kind == 2 ? @tr("Adding {} of {}…", LibraryState.import-done, LibraryState.import-total)
                         : LibraryState.status-kind == 3 ? @tr("Added {} files, {} were already in the library.", LibraryState.import-added, LibraryState.import-existing)
-                        : "";
-                    color: #8d8d8d;
-                    font-size: 11px;
-                    vertical-alignment: center;
-                    overflow: elide;
+                        : (LibraryState.selected-count > 0 ? (LibraryState.selected-count == 1 ? @tr("1 selected") : @tr("{} selected", LibraryState.selected-count)) : "");
                     horizontal-stretch: 1;
                 }
                 if LibraryState.status-kind == 1 || LibraryState.status-kind == 2 : ProgressIndicator {
@@ -429,21 +420,25 @@ export component LibraryPage inherits Rectangle {
         }
     }
 
+    // Active drop zone (NN/G drag and drop: signal the zone while hovering).
     if LibraryState.drop-hover : Rectangle {
-        background: #3d5afe33;
-        border-width: 3px;
-        border-color: #3d5afe;
-        border-radius: 12px;
-        Text {
-            text: @tr("Drop to add to your library");
-            color: white;
-            font-size: 18px;
-            font-weight: 700;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            width: parent.width;
-            height: parent.height;
-            wrap: word-wrap;
+        background: Theme.drop-target;
+        border-width: 2px;
+        border-color: Theme.accent;
+        border-radius: Theme.radius-l;
+        VerticalLayout {
+            alignment: center;
+            spacing: Theme.space-m;
+            padding: Theme.space-xl;
+            HorizontalLayout { alignment: center; Icon { source: Icons.image-multiple; size: 40px; color: Theme.text; } }
+            Text {
+                text: @tr("Drop to add to your library");
+                color: Theme.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-semibold;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
         }
     }
 }

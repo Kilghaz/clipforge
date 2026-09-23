@@ -27,12 +27,13 @@ platform, jobs, i18n, core → nothing internal
 
 | Task | Command |
 |---|---|
-| Everything CI runs | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && cargo test --workspace --doc && cargo xtask check-deps && cargo xtask fixtures --verify && cargo deny check` |
+| Everything CI runs | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo nextest run --workspace && cargo test --workspace --doc && cargo xtask check-deps && cargo xtask fixtures --verify && cargo xtask fluent-icons --verify && cargo deny check` |
 | Tests only | `cargo nextest run --workspace` (or `cargo test --workspace`) |
 | One crate | `cargo nextest run -p clipforge-core` |
 | Run the app | `cargo run -p clipforge-app` (`RUST_LOG=info` for logs) |
 | Regenerate fixtures | `cargo xtask fixtures` (needs ffmpeg with libx264/libx265) |
 | Regenerate icons | `cargo xtask icons` (needs `rsvg-convert` or macOS) |
+| Fetch UI icon subset | `cargo xtask fluent-icons` (needs `curl`; add names to `xtask/src/fluent_icons.rs` and `ui/theme.slint`) |
 | Licence report | `cargo about generate about.hbs -o target/THIRD_PARTY_LICENSES.html` |
 | Package | `cargo build --release -p clipforge-app && cargo packager --release -p clipforge-app` → `dist/` |
 
@@ -127,6 +128,7 @@ crates/media     decoder traits + backends         crates/export    planner + ff
 crates/library   SQLite catalogue, cache           crates/platform  OS glue
 crates/jobs      priorities, cancellation          crates/i18n      languages
 crates/app       Slint UI (ui/*.slint, lang/*.po)  xtask/           dev tasks
+assets/fluent    UI icon subset (generated)        crates/app/ui/theme.slint  design tokens
 docs/PLAN.md     the plan                          docs/adr/        decisions
 docs/ARCHITECTURE.md  living overview              fixtures/        generated test media
 docs/ux/DESIGN.md     design + usability guide    docs/ux/         keyboard map, manual checks

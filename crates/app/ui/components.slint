@@ -1,0 +1,207 @@
+// Shared ClipForge components (docs/ux/DESIGN.md §4). Each one copies the
+// states and behaviour of its Fluent / Spectrum reference and only uses
+// `Theme` tokens and `Palette` colours.
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+/// Single-colour icon, recoloured to the given brush (Fluent iconography).
+export component Icon inherits Image {
+    in property <length> size: Theme.icon-m;
+    in property <brush> color: Theme.text;
+    width: root.size;
+    height: root.size;
+    colorize: root.color;
+    image-fit: contain;
+}
+
+/// Icon-only button. Always has a tooltip and an accessible label, never
+/// carries meaning by icon alone (Fluent "Button", Spectrum "Action button").
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> tooltip;
+    in property <bool> enabled: true;
+    in property <bool> primary;
+    in property <bool> checkable;
+    in-out property <bool> checked;
+    callback clicked;
+    width: Theme.control-height;
+    height: Theme.control-height;
+    button := Button {
+        width: parent.width;
+        height: parent.height;
+        icon: root.icon;
+        icon-size: Theme.icon-m;
+        colorize-icon: true;
+        enabled: root.enabled;
+        primary: root.primary;
+        checkable: root.checkable;
+        checked <=> root.checked;
+        accessible-label: root.tooltip;
+        clicked => { root.clicked(); }
+    }
+    Tooltip { text: @markdown("\{root.tooltip}"); }
+}
+
+/// Section heading inside panes and inspectors (Spectrum "Field label").
+export component SectionLabel inherits Text {
+    color: Theme.text-secondary;
+    font-size: Theme.font-secondary;
+    font-weight: Theme.weight-semibold;
+    vertical-alignment: center;
+}
+
+/// Small secondary text (timecodes, counts, hints).
+export component Caption inherits Text {
+    color: Theme.text-secondary;
+    font-size: Theme.font-caption;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+/// Body text in the style's foreground colour.
+export component BodyText inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-body;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+/// 1 px horizontal separator between two bars (stretches in a layout).
+export component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.border;
+}
+
+/// 1 px vertical separator between two panes (stretches in a layout).
+export component VDivider inherits Rectangle {
+    width: 1px;
+    background: Theme.border;
+}
+
+/// Small status badge over a thumbnail or clip (Spectrum "Badge", icon-only).
+export component Badge inherits Rectangle {
+    in property <image> icon;
+    in property <brush> tint: Theme.text;
+    in property <string> label;
+    width: 22px;
+    height: 22px;
+    border-radius: Theme.radius-s;
+    background: #000000b3;
+    accessible-role: image;
+    accessible-label: root.label;
+    Icon {
+        source: root.icon;
+        size: Theme.icon-s;
+        color: root.tint;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+}
+
+/// Empty state: what this area is, why it is empty, one next step
+/// (Primer "Empty states", Spectrum "Illustrated message").
+export component EmptyState inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> description;
+    in property <string> action-text;
+    in property <bool> action-enabled: true;
+    in property <string> secondary-text;
+    callback action();
+    callback secondary();
+    alignment: center;
+    spacing: Theme.space-m;
+    padding: Theme.space-xl;
+    HorizontalLayout {
+        alignment: center;
+        Icon { source: root.icon; size: 40px; color: Theme.text-secondary; }
+    }
+    Text {
+        text: root.title;
+        color: Theme.text;
+        font-size: Theme.font-title;
+        font-weight: Theme.weight-semibold;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.description != "" : Text {
+        text: root.description;
+        color: Theme.text-secondary;
+        font-size: Theme.font-body;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.action-text != "" || root.secondary-text != "" : HorizontalLayout {
+        alignment: center;
+        spacing: Theme.space-s;
+        if root.action-text != "" : Button {
+            text: root.action-text;
+            primary: true;
+            enabled: root.action-enabled;
+            clicked => { root.action(); }
+        }
+        if root.secondary-text != "" : Button {
+            text: root.secondary-text;
+            clicked => { root.secondary(); }
+        }
+    }
+}
+
+/// Modal surface with scrim, title and platform-ordered buttons. The caller
+/// places its content as children; buttons are rendered by the caller inside
+/// `DialogButtons` so their order follows the platform (Windows: primary
+/// first, macOS: primary last).
+export component DialogFrame inherits Rectangle {
+    in property <string> title;
+    in property <length> dialog-width: 480px;
+    in property <length> dialog-height: 360px;
+    callback dismissed();
+    background: Theme.scrim;
+    // Swallow clicks on the scrim (do not close: accidental loss of input).
+    TouchArea { }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.dismissed(); return accept; }
+            return reject;
+        }
+        Rectangle {
+            width: root.dialog-width;
+            height: root.dialog-height;
+            border-radius: Theme.radius-l;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: Theme.surface-pane;
+            clip: true;
+            TouchArea { }
+            VerticalLayout {
+                padding: Theme.space-xl;
+                spacing: Theme.space-l;
+                Text {
+                    text: root.title;
+                    color: Theme.text;
+                    font-size: Theme.font-dialog;
+                    font-weight: Theme.weight-semibold;
+                }
+                @children
+            }
+        }
+    }
+}
+
+/// Button row for dialogs: primary on the left on Windows, on the right on
+/// macOS (Fluent "Dialog", Apple HIG "Alerts").
+export component DialogButtons inherits HorizontalLayout {
+    in property <bool> macos;
+    in property <string> primary-text;
+    in property <bool> primary-enabled: true;
+    in property <bool> primary-visible: true;
+    in property <string> secondary-text;
+    callback primary();
+    callback secondary();
+    spacing: Theme.space-s;
+    alignment: end;
+    if root.macos && root.secondary-text != "" : Button { text: root.secondary-text; clicked => { root.secondary(); } }
+    if root.primary-visible : Button { text: root.primary-text; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
+    if !root.macos && root.secondary-text != "" : Button { text: root.secondary-text; clicked => { root.secondary(); } }
+}

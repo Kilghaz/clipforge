@@ -1,54 +1,42 @@
 import { VerticalBox, HorizontalBox, ComboBox, GroupBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { BodyText, Caption } from "components.slint";
 
-export component SettingsPage inherits Rectangle {
+/// Settings content; the surrounding dialog frame lives in main.slint.
+export component SettingsPage inherits VerticalLayout {
     in-out property <int> language-index;
     in property <[string]> language-options;
     in property <string> app-version;
     callback language-selected(int);
 
-    VerticalBox {
-        alignment: start;
-        padding: 24px;
-        spacing: 16px;
+    alignment: start;
+    spacing: Theme.space-l;
 
-        Text {
-            text: @tr("Settings");
-            color: #ffffff;
-            font-size: 22px;
-            font-weight: 700;
-        }
-
-        GroupBox {
-            title: @tr("Language");
-            VerticalBox {
-                HorizontalBox {
-                    padding: 0;
-                    Text {
-                        text: @tr("Interface language");
-                        color: #d0d0d0;
-                        vertical-alignment: center;
-                    }
-                    ComboBox {
-                        width: 240px;
-                        model: root.language-options;
-                        current-index <=> root.language-index;
-                        selected => { root.language-selected(self.current-index); }
-                    }
-                }
-                Text {
-                    text: @tr("Changes apply immediately.");
-                    color: #8a8a8a;
-                    font-size: 12px;
+    GroupBox {
+        title: @tr("Language");
+        VerticalLayout {
+            spacing: Theme.space-s;
+            HorizontalLayout {
+                spacing: Theme.space-m;
+                BodyText { text: @tr("Interface language"); horizontal-stretch: 1; }
+                ComboBox {
+                    width: 240px;
+                    model: root.language-options;
+                    current-index <=> root.language-index;
+                    selected => { root.language-selected(self.current-index); }
+                    accessible-label: @tr("Interface language");
                 }
             }
+            Caption { text: @tr("Changes apply immediately."); }
         }
+    }
 
-        GroupBox {
-            title: @tr("About");
-            Text {
-                text: @tr("ClipForge {}", root.app-version);
-                color: #d0d0d0;
-            }
+    GroupBox {
+        title: @tr("About");
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            BodyText { text: @tr("ClipForge {}", root.app-version); }
+            Caption { text: @tr("Made with Slint. Icons: Fluent UI System Icons (MIT)."); }
         }
     }
 }
