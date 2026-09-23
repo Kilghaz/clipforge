@@ -36,10 +36,15 @@ jobs:
         with:
           tool: cargo-nextest,cargo-deny,cargo-about
       # ffmpeg/ffprobe are needed by the media backend integration tests.
-      - uses: FedericoCarboni/setup-ffmpeg@v3
-        id: ffmpeg
+      # The setup action has no arm64 macOS build, so macOS uses Homebrew.
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        uses: FedericoCarboni/setup-ffmpeg@v3
       - name: ffmpeg version
-        run: ffprobe -version | head -1
+        run: ffprobe -version
       - name: Format
         run: cargo fmt --all --check
       # Tests first: they need full codegen of every dependency and that
