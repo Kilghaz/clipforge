@@ -799,7 +799,9 @@ dependencies = [
  "clipforge-media",
  "clipforge-render",
  "serde",
+ "tempfile",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
