@@ -63,6 +63,8 @@ export global LibraryState {
     in-out property <float> marquee-w;
     in-out property <float> marquee-h;
     in-out property <int> selected-count;
+    /// Current width of the grid area; Rust polls it to lay out columns.
+    in-out property <length> grid-width;
 
     callback add-files();
     callback add-folder();
@@ -269,8 +271,10 @@ export component LibraryPage inherits Rectangle {
         // Grid
         grid := Rectangle {
             vertical-stretch: 1;
-            changed width => { LibraryState.grid-width-changed(self.width); }
-            init => { LibraryState.grid-width-changed(self.width); }
+            // `init` runs before Rust has wired its callbacks, so the width
+            // is also published as a property that Rust reads itself.
+            changed width => { LibraryState.grid-width = self.width; LibraryState.grid-width-changed(self.width); }
+            init => { LibraryState.grid-width = self.width; }
             lv := ListView {
                 for row[r] in root.rows : Rectangle {
                     height: 116px;

@@ -192,13 +192,18 @@ impl LibraryController {
             let inner = Rc::clone(&inner);
             timer.start(TimerMode::Repeated, Duration::from_millis(40), move || {
                 let mut i = inner.borrow_mut();
+                i.poll_width();
                 i.pump_events();
                 if i.dirty && i.last_refresh.elapsed() >= REFRESH_INTERVAL {
                     i.refresh();
                 }
             });
         }
-        inner.borrow_mut().refresh();
+        {
+            let mut i = inner.borrow_mut();
+            i.set_width(state.get_grid_width());
+            i.refresh();
+        }
         LibraryController {
             inner,
             _timer: timer,
@@ -247,6 +252,17 @@ impl Inner {
         if let Some(w) = self.state() {
             let s = w.global::<LibraryState>();
             s.set_descending(self.view.descending);
+        }
+    }
+
+    /// Picks up layout changes that arrive without a `changed` callback
+    /// (initial layout, panel shown again).
+    fn poll_width(&mut self) {
+        if let Some(w) = self.state() {
+            let width = w.global::<LibraryState>().get_grid_width();
+            if width > 0.0 {
+                self.set_width(width);
+            }
         }
     }
 
