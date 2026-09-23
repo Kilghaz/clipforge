@@ -41,6 +41,8 @@ kamadak-exif = "0.6"
 rfd = { version = "0.17", default-features = false }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg"] }
 slint-build = "1.18"
+i-slint-backend-winit = { version = "1.18", default-features = false, features = ["renderer-femtovg", "accessibility"] }
+winit = { version = "0.30", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

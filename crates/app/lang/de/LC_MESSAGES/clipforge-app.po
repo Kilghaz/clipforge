@@ -169,3 +169,6 @@ msgstr "Im Ordner anzeigen"
 
 msgid "Remove from library"
 msgstr "Aus Mediathek entfernen"
+
+msgid "Drop to add to your library"
+msgstr "Loslassen, um zur Mediathek hinzuzufügen"

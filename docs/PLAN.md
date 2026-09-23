@@ -476,9 +476,9 @@ Kept short; the ADRs hold the reasoning.
 - **M1, OS thumbnails:** not implemented yet. The own pipeline turned out fast
   enough (5 000 JPEGs in 1.8 s) that the Quick Look / Shell fast path is
   deferred until placeholders or RAW files make it necessary.
-- **M1, drag-and-drop:** Slint 1.18's winit backend does not forward OS file
-  drops. Files are added through the buttons/menu and native pickers; native
-  drop targets (NSDraggingDestination / IDropTarget in `platform`) are the
-  next item.
+- **M1, drag-and-drop:** Slint 1.18 does not surface OS file drops, but its
+  winit backend exposes the raw winit events. `app/src/drop.rs` hooks
+  `DroppedFile`/`HoveredFile` there (batched into one import), which works on
+  macOS and Windows without platform code.
 - **M1, thumbnail levels:** 256 / 640 / 1280 instead of 128 / 512 / 1280 to
   match Retina grid cells and the inspector.

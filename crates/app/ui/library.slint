@@ -53,6 +53,8 @@ export global LibraryState {
     in-out property <int> filter-index;
     in-out property <int> sort-index;
     in-out property <bool> descending: true;
+    /// True while files are dragged over the window.
+    in-out property <bool> drop-hover;
 
     callback add-files();
     callback add-folder();
@@ -256,6 +258,7 @@ export component LibraryPage inherits Rectangle {
                     }
                 }
             }
+            // (drop overlay is drawn by LibraryPage below)
             // Status bar
             Rectangle {
                 height: 28px;
@@ -334,4 +337,21 @@ export component LibraryPage inherits Rectangle {
             }
         }
     }
+    if LibraryState.drop-hover : Rectangle {
+        background: #3d5afe33;
+        border-width: 3px;
+        border-color: #3d5afe;
+        border-radius: 12px;
+        Text {
+            text: @tr("Drop to add to your library");
+            color: white;
+            font-size: 22px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            width: parent.width;
+            height: parent.height;
+        }
+    }
+
 }

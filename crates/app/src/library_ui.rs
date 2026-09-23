@@ -131,6 +131,13 @@ impl LibraryController {
     pub(crate) fn import(&self, paths: Vec<PathBuf>) {
         self.inner.borrow().start_import(paths);
     }
+
+    /// A cloneable closure that starts an import; for event hooks that
+    /// outlive borrows of the controller.
+    pub(crate) fn import_handle(&self) -> Rc<dyn Fn(Vec<PathBuf>)> {
+        let inner = Rc::clone(&self.inner);
+        Rc::new(move |paths| inner.borrow().start_import(paths))
+    }
 }
 
 impl Inner {

@@ -8,6 +8,7 @@
 // applies to the hand-written code in this crate.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+mod drop;
 mod format;
 mod language;
 mod library_ui;
@@ -102,6 +103,7 @@ fn main() -> Result<()> {
     let library =
         Arc::new(Library::open(&dirs, backends, scheduler).context("opening media library")?);
     let library_controller = library_ui::LibraryController::new(&window, library);
+    drop::install(&window, &library_controller);
     if let Ok(paths) = std::env::var("CLIPFORGE_IMPORT") {
         library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());
     }

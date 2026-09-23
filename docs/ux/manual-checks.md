@@ -21,6 +21,8 @@ Things CI cannot verify. Run before tagging a milestone.
 
 ## Milestone 1
 
+- [ ] Dragging files or folders from Finder/Explorer onto the window shows the
+      blue drop overlay; releasing imports them (one import for the whole drop).
 - [ ] Add folder… with a few hundred photos: rows appear immediately, the
       thumbnails fill in within seconds, scrolling stays smooth.
 - [ ] Search, type filter and sort react instantly; the item count is right.
