@@ -27,9 +27,7 @@ impl ProgressParser {
     /// closes it.
     pub fn feed(&mut self, line: &str) -> Option<ProgressLine> {
         let line = line.trim();
-        let Some((key, value)) = line.split_once('=') else {
-            return None;
-        };
+        let (key, value) = line.split_once('=')?;
         let value = value.trim();
         match key.trim() {
             "frame" => self.current.frame = value.parse().ok(),
