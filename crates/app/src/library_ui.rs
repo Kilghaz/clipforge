@@ -44,6 +44,10 @@ struct Inner {
     selected: Option<MediaId>,
     dirty: bool,
     last_refresh: Instant,
+    /// Editor hook: add these library items to the timeline.
+    add_to_timeline: Option<Rc<dyn Fn(Vec<MediaId>)>>,
+    /// Editor hook: a preview-size thumbnail is ready.
+    preview_ready: Option<Rc<dyn Fn(MediaId, PathBuf)>>,
 }
 
 impl LibraryController {
@@ -62,6 +66,8 @@ impl LibraryController {
             selected: None,
             dirty: true,
             last_refresh: Instant::now() - REFRESH_INTERVAL,
+            add_to_timeline: None,
+            preview_ready: None,
         }));
         let state = window.global::<LibraryState>();
         state.set_rows(ModelRc::from(rows));
@@ -108,6 +114,23 @@ impl LibraryController {
         on!(on_grid_width_changed, |i, width| i.set_width(width));
         on!(on_remove_selected, |i| i.remove_selected());
         on!(on_reveal_selected, |i| i.reveal_selected());
+        on!(on_add_selected_to_timeline, |i| {
+            if let (Some(id), Some(hook)) = (i.selected, i.add_to_timeline.clone()) {
+                hook(vec![id]);
+            }
+        });
+        on!(on_add_all_to_timeline, |i| {
+            if let Some(hook) = i.add_to_timeline.clone() {
+                hook(i.ids.clone());
+            }
+        });
+        on!(on_cell_double_clicked, |i, idx| {
+            if let (Ok(idx), Some(hook)) = (usize::try_from(idx), i.add_to_timeline.clone())
+                && let Some(id) = i.ids.get(idx)
+            {
+                hook(vec![*id]);
+            }
+        });
 
         let timer = Timer::default();
         {
@@ -130,6 +153,17 @@ impl LibraryController {
     /// Starts an import of the given paths (used by menu actions and tests).
     pub(crate) fn import(&self, paths: Vec<PathBuf>) {
         self.inner.borrow().start_import(paths);
+    }
+
+    /// Connects the editor: adding items to the timeline and preview thumbs.
+    pub(crate) fn connect_editor(
+        &self,
+        add: Rc<dyn Fn(Vec<MediaId>)>,
+        preview_ready: Rc<dyn Fn(MediaId, PathBuf)>,
+    ) {
+        let mut i = self.inner.borrow_mut();
+        i.add_to_timeline = Some(add);
+        i.preview_ready = Some(preview_ready);
     }
 
     /// A cloneable closure that starts an import; for event hooks that
@@ -369,12 +403,17 @@ impl Inner {
                             });
                         }
                     }
-                    ThumbLevel::Medium | ThumbLevel::Preview => {
+                    ThumbLevel::Medium => {
                         if self.selected == Some(id)
                             && let Ok(img) = slint::Image::load_from_path(&path)
                         {
                             s.set_inspector_image(img);
                             s.set_inspector_has_image(true);
+                        }
+                    }
+                    ThumbLevel::Preview => {
+                        if let Some(hook) = self.preview_ready.clone() {
+                            hook(id, path);
                         }
                     }
                 },

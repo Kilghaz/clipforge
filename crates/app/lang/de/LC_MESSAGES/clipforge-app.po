@@ -38,9 +38,6 @@ msgstr "Mediathek"
 msgid "Editor"
 msgstr "Editor"
 
-msgid "The timeline editor arrives in the next milestone."
-msgstr "Der Timeline-Editor kommt im nächsten Meilenstein."
-
 msgid "Language"
 msgstr "Sprache"
 
@@ -172,3 +169,153 @@ msgstr "Aus Mediathek entfernen"
 
 msgid "Drop to add to your library"
 msgstr "Loslassen, um zur Mediathek hinzuzufügen"
+
+msgid "Untitled slideshow"
+msgstr "Unbenannte Diashow"
+
+msgid "Added {} photos to the timeline"
+msgstr "{} Fotos zur Timeline hinzugefügt"
+
+msgid "{} items skipped (only photos with metadata can be added yet)"
+msgstr "{} Elemente übersprungen (bisher können nur Fotos mit Metadaten hinzugefügt werden)"
+
+msgid "ffmpeg was not found. Install it or place it next to the app."
+msgstr "ffmpeg wurde nicht gefunden. Installiere es oder lege es neben die App."
+
+msgid "Save Project"
+msgstr "Projekt speichern"
+
+msgid "Save Project As…"
+msgstr "Projekt speichern unter…"
+
+msgid "Export Video…"
+msgstr "Video exportieren…"
+
+msgid "Edit"
+msgstr "Bearbeiten"
+
+msgid "Undo"
+msgstr "Rückgängig"
+
+msgid "Redo"
+msgstr "Wiederholen"
+
+msgid "Select All Clips"
+msgstr "Alle Clips auswählen"
+
+msgid "Remove Selected Clips"
+msgstr "Ausgewählte Clips entfernen"
+
+msgid "Add all to timeline"
+msgstr "Alle zur Timeline hinzufügen"
+
+msgid "Add to timeline"
+msgstr "Zur Timeline hinzufügen"
+
+msgid "No selection – changes apply to all {} clips"
+msgstr "Keine Auswahl – Änderungen gelten für alle {} Clips"
+
+msgid "1 clip selected"
+msgstr "1 Clip ausgewählt"
+
+msgid "{} clips selected"
+msgstr "{} Clips ausgewählt"
+
+msgid "Photo duration (seconds)"
+msgstr "Anzeigedauer pro Foto (Sekunden)"
+
+msgid "Fit"
+msgstr "Einpassen"
+
+msgid "Fit inside (bars)"
+msgstr "Ganz zeigen (Balken)"
+
+msgid "Fill frame (crop)"
+msgstr "Bild füllen (beschneiden)"
+
+msgid "Rotate 90°"
+msgstr "Um 90° drehen"
+
+msgid "Transition into clip"
+msgstr "Übergang in den Clip"
+
+msgid "Cut"
+msgstr "Schnitt"
+
+msgid "Cross dissolve"
+msgstr "Überblenden"
+
+msgid "Fade through black"
+msgstr "Über Schwarz blenden"
+
+msgid "Project"
+msgstr "Projekt"
+
+msgid "Landscape 16:9"
+msgstr "Querformat 16:9"
+
+msgid "Portrait 9:16"
+msgstr "Hochformat 9:16"
+
+msgid "Select all"
+msgstr "Alle auswählen"
+
+msgid "Remove from timeline"
+msgstr "Aus Timeline entfernen"
+
+msgid "Export video"
+msgstr "Video exportieren"
+
+msgid "Resolution"
+msgstr "Auflösung"
+
+msgid "Full HD (1080p)"
+msgstr "Full HD (1080p)"
+
+msgid "4K (2160p)"
+msgstr "4K (2160p)"
+
+msgid "Quality"
+msgstr "Qualität"
+
+msgid "Good"
+msgstr "Gut"
+
+msgid "Better"
+msgstr "Besser"
+
+msgid "Best"
+msgstr "Am besten"
+
+msgid "Optimize for YouTube"
+msgstr "Für YouTube optimieren"
+
+msgid "HDR (available once HDR sources are supported)"
+msgstr "HDR (verfügbar, sobald HDR-Quellen unterstützt werden)"
+
+msgid "Exporting… {}%"
+msgstr "Exportiere… {}%"
+
+msgid "Done: {}"
+msgstr "Fertig: {}"
+
+msgid "Export failed: {}"
+msgstr "Export fehlgeschlagen: {}"
+
+msgid "Cancel"
+msgstr "Abbrechen"
+
+msgid "Close"
+msgstr "Schließen"
+
+msgid "Export…"
+msgstr "Exportieren…"
+
+msgid "Add from library…"
+msgstr "Aus Mediathek hinzufügen…"
+
+msgid "Add photos from the library to start your slideshow."
+msgstr "Füge Fotos aus der Mediathek hinzu, um deine Diashow zu beginnen."
+
+msgid "Zoom"
+msgstr "Zoom"

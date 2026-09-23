@@ -15,6 +15,7 @@ pub mod frames;
 pub mod options;
 pub mod plan;
 pub mod progress;
+pub mod sources;
 pub mod yuv;
 
 pub use encoders::{Encoder, EncoderCatalog};
@@ -23,3 +24,4 @@ pub use frames::{FrameRef, FrameSource, TimelineFrames};
 pub use options::{ExportOptions, Quality};
 pub use plan::{Codec, EncodePlan, PixelFormat};
 pub use progress::ProgressLine;
+pub use sources::FileSources;

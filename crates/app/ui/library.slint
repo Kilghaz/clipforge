@@ -67,6 +67,9 @@ export global LibraryState {
     callback grid-width-changed(length);
     callback remove-selected();
     callback reveal-selected();
+    callback add-selected-to-timeline();
+    callback add-all-to-timeline();
+    callback cell-double-clicked(int);
 }
 
 component KindBadge inherits Rectangle {
@@ -100,7 +103,11 @@ component CellView inherits Rectangle {
     border-color: #3d5afe;
 
     init => { root.shown(); }
-    touch := TouchArea { clicked => { root.clicked(); } }
+    callback double-clicked();
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
 
     VerticalLayout {
         padding: 6px;
@@ -214,6 +221,13 @@ export component LibraryPage inherits Rectangle {
                         width: 36px;
                         clicked => { LibraryState.direction-toggled(); }
                     }
+                    Rectangle { width: 8px; }
+                    Button {
+                        text: @tr("Add all to timeline");
+                        primary: true;
+                        enabled: root.total-count > 0;
+                        clicked => { LibraryState.add-all-to-timeline(); }
+                    }
                     Rectangle { horizontal-stretch: 1; }
                     Text {
                         text: root.total-count == 1 ? @tr("1 item") : @tr("{} items", root.total-count);
@@ -253,6 +267,7 @@ export component LibraryPage inherits Rectangle {
                         for cell in row.cells : CellView {
                             cell: cell;
                             clicked => { LibraryState.cell-clicked(cell.index); }
+                            double-clicked => { LibraryState.cell-double-clicked(cell.index); }
                             shown => { LibraryState.cell-shown(cell.index); }
                         }
                     }
@@ -331,6 +346,7 @@ export component LibraryPage inherits Rectangle {
                     InfoRow { label: @tr("Status"); value: root.inspector.status-kind == 0 ? @tr("Reading metadata…") : root.inspector.status-kind == 1 ? @tr("Ready") : root.inspector.status-kind == 3 ? @tr("Not downloaded") : @tr("Error: {}", root.inspector.error); }
                     InfoRow { label: @tr("Location"); value: root.inspector.path; }
                     Rectangle { height: 8px; }
+                    Button { text: @tr("Add to timeline"); primary: true; clicked => { LibraryState.add-selected-to-timeline(); } }
                     Button { text: @tr("Show in folder"); clicked => { LibraryState.reveal-selected(); } }
                     Button { text: @tr("Remove from library"); clicked => { LibraryState.remove-selected(); } }
                 }

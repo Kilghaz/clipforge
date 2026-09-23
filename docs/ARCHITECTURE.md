@@ -1,20 +1,20 @@
 # Architecture (living document)
 
-Redrawn from the code after each milestone. Last update: Milestone 1 (library).
+Redrawn from the code after each milestone. Last update: Milestone 2 (photo slideshow).
 
 ## Crates
 
 | Crate | Purpose | Key types today |
 |---|---|---|
-| `clipforge-core` | Model, commands, undo, time | `Ticks`, `FrameRate`, `Aspect`, `Resolution`, `MediaId` |
+| `clipforge-core` | Model, commands, undo, time | `Project`, `Clip`, `Command`, `History`, `timeline::{placements, frame_at}`, `Ticks`, `FrameRate` |
 | `clipforge-media` | Probing and still decoding | `MediaInfo`, `Rotation`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
-| `clipforge-render` | Compositor | `RenderQuality` |
-| `clipforge-export` | Export planning and sidecar | `ExportOptions`, `EncodePlan` |
+| `clipforge-render` | CPU compositor | `Compositor`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
+| `clipforge-export` | Planner, frames, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
-| `clipforge-app` | Slint UI | `MainWindow`, `LibraryState` (Slint global), `LibraryController`, `SettingsStore` |
+| `clipforge-app` | Slint UI | `MainWindow`, `LibraryState`/`EditorState` (Slint globals), `LibraryController`, `EditorController`, `editor_view` (pure), `SettingsStore` |
 | `xtask` | Dev tasks | `check-deps`, `fixtures`, `icons` |
 
 ## Dependency graph
@@ -52,20 +52,30 @@ Measured on an M3 Max (release, `perf_import_5000_jpegs`): 5 000 files
 registered in 0.44 s, probed with small thumbnails in 1.8 s, `query_ids`
 over 5 000 rows in 1.1 ms.
 
-## Runtime shape (target, from Milestone 2)
+## Editing and export (Milestone 2)
 
 ```
-UI thread (Slint)  ── callbacks ──►  AppState { Project, History, Selection }
-        ▲                                   │ commands
-        │ view models / preview texture     ▼
-   Job scheduler ◄── jobs ──  library (import, thumbs, proxies)
-        │                     render (preview frames on GPU)
-        └── export ── frames/PCM over pipes ──► ffmpeg sidecar process
+Slint EditorState ── callbacks ──► EditorController { Project, History, Selection }
+        ▲                                 │ Command::apply → inverse pushed to History
+        │ TimelineClip model, preview     ▼
+        │ image (960x540 RGBA)      Compositor::render(project, playhead, Preview,
+        │                                 PreviewSources ← library 1280 px thumbs)
+        │
+   Export… ──► job: TimelineFrames(project, Compositor, FileSources(full decode))
+               ──► Yuv420 per distinct picture ──► ffmpeg stdin ──► .mp4
+               progress via -progress pipe, cancel kills the process
 ```
+
+Rules: the project changes only through `History::apply`; bulk edits with
+an empty selection apply to every clip and also become the project's
+defaults for newly added clips; a photo clip outside a transition is
+rendered once and its yuv buffer re-sent for every frame; autosave to
+`<data>/autosave.clipforge.json` three seconds after the last change.
 
 ## Data at rest
 
 - Settings: `<config>/settings.json` (atomic write).
 - Library: `<data>/library.sqlite` (WAL, FTS5 trigram index on names).
 - Cache: `<cache>/thumbs/<hh>/<fingerprint>/{256,640,1280}.jpg`; proxies from M3.
-- Project: single JSON file chosen by the user (from M2).
+- Project: single JSON file (`*.clipforge.json`) chosen by the user; unused media refs are pruned on save.
+- Autosave: `<data>/autosave.clipforge.json`, restored on start.

@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: v1 (2026-09-22). Milestones 0 and 1 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
+Status: v1 (2026-09-22). Milestones 0, 1 and 2 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -482,3 +482,15 @@ Kept short; the ADRs hold the reasoning.
   macOS and Windows without platform code.
 - **M1, thumbnail levels:** 256 / 640 / 1280 instead of 128 / 512 / 1280 to
   match Retina grid cells and the inspector.
+- **M2, renderer:** a CPU compositor (fast_image_resize + blends) instead of
+  wgpu. Stills, fit modes, rotation and dissolve/fade transitions are cheap
+  on the CPU, headless CI runners have no GPU, and identical still frames
+  are rendered once per clip. wgpu stays planned for Ken Burns (M4) behind
+  the same `SourceProvider`/`Frame` interface.
+- **M2, transitions:** cross dissolve and fade through black already ship
+  (the compositor needed a two-input path anyway); the full library and
+  randomise arrive in M4.
+- **M2, frame transport:** frames go to ffmpeg as BT.709 limited-range
+  `yuv420p` converted in Rust, not RGBA, cutting pipe traffic to a quarter.
+- **M2, timeline strip:** not virtualised yet (one Slint element per clip);
+  fine for hundreds of clips, to be revisited before thousands.

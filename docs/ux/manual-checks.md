@@ -35,3 +35,23 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Restarting the app keeps the library and shows cached thumbnails at once.
 - [ ] `CLIPFORGE_IMPORT=/path/to/folder cargo run -p clipforge-app` imports at
       startup (developer shortcut).
+
+## Milestone 2
+
+- [ ] Library → "Add all to timeline" with ~200 photos: clips appear with
+      thumbnails, the preview shows the first photo.
+- [ ] Click, shift-click and Cmd/Ctrl-click select clips as expected;
+      Cmd/Ctrl+A selects all; Delete removes; Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z undo/redo.
+- [ ] Drag a clip (or a selection) to a new position; the orange marker
+      shows the drop point.
+- [ ] With nothing selected, the duration slider changes every clip in one
+      undo step; with a selection, only those clips.
+- [ ] Cross dissolve applied to all: clips overlap in the strip; scrubbing
+      through an overlap shows the blend; Space plays the show.
+- [ ] Fit "Fill frame" crops a portrait photo in a landscape project;
+      switching the project to 9:16 re-renders the preview.
+- [ ] Save, quit, restart: the autosaved project comes back; Open loads a
+      saved `.clipforge.json`.
+- [ ] Export… Full HD, Better, YouTube: progress advances, the MP4 plays in
+      QuickTime/VLC with the right durations and transitions; Cancel leaves
+      no file behind.

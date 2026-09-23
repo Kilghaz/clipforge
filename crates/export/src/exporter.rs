@@ -33,6 +33,14 @@ pub enum ExportError {
     Cancelled,
     #[error("output file was not written")]
     NoOutput,
+    #[error("frame {index} is {got_w}x{got_h} but the plan is {want_w}x{want_h}")]
+    FrameSize {
+        index: u64,
+        got_w: u32,
+        got_h: u32,
+        want_w: u32,
+        want_h: u32,
+    },
 }
 
 impl From<Cancelled> for ExportError {
@@ -164,7 +172,21 @@ impl Exporter {
                 break;
             }
             match frames.frame(i) {
-                FrameRef::New(frame) => current = Some(Yuv420::from_frame(&frame)),
+                FrameRef::New(frame) => {
+                    if (frame.width, frame.height) != (plan.width, plan.height) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let _ = std::fs::remove_file(output);
+                        return Err(ExportError::FrameSize {
+                            index: i,
+                            got_w: frame.width,
+                            got_h: frame.height,
+                            want_w: plan.width,
+                            want_h: plan.height,
+                        });
+                    }
+                    current = Some(Yuv420::from_frame(&frame));
+                }
                 FrameRef::SameAsPrevious => {}
             }
             let Some(buf) = &current else {
@@ -376,6 +398,41 @@ mod tests {
             ),
             Err(ExportError::NoEncoder(_))
         ));
+    }
+
+    #[test]
+    fn wrong_frame_size_is_rejected() {
+        let Some(loc) = ffmpeg() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("x.mp4");
+        let mut exporter = Exporter::new(loc.ffmpeg).unwrap();
+        exporter.prefer_hardware = false;
+        let mut frames = Solid {
+            n: 30,
+            w: 100,
+            h: 100,
+        };
+        let err = exporter
+            .run(
+                &small_plan(),
+                &mut frames,
+                &out,
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ExportError::FrameSize {
+                    got_w: 100,
+                    want_w: 320,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(!out.exists());
     }
 
     #[test]
