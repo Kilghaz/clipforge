@@ -1,0 +1,337 @@
+import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
+
+export struct MediaCell {
+    index: int,
+    id: string,
+    title: string,
+    subtitle: string,
+    image: image,
+    has-image: bool,
+    // 0 photo, 1 video, 2 audio, 3 unknown
+    kind: int,
+    cloud: bool,
+    failed: bool,
+    pending: bool,
+    selected: bool,
+}
+
+export struct GridRow {
+    cells: [MediaCell],
+}
+
+export struct InspectorInfo {
+    visible: bool,
+    title: string,
+    // 0 photo, 1 video, 2 audio, 3 unknown
+    kind: int,
+    dimensions: string,
+    duration: string,
+    captured: string,
+    codec: string,
+    size: string,
+    path: string,
+    // 0 pending, 1 ready, 2 failed, 3 not downloaded
+    status-kind: int,
+    error: string,
+    hdr: bool,
+}
+
+/// All library screen state, owned and driven by Rust.
+export global LibraryState {
+    in-out property <[GridRow]> rows;
+    in-out property <int> total-count;
+    // 0 idle, 1 scanning, 2 importing, 3 finished
+    in-out property <int> status-kind;
+    in-out property <int> import-done;
+    in-out property <int> import-total;
+    in-out property <int> import-added;
+    in-out property <int> import-existing;
+    in-out property <InspectorInfo> inspector;
+    in-out property <image> inspector-image;
+    in-out property <bool> inspector-has-image;
+    in-out property <string> search-text;
+    in-out property <int> filter-index;
+    in-out property <int> sort-index;
+    in-out property <bool> descending: true;
+
+    callback add-files();
+    callback add-folder();
+    callback search-changed(string);
+    callback filter-changed(int);
+    callback sort-changed(int);
+    callback direction-toggled();
+    callback cell-clicked(int);
+    callback cell-shown(int);
+    callback grid-width-changed(length);
+    callback remove-selected();
+    callback reveal-selected();
+}
+
+component KindBadge inherits Rectangle {
+    in property <int> kind;
+    in property <bool> cloud;
+    in property <bool> failed;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: root.failed ? #c0392b : (root.cloud ? #2980b9 : #00000088);
+    Text {
+        text: root.failed ? "!" : (root.cloud ? "☁" : (root.kind == 1 ? "▶" : (root.kind == 2 ? "♪" : "")));
+        color: white;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+}
+
+component CellView inherits Rectangle {
+    in property <MediaCell> cell;
+    callback clicked();
+    callback shown();
+    width: 160px;
+    height: 164px;
+    border-radius: 10px;
+    background: root.cell.selected ? #3d5afe33 : (touch.has-hover ? #ffffff10 : transparent);
+    border-width: root.cell.selected ? 2px : 0px;
+    border-color: #3d5afe;
+
+    init => { root.shown(); }
+    touch := TouchArea { clicked => { root.clicked(); } }
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+        Rectangle {
+            height: 120px;
+            border-radius: 6px;
+            clip: true;
+            background: #2a2d34;
+            if root.cell.has-image : Image {
+                source: root.cell.image;
+                image-fit: contain;
+                width: parent.width;
+                height: parent.height;
+            }
+            if !root.cell.has-image && root.cell.pending : Text {
+                text: "…";
+                color: #666;
+                font-size: 22px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+            if !root.cell.has-image && !root.cell.pending : Text {
+                text: root.cell.kind == 2 ? "♪" : (root.cell.kind == 1 ? "▶" : "▣");
+                color: #555;
+                font-size: 30px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+            if root.cell.kind != 0 || root.cell.cloud || root.cell.failed : KindBadge {
+                kind: root.cell.kind;
+                cloud: root.cell.cloud;
+                failed: root.cell.failed;
+                x: parent.width - self.width - 6px;
+                y: 6px;
+            }
+        }
+        Text {
+            text: root.cell.title;
+            color: #e6e6e6;
+            font-size: 12px;
+            overflow: elide;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: root.cell.subtitle;
+            color: #8d8d8d;
+            font-size: 11px;
+            overflow: elide;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+component InfoRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    spacing: 8px;
+    visible: root.value != "";
+    Text { text: root.label; color: #8d8d8d; font-size: 12px; width: 90px; }
+    Text { text: root.value; color: #e6e6e6; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1; }
+}
+
+export component LibraryPage inherits Rectangle {
+    // Convenience aliases onto the global.
+    property <[GridRow]> rows: LibraryState.rows;
+    property <int> total-count: LibraryState.total-count;
+    property <InspectorInfo> inspector: LibraryState.inspector;
+
+    background: #1e1e1e;
+
+    HorizontalLayout {
+        VerticalLayout {
+            horizontal-stretch: 1;
+            // Toolbar
+            Rectangle {
+                height: 52px;
+                background: #232323;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 8px;
+                    alignment: start;
+                    Button { text: @tr("Add files…"); clicked => { LibraryState.add-files(); } }
+                    Button { text: @tr("Add folder…"); clicked => { LibraryState.add-folder(); } }
+                    Rectangle { width: 8px; }
+                    LineEdit {
+                        width: 220px;
+                        placeholder-text: @tr("Search");
+                        text <=> LibraryState.search-text;
+                        edited(t) => { LibraryState.search-changed(t); }
+                    }
+                    ComboBox {
+                        width: 120px;
+                        model: [@tr("All"), @tr("Photos"), @tr("Videos"), @tr("Audio")];
+                        current-index <=> LibraryState.filter-index;
+                        selected => { LibraryState.filter-changed(self.current-index); }
+                    }
+                    ComboBox {
+                        width: 130px;
+                        model: [@tr("Date"), @tr("Name"), @tr("Type"), @tr("Added")];
+                        current-index <=> LibraryState.sort-index;
+                        selected => { LibraryState.sort-changed(self.current-index); }
+                    }
+                    Button {
+                        text: LibraryState.descending ? "↓" : "↑";
+                        width: 36px;
+                        clicked => { LibraryState.direction-toggled(); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text {
+                        text: root.total-count == 1 ? @tr("1 item") : @tr("{} items", root.total-count);
+                        color: #8d8d8d;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+            // Grid
+            grid := Rectangle {
+                vertical-stretch: 1;
+                changed width => { LibraryState.grid-width-changed(self.width); }
+                init => { LibraryState.grid-width-changed(self.width); }
+                if root.rows.length == 0 : VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    Text {
+                        text: root.total-count == 0 ? @tr("Your library is empty.") : @tr("Nothing matches your search.");
+                        color: #9a9a9a;
+                        font-size: 18px;
+                        horizontal-alignment: center;
+                    }
+                    if root.total-count == 0 : Text {
+                        text: @tr("Add photos, videos and music with the buttons above. Files stay where they are.");
+                        color: #6f6f6f;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+                if root.rows.length > 0 : ListView {
+                    for row in root.rows : HorizontalLayout {
+                        height: 168px;
+                        padding-left: 16px;
+                        spacing: 8px;
+                        alignment: start;
+                        for cell in row.cells : CellView {
+                            cell: cell;
+                            clicked => { LibraryState.cell-clicked(cell.index); }
+                            shown => { LibraryState.cell-shown(cell.index); }
+                        }
+                    }
+                }
+            }
+            // Status bar
+            Rectangle {
+                height: 28px;
+                background: #232323;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 12px;
+                    Text {
+                        text: LibraryState.status-kind == 1 ? @tr("Scanning…")
+                            : LibraryState.status-kind == 2 ? @tr("Adding {} of {}…", LibraryState.import-done, LibraryState.import-total)
+                            : LibraryState.status-kind == 3 ? @tr("Added {} files, {} were already in the library.", LibraryState.import-added, LibraryState.import-existing)
+                            : "";
+                        color: #8d8d8d;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    if LibraryState.status-kind == 1 || LibraryState.status-kind == 2 : ProgressIndicator {
+                        width: 160px;
+                        progress: LibraryState.import-total > 0 ? LibraryState.import-done / LibraryState.import-total : 0;
+                        indeterminate: LibraryState.status-kind == 1;
+                    }
+                }
+            }
+        }
+        // Inspector
+        Rectangle {
+            width: 280px;
+            background: #232323;
+            if !root.inspector.visible : Text {
+                text: @tr("Select an item to see its details.");
+                color: #6f6f6f;
+                font-size: 13px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width - 32px;
+                x: 16px;
+                wrap: word-wrap;
+            }
+            if root.inspector.visible : ScrollView {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+                    alignment: start;
+                    Rectangle {
+                        height: 180px;
+                        border-radius: 8px;
+                        background: #2a2d34;
+                        clip: true;
+                        if LibraryState.inspector-has-image : Image {
+                            source: LibraryState.inspector-image;
+                            image-fit: contain;
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                    }
+                    Text { text: root.inspector.title; color: white; font-size: 14px; font-weight: 600; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        if root.inspector.hdr : Rectangle { background: #f39c12; border-radius: 4px; height: 20px; width: 40px; Text { text: "HDR"; color: black; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                        if root.inspector.status-kind == 3 : Rectangle { background: #2980b9; border-radius: 4px; height: 20px; width: 110px; Text { text: @tr("Not downloaded"); color: white; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; } }
+                    }
+                    InfoRow { label: @tr("Type"); value: root.inspector.kind == 0 ? @tr("Photo") : root.inspector.kind == 1 ? @tr("Video") : root.inspector.kind == 2 ? @tr("Audio") : @tr("Unknown"); }
+                    InfoRow { label: @tr("Dimensions"); value: root.inspector.dimensions; }
+                    InfoRow { label: @tr("Duration"); value: root.inspector.duration; }
+                    InfoRow { label: @tr("Captured"); value: root.inspector.captured; }
+                    InfoRow { label: @tr("Codec"); value: root.inspector.codec; }
+                    InfoRow { label: @tr("File size"); value: root.inspector.size; }
+                    InfoRow { label: @tr("Status"); value: root.inspector.status-kind == 0 ? @tr("Reading metadata…") : root.inspector.status-kind == 1 ? @tr("Ready") : root.inspector.status-kind == 3 ? @tr("Not downloaded") : @tr("Error: {}", root.inspector.error); }
+                    InfoRow { label: @tr("Location"); value: root.inspector.path; }
+                    Rectangle { height: 8px; }
+                    Button { text: @tr("Show in folder"); clicked => { LibraryState.reveal-selected(); } }
+                    Button { text: @tr("Remove from library"); clicked => { LibraryState.remove-selected(); } }
+                }
+            }
+        }
+    }
+}

@@ -10,6 +10,8 @@
 
 pub mod cloud;
 pub mod dirs;
+pub mod reveal;
 
 pub use cloud::{CloudStatus, IcloudStub, cloud_status, icloud_stub};
 pub use dirs::AppDirs;
+pub use reveal::reveal_in_file_manager;

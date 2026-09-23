@@ -38,9 +38,6 @@ msgstr "Mediathek"
 msgid "Editor"
 msgstr "Editor"
 
-msgid "Your media library will appear here. Drop photos and videos anywhere."
-msgstr "Hier erscheint deine Mediathek. Ziehe Fotos und Videos einfach hinein."
-
 msgid "The timeline editor arrives in the next milestone."
 msgstr "Der Timeline-Editor kommt im nächsten Meilenstein."
 
@@ -58,3 +55,117 @@ msgstr "Über"
 
 msgid "ClipForge {}"
 msgstr "ClipForge {}"
+
+msgid "Add files to library…"
+msgstr "Dateien zur Mediathek hinzufügen…"
+
+msgid "Add folder to library…"
+msgstr "Ordner zur Mediathek hinzufügen…"
+
+msgid "Add files…"
+msgstr "Dateien hinzufügen…"
+
+msgid "Add folder…"
+msgstr "Ordner hinzufügen…"
+
+msgid "Search"
+msgstr "Suchen"
+
+msgid "All"
+msgstr "Alle"
+
+msgid "Photos"
+msgstr "Fotos"
+
+msgid "Videos"
+msgstr "Videos"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Date"
+msgstr "Datum"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Type"
+msgstr "Typ"
+
+msgid "Added"
+msgstr "Hinzugefügt"
+
+msgid "1 item"
+msgstr "1 Element"
+
+msgid "{} items"
+msgstr "{} Elemente"
+
+msgid "Your library is empty."
+msgstr "Deine Mediathek ist leer."
+
+msgid "Nothing matches your search."
+msgstr "Nichts passt zu deiner Suche."
+
+msgid "Add photos, videos and music with the buttons above. Files stay where they are."
+msgstr "Füge Fotos, Videos und Musik mit den Schaltflächen oben hinzu. Die Dateien bleiben, wo sie sind."
+
+msgid "Scanning…"
+msgstr "Durchsuche…"
+
+msgid "Adding {} of {}…"
+msgstr "Füge {} von {} hinzu…"
+
+msgid "Added {} files, {} were already in the library."
+msgstr "{} Dateien hinzugefügt, {} waren bereits in der Mediathek."
+
+msgid "Select an item to see its details."
+msgstr "Wähle ein Element aus, um Details zu sehen."
+
+msgid "Not downloaded"
+msgstr "Nicht heruntergeladen"
+
+msgid "Photo"
+msgstr "Foto"
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Unknown"
+msgstr "Unbekannt"
+
+msgid "Dimensions"
+msgstr "Abmessungen"
+
+msgid "Duration"
+msgstr "Dauer"
+
+msgid "Captured"
+msgstr "Aufgenommen"
+
+msgid "Codec"
+msgstr "Codec"
+
+msgid "File size"
+msgstr "Dateigröße"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Location"
+msgstr "Speicherort"
+
+msgid "Reading metadata…"
+msgstr "Lese Metadaten…"
+
+msgid "Ready"
+msgstr "Bereit"
+
+msgid "Error: {}"
+msgstr "Fehler: {}"
+
+msgid "Show in folder"
+msgstr "Im Ordner anzeigen"
+
+msgid "Remove from library"
+msgstr "Aus Mediathek entfernen"

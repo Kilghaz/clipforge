@@ -38,6 +38,7 @@ walkdir = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff", "bmp"] }
 fast_image_resize = { version = "6", features = ["image"] }
 kamadak-exif = "0.6"
+rfd = { version = "0.17", default-features = false }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg"] }
 slint-build = "1.18"
 

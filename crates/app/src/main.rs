@@ -8,10 +8,18 @@
 // applies to the hand-written code in this crate.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+mod format;
 mod language;
+mod library_ui;
+mod library_view;
 mod settings;
 
 use anyhow::{Context, Result};
+use std::sync::Arc;
+
+use clipforge_jobs::Scheduler;
+use clipforge_library::Library;
+use clipforge_media::Backends;
 use clipforge_platform::AppDirs;
 use slint::{ComponentHandle, ModelRc, VecModel};
 use tracing::{info, warn};
@@ -82,6 +90,23 @@ fn main() -> Result<()> {
     window.on_new_project(|| info!("new project: arrives with milestone 2"));
     window.on_open_project(|| info!("open project: arrives with milestone 2"));
 
+    let workers =
+        std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(1).max(2));
+    let scheduler = Arc::new(Scheduler::new(workers));
+    let backends = Backends::discover();
+    if backends.has_ffmpeg() {
+        info!("ffmpeg found; video and HEIC support enabled");
+    } else {
+        warn!("ffmpeg not found; videos and HEIC files cannot be read");
+    }
+    let library =
+        Arc::new(Library::open(&dirs, backends, scheduler).context("opening media library")?);
+    let library_controller = library_ui::LibraryController::new(&window, library);
+    if let Ok(paths) = std::env::var("CLIPFORGE_IMPORT") {
+        library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());
+    }
+
     window.run()?;
+    drop(library_controller);
     Ok(())
 }

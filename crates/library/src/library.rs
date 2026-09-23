@@ -4,7 +4,7 @@
 //! probing, thumbnails) runs as jobs on the shared [`Scheduler`]; results
 //! arrive as [`LibraryEvent`]s on a channel the UI drains on its thread.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -65,6 +65,9 @@ struct Shared {
     backends: Backends,
     events: Sender<LibraryEvent>,
     thumb_jobs: Mutex<HashMap<(MediaId, ThumbLevel), JobId>>,
+    /// Thumbnails that failed this session; not retried until the item
+    /// changes (relink, re-probe) or the app restarts.
+    failed_thumbs: Mutex<HashSet<(MediaId, ThumbLevel)>>,
 }
 
 /// Owns the catalogue and drives all library work.
@@ -109,6 +112,7 @@ impl Library {
             backends,
             events,
             thumb_jobs: Mutex::new(HashMap::new()),
+            failed_thumbs: Mutex::new(HashSet::new()),
         });
         Library {
             shared,
@@ -295,8 +299,12 @@ fn run_probe(shared: &Arc<Shared>, ctx: &JobContext, ids: &[MediaId]) -> JobOutc
                 tracing::warn!(%id, error = %e, "could not store probe result");
             }
         }
+        lock(&shared.failed_thumbs).retain(|(fid, _)| fid != id);
         let _ = shared.events.send(LibraryEvent::ItemUpdated(*id));
-        if result.is_ok() && !shared.cache.exists(record.fingerprint, ThumbLevel::Small) {
+        if result.is_ok()
+            && record.kind != clipforge_media::MediaKind::Audio
+            && !shared.cache.exists(record.fingerprint, ThumbLevel::Small)
+        {
             // Cheap eager thumbnail so the grid fills without round trips.
             let _ = make_thumb(shared, ctx, *id, ThumbLevel::Small);
         }

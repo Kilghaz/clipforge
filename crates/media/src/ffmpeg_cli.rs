@@ -439,6 +439,12 @@ impl StillDecoder for FfmpegCli {
     /// rotation is applied uniformly by us from the probed metadata.
     fn decode_scaled(&self, path: &Path, max_edge: u32) -> Result<DecodedImage> {
         let info = self.probe(path)?;
+        if info.kind == MediaKind::Audio {
+            return Err(MediaError::Unsupported(format!(
+                "{} has no picture",
+                path.display()
+            )));
+        }
         let p = path.to_string_lossy();
         let scale = format!(
             "scale='min({max_edge},iw)':'min({max_edge},ih)':force_original_aspect_ratio=decrease"
@@ -650,6 +656,15 @@ mod tests {
         assert!(matches!(
             cli.probe(Path::new("/nope/missing.mp4")),
             Err(MediaError::Io { .. })
+        ));
+    }
+
+    #[test]
+    fn audio_has_no_still() {
+        let Some(cli) = cli() else { return };
+        assert!(matches!(
+            cli.decode_scaled(&fixture("audio_mono.wav"), 64),
+            Err(MediaError::Unsupported(_))
         ));
     }
 

@@ -1,8 +1,9 @@
 import { VerticalBox, HorizontalBox, Button, ComboBox, GroupBox, ListView, StandardButton } from "std-widgets.slint";
 import { SettingsPage } from "settings.slint";
 import { Sidebar, Page } from "sidebar.slint";
+import { LibraryPage, LibraryState, MediaCell, GridRow, InspectorInfo } from "library.slint";
 
-export { Page }
+export { Page, LibraryState, MediaCell, GridRow, InspectorInfo }
 
 /// Strings Rust needs in the current UI language.
 export global Strings {
@@ -48,6 +49,9 @@ export component MainWindow inherits Window {
             MenuItem { title: @tr("New Project"); activated => { root.new-project(); } }
             MenuItem { title: @tr("Open Project…"); activated => { root.open-project(); } }
             MenuSeparator {}
+            MenuItem { title: @tr("Add files to library…"); activated => { LibraryState.add-files(); } }
+            MenuItem { title: @tr("Add folder to library…"); activated => { LibraryState.add-folder(); } }
+            MenuSeparator {}
             MenuItem { title: @tr("Settings"); activated => { root.page = Page.settings; } }
             MenuSeparator {}
             MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
@@ -65,7 +69,7 @@ export component MainWindow inherits Window {
         }
         Rectangle {
             background: #1e1e1e;
-            if root.page == Page.library : Placeholder { text: @tr("Your media library will appear here. Drop photos and videos anywhere."); }
+            if root.page == Page.library : LibraryPage { }
             if root.page == Page.editor : Placeholder { text: @tr("The timeline editor arrives in the next milestone."); }
             if root.page == Page.settings : SettingsPage {
                 language-index <=> root.language-index;
