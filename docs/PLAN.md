@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: v1 (2026-09-22). Milestones 0, 1 and 2 implemented; see §10 for deviations. Refinement pass with fresh context still to do.
+Status: v1 (2026-09-22). Milestones 0–3 implemented (M3 without proxies); see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -494,3 +494,14 @@ Kept short; the ADRs hold the reasoning.
   `yuv420p` converted in Rust, not RGBA, cutting pipe traffic to a quarter.
 - **M2, timeline strip:** not virtualised yet (one Slint element per clip);
   fine for hundreds of clips, to be revisited before thousands.
+- **M3, decoding:** streaming ffmpeg sidecars instead of in-process libav
+  (ADR-0008). No FFmpeg libraries to build or bundle; crash isolation kept.
+- **M3, proxies:** not generated. Preview frames are decoded at 960 px on the
+  fly with hardware acceleration; proxies return if playback of 4K HEVC on
+  slower Windows machines drops frames.
+- **M3, audio sync:** preview playhead runs on the wall clock and audio
+  follows with a 0.4 s ring buffer; no drift correction yet. Export audio is
+  sample-exact.
+- **M3, HDR video in preview/export:** frames come from ffmpeg's default RGB
+  conversion, so HLG sources look flat until the colour pipeline (M6) adds
+  tone mapping.

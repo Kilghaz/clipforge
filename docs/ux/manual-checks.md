@@ -68,3 +68,21 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Export… Full HD, Better, YouTube: progress advances, the MP4 plays in
       QuickTime/VLC with the right durations and transitions; Cancel leaves
       no file behind.
+
+## Milestone 3
+
+- [ ] Add a video from the library (double-click / drag): the clip shows a
+      ▶ badge, its natural duration and a frame in the preview when scrubbed.
+- [ ] Space / L plays with sound; K pauses; J jumps back a second; ←/→ step
+      one frame (Shift: ten); Home returns to the start. Audio stops on pause
+      and on scrubbing.
+- [ ] Drag the left or right edge of a video clip: the white marker follows,
+      the preview shows the new first/last frame, release trims (undoable).
+- [ ] Inspector shows Mute and Volume for video selections; muting removes the
+      ▶ badge's sound icon and the exported file has no audio for that clip.
+- [ ] A dissolve between two videos plays both pictures blended; the export
+      cross-fades the sound as well.
+- [ ] Export with videos: the MP4 has an AAC track in sync with the picture
+      (check a clap or a beat against the frame in a player).
+- [ ] 4K HEVC iPhone clip: scrubbing responds within ~0.2 s and playback is
+      smooth on the Mac; note the frame rate on Windows.

@@ -1,20 +1,20 @@
 # Architecture (living document)
 
-Redrawn from the code after each milestone. Last update: Milestone 2 (photo slideshow).
+Redrawn from the code after each milestone. Last update: Milestone 3 (video).
 
 ## Crates
 
 | Crate | Purpose | Key types today |
 |---|---|---|
 | `clipforge-core` | Model, commands, undo, time | `Project`, `Clip`, `Command`, `History`, `timeline::{placements, frame_at}`, `Ticks`, `FrameRate` |
-| `clipforge-media` | Probing and still decoding | `MediaInfo`, `Rotation`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli`, `Backends` |
+| `clipforge-media` | Probing, stills, streaming decode | `MediaInfo`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli` (+`frame_at`), `VideoReader`, `AudioReader`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
 | `clipforge-render` | CPU compositor | `Compositor`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
-| `clipforge-export` | Planner, frames, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `EncoderCatalog`, `Yuv420` |
+| `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `audio::{mix, write_wav}`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
-| `clipforge-app` | Slint UI | `MainWindow` (library panel + editor side by side, settings overlay), `LibraryState`/`EditorState`/`Shell` (Slint globals), `LibraryController`, `EditorController`, `editor_view` (pure), `SettingsStore` |
+| `clipforge-app` | Slint UI | `MainWindow` (library panel + editor, settings overlay), `LibraryState`/`EditorState`/`Shell` (Slint globals), `LibraryController`, `EditorController`, `Player` (frame fetchers + cpal audio), `editor_view`/`library_view` (pure), `SettingsStore` |
 | `xtask` | Dev tasks | `check-deps`, `fixtures`, `icons` |
 
 ## Dependency graph
