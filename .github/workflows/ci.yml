@@ -35,6 +35,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-deny,cargo-about
+      # ffmpeg/ffprobe are needed by the media backend integration tests.
+      - uses: FedericoCarboni/setup-ffmpeg@v3
+        id: ffmpeg
+      - name: ffmpeg version
+        run: ffprobe -version | head -1
       - name: Format
         run: cargo fmt --all --check
       # Tests first: they need full codegen of every dependency and that

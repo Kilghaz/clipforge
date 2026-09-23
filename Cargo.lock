@@ -834,8 +834,13 @@ name = "clipforge-media"
 version = "0.1.0"
 dependencies = [
  "clipforge-core",
+ "fast_image_resize",
+ "image",
+ "kamadak-exif",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
@@ -1296,10 +1301,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
+name = "fast_image_resize"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c50201dc184ba6553da1695aac20a042efffbe2d84542cee31917c86c3ab1e"
+dependencies = [
+ "bytemuck",
+ "cfg-if",
+ "document-features",
+ "image",
+ "num-traits",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "fax"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fdeflate"
@@ -2361,9 +2386,13 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "color_quant",
+ "gif",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",
+ "tiff",
  "zune-core",
  "zune-jpeg",
 ]
@@ -2531,6 +2560,15 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kamadak-exif"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1130d80c7374efad55a117d715a3af9368f0fa7a2c54573afc15a188cd984837"
+dependencies = [
+ "mutate_once",
 ]
 
 [[package]]
@@ -2822,6 +2860,12 @@ dependencies = [
  "thiserror 2.0.20",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "mutate_once"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
 
 [[package]]
 name = "naga"
@@ -4642,6 +4686,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tiff"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63feaf3343d35b6ca4d50483f94843803b0f51634937cc2ec519fc32232bc52"
+dependencies = [
+ "fax",
+ "flate2",
+ "half",
+ "quick-error 2.0.1",
+ "weezl",
+ "zune-jpeg",
 ]
 
 [[package]]
