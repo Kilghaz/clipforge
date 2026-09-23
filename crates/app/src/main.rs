@@ -16,6 +16,7 @@ mod language;
 mod library_ui;
 mod library_view;
 mod player;
+mod preview_worker;
 mod settings;
 
 use anyhow::{Context, Result};

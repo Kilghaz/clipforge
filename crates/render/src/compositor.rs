@@ -137,7 +137,7 @@ impl Compositor {
             return (*hit).clone();
         }
         let rotated = rotate(&src, clip.rotate);
-        let frame = compose(&rotated, w, h, clip.fit);
+        let frame = compose(&rotated, w, h, clip.fit, quality);
         self.remember(key, &frame);
         frame
     }
@@ -156,14 +156,28 @@ impl Compositor {
 }
 
 /// Scales `src` into a `w × h` black frame according to `fit`.
-fn compose(src: &SourceImage, w: u32, h: u32, fit: Fit) -> Frame {
-    let mut frame = Frame::black(w, h);
+fn compose(src: &SourceImage, w: u32, h: u32, fit: Fit, quality: RenderQuality) -> Frame {
     let rect = place(src.width, src.height, w, h, fit);
     if rect.width == 0 || rect.height == 0 {
-        return frame;
+        return Frame::black(w, h);
     }
+    // Fast path: the source already has the frame's size (video decoded at
+    // preview size, or a still that matches). No resampling, one copy.
+    if (src.width, src.height) == (w, h) && (rect.width, rect.height) == (w, h) {
+        return Frame {
+            width: w,
+            height: h,
+            rgba: src.rgba.as_ref().clone(),
+        };
+    }
+    let mut frame = Frame::black(w, h);
+    let filter = if quality.is_preview() {
+        fr::FilterType::Bilinear
+    } else {
+        fr::FilterType::Lanczos3
+    };
     let scaled = match fit {
-        Fit::Contain => resize(src, rect.width, rect.height, None),
+        Fit::Contain => resize(src, rect.width, rect.height, None, filter),
         Fit::Cover => {
             // Crop the source to the visible region first, then resize to the frame.
             let sx = f64::from(src.width) / f64::from(rect.width);
@@ -182,6 +196,7 @@ fn compose(src: &SourceImage, w: u32, h: u32, fit: Fit) -> Frame {
                     crop_w.min(f64::from(src.width)),
                     crop_h.min(f64::from(src.height)),
                 )),
+                filter,
             )
         }
     };
@@ -192,15 +207,20 @@ fn compose(src: &SourceImage, w: u32, h: u32, fit: Fit) -> Frame {
     frame
 }
 
-fn resize(src: &SourceImage, w: u32, h: u32, crop: Option<(f64, f64, f64, f64)>) -> Frame {
+fn resize(
+    src: &SourceImage,
+    w: u32,
+    h: u32,
+    crop: Option<(f64, f64, f64, f64)>,
+    filter: fr::FilterType,
+) -> Frame {
     let Some(src_img) =
         fr::images::ImageRef::new(src.width, src.height, &src.rgba, fr::PixelType::U8x4).ok()
     else {
         return Frame::solid(w, h, PLACEHOLDER_RGB);
     };
     let mut dst = fr::images::Image::new(w, h, fr::PixelType::U8x4);
-    let mut options =
-        fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3));
+    let mut options = fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Convolution(filter));
     if let Some((l, t, cw, ch)) = crop {
         options = options.crop(l, t, cw, ch);
     }

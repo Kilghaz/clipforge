@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use clipforge_core::project::{Transition, TransitionKind};
@@ -27,6 +27,7 @@ use tracing::{info, warn};
 use crate::editor_view::{self, Selection, clips_for, layout, media_ref_for};
 use crate::format;
 use crate::player::Player;
+use crate::preview_worker::PreviewWorker;
 use crate::ui::{EditorState, MainWindow, TimelineClip};
 
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
@@ -38,21 +39,26 @@ pub(crate) struct EditorController {
 }
 
 /// Preview pixels: stills from the library's 1280 px thumbnails, video
-/// frames from the player's background fetchers.
+/// frames from the player's background fetchers. Shared with the preview
+/// worker thread, hence the mutexes.
 struct PreviewSources {
-    images: RefCell<HashMap<MediaId, SourceImage>>,
-    missing: RefCell<HashSet<MediaId>>,
-    player: Rc<Player>,
+    images: Mutex<HashMap<MediaId, SourceImage>>,
+    missing: Mutex<HashSet<MediaId>>,
+    player: Arc<Player>,
     /// Path and probe info per video, for opening fetchers.
-    videos: RefCell<HashMap<MediaId, (PathBuf, MediaInfo)>>,
+    videos: Mutex<HashMap<MediaId, (PathBuf, MediaInfo)>>,
     backends: Backends,
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl SourceProvider for PreviewSources {
     fn still(&self, media: MediaId, _max_edge: u32) -> Option<SourceImage> {
-        let hit = self.images.borrow().get(&media).cloned();
+        let hit = lock(&self.images).get(&media).cloned();
         if hit.is_none() {
-            self.missing.borrow_mut().insert(media);
+            lock(&self.missing).insert(media);
         }
         hit
     }
@@ -64,7 +70,7 @@ impl SourceProvider for PreviewSources {
         _max_edge: u32,
     ) -> Option<SourceImage> {
         self.player.video_frame(media, source_time, || {
-            let videos = self.videos.borrow();
+            let videos = lock(&self.videos);
             let (path, info) = videos.get(&media)?;
             Some((path.clone(), info.clone()))
         })
@@ -74,14 +80,17 @@ impl SourceProvider for PreviewSources {
 impl PreviewSources {
     /// Makes sure the player can open `media` (probes once).
     fn register_video(&self, media: MediaId, path: &std::path::Path) {
-        if self.videos.borrow().contains_key(&media) {
+        if lock(&self.videos).contains_key(&media) {
             return;
         }
         if let Ok(info) = self.backends.probe(path) {
-            self.videos
-                .borrow_mut()
-                .insert(media, (path.to_path_buf(), info));
+            lock(&self.videos).insert(media, (path.to_path_buf(), info));
         }
+    }
+
+    /// Ids the last render could not draw; cleared for the next render.
+    fn take_missing(&self) -> Vec<MediaId> {
+        lock(&self.missing).drain().collect()
     }
 }
 
@@ -109,8 +118,13 @@ struct Inner {
     playing: bool,
     last_tick: Instant,
     pps: f32,
-    compositor: Compositor,
-    preview: PreviewSources,
+    preview: Arc<PreviewSources>,
+    worker: PreviewWorker,
+    /// Immutable copy of the project handed to the preview worker; refreshed
+    /// after every change.
+    snapshot: Arc<Project>,
+    /// Project frame index last rendered while playing, for pacing.
+    last_played_frame: i64,
     clips_model: Rc<VecModel<TimelineClip>>,
     strip_thumbs: HashMap<MediaId, slint::Image>,
     preview_dirty: bool,
@@ -142,6 +156,16 @@ impl EditorController {
             project = p;
         }
 
+        let preview: Arc<PreviewSources> = Arc::new(PreviewSources {
+            images: Mutex::new(HashMap::new()),
+            missing: Mutex::new(HashSet::new()),
+            player: Arc::new(Player::new(
+                FfmpegCli::discover(),
+                clipforge_render::PREVIEW_LONG_EDGE,
+            )),
+            videos: Mutex::new(HashMap::new()),
+            backends: backends.clone(),
+        });
         let inner = Rc::new(RefCell::new(Inner {
             window: window.as_weak(),
             library,
@@ -156,17 +180,10 @@ impl EditorController {
             playing: false,
             last_tick: Instant::now(),
             pps: editor_view::DEFAULT_PIXELS_PER_SECOND,
-            compositor: Compositor::new(),
-            preview: PreviewSources {
-                images: RefCell::new(HashMap::new()),
-                missing: RefCell::new(HashSet::new()),
-                player: Rc::new(Player::new(
-                    FfmpegCli::discover(),
-                    clipforge_render::PREVIEW_LONG_EDGE,
-                )),
-                videos: RefCell::new(HashMap::new()),
-                backends: backends.clone(),
-            },
+            preview: Arc::clone(&preview),
+            worker: PreviewWorker::start(preview),
+            snapshot: Arc::new(Project::new()),
+            last_played_frame: -1,
             clips_model,
             strip_thumbs: HashMap::new(),
             preview_dirty: true,
@@ -784,11 +801,23 @@ impl Inner {
                 self.playhead = total;
                 self.set_playing(false);
             }
-            self.preview_dirty = true;
+            // Re-render only when the playhead reaches a new project frame;
+            // rendering at 60 Hz for a 30 fps timeline doubles the work.
+            let frame_index = self.playhead.to_frames(self.project.settings.frame_rate);
+            if frame_index != self.last_played_frame {
+                self.last_played_frame = frame_index;
+                self.preview_dirty = true;
+            }
             self.sync_transport();
         }
         if self.preview.player.take_changed() {
             self.preview_dirty = true;
+        }
+        if let Some(frame) = self.worker.take_frame()
+            && let Some(w) = self.state()
+        {
+            w.global::<EditorState>()
+                .set_preview(frame_to_image(&frame));
         }
         if now.duration_since(self.last_prune) > Duration::from_secs(2) {
             self.last_prune = now;
@@ -807,18 +836,13 @@ impl Inner {
 
     // ----- preview ----------------------------------------------------------
 
+    /// Hands the current playhead to the worker thread. The finished frame
+    /// is picked up in `tick`.
     fn render_preview(&mut self) {
         self.preview_dirty = false;
         self.last_preview = Instant::now();
-        self.preview.missing.borrow_mut().clear();
-        let frame = self.compositor.render(
-            &self.project,
-            self.playhead,
-            RenderQuality::Preview,
-            &self.preview,
-        );
-        let missing: Vec<MediaId> = self.preview.missing.borrow().iter().copied().collect();
-        for id in missing {
+        // Stills the previous render lacked: fetch their preview thumbnails.
+        for id in self.preview.take_missing() {
             if let Some(path) =
                 self.library
                     .request_thumb(id, ThumbLevel::Preview, Priority::Interactive)
@@ -826,17 +850,15 @@ impl Inner {
                 self.load_preview_image(id, &path);
             }
         }
-        if let Some(w) = self.state() {
-            w.global::<EditorState>()
-                .set_preview(frame_to_image(&frame));
-        }
+        self.worker
+            .request(Arc::clone(&self.snapshot), self.playhead);
     }
 
     fn load_preview_image(&mut self, id: MediaId, path: &std::path::Path) {
         let Ok(img) = image::open(path) else { return };
         let rgba = img.into_rgba8();
         let (w, h) = rgba.dimensions();
-        self.preview.images.borrow_mut().insert(
+        lock(&self.preview.images).insert(
             id,
             SourceImage {
                 width: w,
@@ -852,6 +874,7 @@ impl Inner {
     // ----- sync to Slint ----------------------------------------------------
 
     fn sync_all(&mut self) {
+        self.snapshot = Arc::new(self.project.clone());
         for m in self.project.media.values() {
             if m.kind == clipforge_core::RefKind::Video {
                 self.preview.register_video(m.id, &m.path);
