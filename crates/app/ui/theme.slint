@@ -65,6 +65,20 @@ export global Theme {
     out property <color> success: #2fae7a;
     out property <color> playhead: #f25f5c;
     out property <brush> accent: Palette.accent-background;
+    out property <brush> accent-hover: Palette.accent-background.brighter(0.1);
+    out property <brush> accent-pressed: Palette.accent-background.darker(0.15);
+    out property <brush> accent-disabled: Palette.accent-background.transparentize(0.6);
+    out property <brush> on-accent: Palette.accent-foreground;
+    out property <brush> on-accent-disabled: Palette.accent-foreground.transparentize(0.4);
+    out property <brush> control-hover: Palette.control-background.brighter(0.25);
+    out property <brush> control-pressed: Palette.control-background.darker(0.2);
+    out property <brush> control-disabled: Palette.control-background.transparentize(0.5);
+    out property <brush> focus-ring: Palette.foreground;
+    /// Dark backdrop behind badges over imagery; readable on any footage.
+    out property <brush> badge-backdrop: #000000b3;
+    /// Text on the warning colour (HDR tag).
+    out property <brush> on-warning: #000000;
+    out property <brush> shadow: #00000080;
     out property <brush> selection: Palette.accent-background;
     out property <brush> selection-tint: Palette.accent-background.transparentize(0.78);
     out property <brush> hover-tint: Palette.foreground.transparentize(0.92);

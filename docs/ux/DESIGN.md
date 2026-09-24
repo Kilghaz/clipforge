@@ -127,6 +127,20 @@ not belong in a desktop app.
 3. Only then design something new, and document it in this file under
    "ClipForge components" with the states it supports.
 
+Every component, new or changed, gets a row in `crates/app/ui/gallery.slint`
+showing **all its states** (default, hover where simulable, pressed, disabled,
+selected, primary, empty content). Render it with
+`cargo run -p clipforge-app --bin screenshot -- gallery` (2× scale) and look
+before and after. The gallery is our storybook: it is the only place where a
+component is seen in isolation with a centre guide, so alignment and sizing
+faults show up there first.
+
+Enforced by tests (`crates/app/tests/ui_tokens.rs`): no hex or named colours,
+no literal `border-radius`/`font-size` px outside `theme.slint`, and no std
+`Button` carrying an icon without text (it cannot centre the icon; use
+`IconButton`). Radii of std widgets are owned by the style (fluent 4 px, the
+same as `Theme.radius-s`; cupertino rounds slightly more) and are accepted.
+
 ### ClipForge components
 
 All live in `crates/app/ui/components.slint` unless noted; tokens in
@@ -137,6 +151,7 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `Icon` | Fluent iconography | SVG recoloured via `colorize`; 16 or 20 px. |
 | `IconButton` | Fluent "Button", Spectrum "Action button" | std `Button` with icon + mandatory `Tooltip` and accessible label. |
 | `ActionButton` | Fluent "Button" | std `Button` pinned to `control-height` (a bare `Button` stretches to its layout cell and breaks alignment). Use it for every text button. |
+| `ChoiceButton` | Spectrum "Action group" | One option of a small set (duration presets); own selected/hover/pressed/disabled states because the std checked style differs per platform. |
 | `Bar` | Fluent "CommandBar" | Fixed-height bar whose children are exactly `control-height` tall and vertically centred. Use it for every toolbar, filter and action row. |
 | `Section` | Spectrum "Form" (vertical labels) | Label above controls, 8 px inside, 24 px between sections. Use it for inspectors and dialogs. |
 | `SectionLabel`, `Caption`, `BodyText` | Spectrum typography | The three text roles; no other sizes in screens. |

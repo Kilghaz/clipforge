@@ -10,6 +10,7 @@ publish = false
 repository = "https://github.com/Kilghaz/clipforge"
 
 [workspace.dependencies]
+regex = "1"
 clipforge-core = { path = "crates/core" }
 clipforge-media = { path = "crates/media" }
 clipforge-library = { path = "crates/library" }

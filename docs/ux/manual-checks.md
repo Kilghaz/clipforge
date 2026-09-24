@@ -103,3 +103,6 @@ Things CI cannot verify. Run before tagging a milestone.
       the timeline; the timeline shows a tinted drop zone.
 - [ ] German: all new strings translated, nothing truncated in the inspector
       or the library action bar at the minimum window width.
+- [ ] Icon-only buttons: icon centred, hover and pressed tints visible,
+      keyboard focus ring visible when tabbing; duration presets readable when
+      selected.

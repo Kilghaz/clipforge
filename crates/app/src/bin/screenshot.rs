@@ -5,7 +5,8 @@
 //! cargo run -p clipforge-app --bin screenshot -- [scene ...] [--out DIR]
 //! ```
 //!
-//! Scenes: `empty`, `populated`, `export`, `settings`, `narrow`. Default is
+//! Scenes: `empty`, `populated`, `export`, `settings`, `narrow` (900 × 560)
+//! and `gallery` (every component in every state, at 2× scale). Default is
 //! all of them, written to `target/screenshots/<scene>.png`.
 
 // Slint-generated code contains `unsafe`; the workspace-wide `deny` still
@@ -36,14 +37,22 @@ use std::rc::Rc;
 use anyhow::{Context, Result, bail};
 use slint::Rgb8Pixel;
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
-use slint::platform::{Platform, PlatformError, WindowAdapter};
+use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
 
 use ui::{
-    EditorState, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell, TimelineClip,
+    EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell,
+    TimelineClip,
 };
 
-const SCENES: &[&str] = &["empty", "populated", "export", "settings", "narrow"];
+const SCENES: &[&str] = &[
+    "empty",
+    "populated",
+    "export",
+    "settings",
+    "narrow",
+    "gallery",
+];
 
 struct Headless {
     window: Rc<MinimalSoftwareWindow>,
@@ -81,6 +90,22 @@ fn main() -> Result<()> {
 
     let fixtures = fixtures_dir()?;
     for scene in scenes {
+        let path = out.join(format!("{scene}.png"));
+        if scene == "gallery" {
+            // 2× so 1 px details (borders, centring) are visible.
+            let (w, h, scale) = (1480, 1240, 2.0);
+            window.dispatch_event(WindowEvent::ScaleFactorChanged {
+                scale_factor: scale,
+            });
+            window.set_size(PhysicalSize::new(w * 2, h * 2));
+            let gallery = GalleryWindow::new()?;
+            gallery.set_sample(load(&fixtures, "photo_landscape.jpg")?);
+            gallery.show()?;
+            render(&window, w * 2, h * 2, &path)?;
+            gallery.hide()?;
+            window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
+            continue;
+        }
         let (w, h) = if scene == "narrow" {
             (900, 560)
         } else {
@@ -90,20 +115,24 @@ fn main() -> Result<()> {
         let app = MainWindow::new()?;
         populate(&app, &scene, &fixtures)?;
         app.show()?;
-        // Two passes: the first lays out, the second picks up bindings that
-        // depend on layout (grid width, strip geometry).
-        let mut pixels = vec![Rgb8Pixel::default(); (w * h) as usize];
-        for _ in 0..3 {
-            slint::platform::update_timers_and_animations();
-            window.draw_if_needed(|renderer| {
-                renderer.render(&mut pixels, w as usize);
-            });
-        }
-        let path = out.join(format!("{scene}.png"));
-        save_png(&path, w, h, &pixels)?;
-        println!("{}", path.display());
+        render(&window, w, h, &path)?;
         app.hide()?;
     }
+    Ok(())
+}
+
+/// Draws a few frames (layout first, then bindings that depend on layout
+/// such as grid width and strip geometry) and writes the PNG.
+fn render(window: &Rc<MinimalSoftwareWindow>, w: u32, h: u32, path: &Path) -> Result<()> {
+    let mut pixels = vec![Rgb8Pixel::default(); (w * h) as usize];
+    for _ in 0..3 {
+        slint::platform::update_timers_and_animations();
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, w as usize);
+        });
+    }
+    save_png(path, w, h, &pixels)?;
+    println!("{}", path.display());
     Ok(())
 }
 

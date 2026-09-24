@@ -14,8 +14,11 @@ export component Icon inherits Image {
     image-fit: contain;
 }
 
-/// Icon-only button. Always has a tooltip and an accessible label, never
-/// carries meaning by icon alone (Fluent "Button", Spectrum "Action button").
+/// Icon-only button, built directly (the std `Button` reserves room for a
+/// text label and its 12 px padding, so a 20 px icon never centres in 32 px).
+/// States and metrics follow Fluent "Button": 32 × 32, radius 4, 1 px border,
+/// hover / pressed / disabled / checked, visible focus ring, tooltip and
+/// accessible label always present.
 export component IconButton inherits Rectangle {
     in property <image> icon;
     in property <string> tooltip;
@@ -24,22 +27,136 @@ export component IconButton inherits Rectangle {
     in property <bool> checkable;
     in-out property <bool> checked;
     callback clicked;
+    property <bool> accent: root.primary || root.checked;
     width: Theme.control-height;
     height: Theme.control-height;
-    button := Button {
-        width: parent.width;
-        height: parent.height;
-        icon: root.icon;
-        icon-size: Theme.icon-m;
-        colorize-icon: true;
+    border-radius: Theme.radius-s;
+    border-width: 1px;
+    border-color: root.accent ? transparent : Theme.border;
+    background: root.accent ? Theme.accent : Theme.surface-card;
+    animate background { duration: Theme.motion-fast; }
+    accessible-role: button;
+    accessible-label: root.tooltip;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-action-default => { touch.clicked(); }
+    forward-focus: focus;
+
+    states [
+        disabled when !root.enabled : {
+            root.background: root.accent ? Theme.accent-disabled : Theme.control-disabled;
+            root.border-color: root.accent ? transparent : Theme.border;
+            glyph.color: root.accent ? Theme.on-accent-disabled : Theme.text-disabled;
+        }
+        pressed when touch.pressed : {
+            root.background: root.accent ? Theme.accent-pressed : Theme.control-pressed;
+            glyph.color: root.accent ? Theme.on-accent : Theme.text-secondary;
+        }
+        hover when touch.has-hover : {
+            root.background: root.accent ? Theme.accent-hover : Theme.control-hover;
+        }
+    ]
+
+    focus := FocusScope {
         enabled: root.enabled;
-        primary: root.primary;
-        checkable: root.checkable;
-        checked <=> root.checked;
-        accessible-label: root.tooltip;
-        clicked => { root.clicked(); }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space { touch.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            if root.checkable { root.checked = !root.checked; }
+            root.clicked();
+        }
+    }
+    glyph := Icon {
+        source: root.icon;
+        size: Theme.icon-m;
+        color: root.accent ? Theme.on-accent : Theme.text;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    // Focus ring outside the control (Fluent "FocusBorder").
+    if focus.has-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-s + 2px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
     }
     Tooltip { text: @markdown("\{root.tooltip}"); }
+}
+
+/// One option of a small set (duration presets): text version of
+/// `IconButton`. The std `Button` checked state differs per style and is
+/// unreadable in cupertino; this one uses our tokens (Spectrum "Action group").
+export component ChoiceButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> selected;
+    callback clicked;
+    height: Theme.control-height;
+    min-width: 40px;
+    border-radius: Theme.radius-s;
+    border-width: 1px;
+    border-color: root.selected ? transparent : Theme.border;
+    background: root.selected ? Theme.accent : Theme.surface-card;
+    animate background { duration: Theme.motion-fast; }
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { touch.clicked(); }
+    forward-focus: focus;
+
+    states [
+        disabled when !root.enabled : {
+            root.background: root.selected ? Theme.accent-disabled : Theme.control-disabled;
+            label.color: root.selected ? Theme.on-accent-disabled : Theme.text-disabled;
+        }
+        pressed when touch.pressed : {
+            root.background: root.selected ? Theme.accent-pressed : Theme.control-pressed;
+        }
+        hover when touch.has-hover : {
+            root.background: root.selected ? Theme.accent-hover : Theme.control-hover;
+        }
+    ]
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space { touch.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+    label := Text {
+        text: root.text;
+        color: root.selected ? Theme.on-accent : Theme.text;
+        font-size: Theme.font-body;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+    if focus.has-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-s + 2px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
 }
 
 /// Text button at the standard control height; std `Button` alone stretches
@@ -120,7 +237,7 @@ export component Badge inherits Rectangle {
     width: 22px;
     height: 22px;
     border-radius: Theme.radius-s;
-    background: #000000b3;
+    background: Theme.badge-backdrop;
     accessible-role: image;
     accessible-label: root.label;
     Icon {

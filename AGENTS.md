@@ -83,8 +83,9 @@ Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest carg
     `Palette` and `ui/theme.slint`, spacing from the 4/8/12/16/24/32/40 scale,
     icons from the Fluent icon subset; the app is dark only. Text buttons
     are `ActionButton`, toolbars are `Bar`, inspector groups are `Section`.
-    After implementing, render `cargo run -p clipforge-app --bin screenshot`,
-    LOOK at the PNGs, then run the "After implementing" checklist in
+    Every new or changed component gets a row in `ui/gallery.slint`. After
+    implementing, render `cargo run -p clipforge-app --bin screenshot`
+    (includes `gallery.png` at 2×), LOOK at the PNGs, then run the "After implementing" checklist in
     `DESIGN.md` (NN/G heuristics plus the visual pass) and fix what fails.
     Never call a UI change done without having looked at the screenshots.
 

@@ -94,7 +94,7 @@ export global LibraryState {
 }
 
 /// Media type / status badge in the thumbnail corner.
-component KindBadge inherits Badge {
+export component KindBadge inherits Badge {
     in property <int> kind;
     in property <bool> cloud;
     in property <bool> failed;
@@ -106,7 +106,7 @@ component KindBadge inherits Badge {
 /// Library grid cell: Spectrum "Card" (quiet) with Fluent grid selection.
 /// Geometry (104 × 112, row 116, padding 12, spacing 8) is mirrored in
 /// `library_view.rs`; change both together.
-component CellView inherits Rectangle {
+export component CellView inherits Rectangle {
     in property <MediaCell> cell;
     callback pressed(bool, bool);
     callback dragged(float, float);
@@ -383,7 +383,7 @@ export component LibraryPage inherits Rectangle {
                             border-radius: Theme.radius-s;
                             height: Theme.control-height;
                             width: 44px;
-                            Text { text: "HDR"; color: #000000; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                            Text { text: "HDR"; color: Theme.on-warning; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
                         }
                         ActionButton { text: @tr("Show in folder"); icon: Icons.folder-open; clicked => { LibraryState.reveal-selected(); } }
                         ActionButton { text: @tr("Remove from library"); icon: Icons.delete; clicked => { LibraryState.remove-selected(); } }

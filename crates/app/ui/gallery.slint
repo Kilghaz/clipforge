@@ -1,0 +1,179 @@
+// Component gallery: every ClipForge component in every state, on one
+// page, for the visual pass (docs/ux/DESIGN.md §5). Rendered by
+// `cargo run -p clipforge-app --bin screenshot -- gallery` at 2× scale.
+// Not part of the app; nothing here is translated (labels are for us).
+import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, Bar, Section, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogButtons } from "components.slint";
+import { CellView, KindBadge, MediaCell } from "library.slint";
+import { ClipView, ValueSlider, TimelineClip } from "editor.slint";
+
+component Row inherits VerticalLayout {
+    in property <string> title;
+    spacing: Theme.space-s;
+    alignment: start;
+    Caption { text: root.title; }
+    HorizontalLayout {
+        spacing: Theme.space-m;
+        alignment: start;
+        @children
+    }
+}
+
+/// Alignment guides: a 32 px box with a centre cross, to check centring.
+component Guide inherits Rectangle {
+    width: Theme.control-height;
+    height: Theme.control-height;
+    border-width: 1px;
+    border-color: Theme.danger;
+    Rectangle { x: parent.width / 2; y: 0; width: 1px; height: parent.height; background: Theme.danger; }
+    Rectangle { x: 0; y: parent.height / 2; width: parent.width; height: 1px; background: Theme.danger; }
+    @children
+}
+
+export component GalleryWindow inherits Window {
+    in property <image> sample;
+    background: Theme.surface-window;
+    init => { Palette.color-scheme = ColorScheme.dark; }
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-xl;
+        alignment: start;
+
+        Row {
+            title: "IconButton: default, primary, checked, disabled, disabled-primary; guide shows the centre";
+            IconButton { icon: Icons.settings; tooltip: "Settings"; }
+            IconButton { icon: Icons.share; tooltip: "Export"; primary: true; }
+            IconButton { icon: Icons.speaker-mute; tooltip: "Mute"; checkable: true; checked: true; }
+            IconButton { icon: Icons.arrow-undo; tooltip: "Undo"; enabled: false; }
+            IconButton { icon: Icons.play; tooltip: "Play"; primary: true; enabled: false; }
+            Guide { IconButton { icon: Icons.add; tooltip: "Add"; background: transparent; border-color: transparent; } }
+            Guide { Icon { source: Icons.folder-add; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; } }
+        }
+        Row {
+            title: "ActionButton: text, icon+text, primary, primary icon+text, disabled; ChoiceButton selected / default / disabled; std Button for comparison";
+            ActionButton { text: "Add all"; }
+            ActionButton { text: "Show in folder"; icon: Icons.folder-open; }
+            ActionButton { text: "Add to timeline"; primary: true; }
+            ActionButton { text: "Export…"; icon: Icons.share; primary: true; }
+            ActionButton { text: "Remove"; icon: Icons.delete; enabled: false; }
+            ChoiceButton { text: "4 s"; selected: true; }
+            ChoiceButton { text: "5 s"; }
+            ChoiceButton { text: "8 s"; enabled: false; }
+            Button { text: "std Button"; }
+            Button { text: "std icon"; icon: Icons.save; colorize-icon: true; }
+        }
+        Row {
+            title: "Std controls at control-height: LineEdit, ComboBox, CheckBox, Slider, ProgressIndicator";
+            LineEdit { height: Theme.control-height; width: 200px; placeholder-text: "Search"; }
+            ComboBox { height: Theme.control-height; width: 160px; model: ["Fit inside (bars)", "Fill frame (crop)"]; }
+            CheckBox { text: "Mute"; checked: true; }
+            Slider { width: 160px; value: 40; }
+            ProgressIndicator { width: 160px; progress: 0.42; }
+            ProgressIndicator { width: 32px; indeterminate: true; }
+        }
+        Row {
+            title: "Bar (48 px) with mixed controls: everything must sit on one centre line";
+            Rectangle {
+                width: 720px;
+                background: Theme.surface-pane;
+                Bar {
+                    width: parent.width;
+                    IconButton { icon: Icons.panel-left-contract; tooltip: "Hide library"; }
+                    IconButton { icon: Icons.arrow-undo; tooltip: "Undo"; }
+                    BodyText { text: "Summer holiday •"; horizontal-stretch: 1; horizontal-alignment: center; }
+                    ActionButton { text: "Export…"; icon: Icons.share; primary: true; }
+                    IconButton { icon: Icons.settings; tooltip: "Settings"; }
+                    Caption { text: "12 items"; }
+                    ComboBox { height: Theme.control-height; width: 120px; model: ["Date"]; }
+                }
+                Rectangle { y: parent.height / 2; height: 1px; width: parent.width; background: Theme.danger; }
+            }
+        }
+        Row {
+            title: "Text roles: title 16 / body 14 / secondary 12 / caption 11, SectionLabel; Divider";
+            Text { text: "Title 16 semibold"; color: Theme.text; font-size: Theme.font-title; font-weight: Theme.weight-semibold; }
+            BodyText { text: "Body 14"; }
+            Text { text: "Secondary 12"; color: Theme.text-secondary; font-size: Theme.font-secondary; }
+            Caption { text: "Caption 11"; }
+            SectionLabel { text: "Section label"; }
+            Rectangle { width: 120px; height: Theme.control-height; Divider { y: parent.height / 2; width: parent.width; } }
+        }
+        Row {
+            title: "Badges: video, audio, cloud, failed, muted; HDR tag";
+            KindBadge { kind: 1; }
+            KindBadge { kind: 2; }
+            KindBadge { kind: 0; cloud: true; }
+            KindBadge { kind: 0; failed: true; }
+            Badge { icon: Icons.speaker-mute; label: "Muted"; }
+            Rectangle {
+                background: Theme.warning;
+                border-radius: Theme.radius-s;
+                height: Theme.control-height-s;
+                width: 44px;
+                Text { text: "HDR"; color: Theme.on-warning; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+            }
+        }
+        Row {
+            title: "Library cells: photo, selected, video, audio (no thumb), pending, failed, cloud";
+            CellView { cell: { index: 0, id: "a", title: "IMG_4021.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0 }; }
+            CellView { cell: { index: 1, id: "b", title: "IMG_4022.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, selected: true }; }
+            CellView { cell: { index: 2, id: "c", title: "Clip 5.mov", subtitle: "0:14 · 4K", image: root.sample, has-image: true, kind: 1 }; }
+            CellView { cell: { index: 3, id: "d", title: "Soundtrack.m4a", subtitle: "3:42", kind: 2 }; }
+            CellView { cell: { index: 4, id: "e", title: "IMG_4023.jpg", subtitle: "12 Jul 2026", kind: 0, pending: true }; }
+            CellView { cell: { index: 5, id: "f", title: "broken.jpg", subtitle: "", kind: 0, failed: true }; }
+            CellView { cell: { index: 6, id: "g", title: "IMG_4024.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, cloud: true }; }
+        }
+        Row {
+            title: "Timeline clips (100 px): photo, selected photo with dissolve, video, muted video, no thumb";
+            ClipView { width: 160px; height: 100px; item: { index: 0, id: "a", title: "IMG_4021.jpg", thumb: root.sample, has-thumb: true, width: 160, duration-text: "4.0 s" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 1, id: "b", title: "IMG_4022.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, selected: true, transition: 1, duration-text: "4.0 s" }; }
+            ClipView { width: 220px; height: 100px; item: { index: 2, id: "c", title: "Clip 2.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, duration-text: "0:06" }; }
+            ClipView { width: 220px; height: 100px; item: { index: 3, id: "d", title: "Clip 4.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, muted: true, transition: 2, overlap: 30, duration-text: "0:06" }; }
+            ClipView { width: 120px; height: 100px; item: { index: 4, id: "e", title: "IMG_4099.jpg", width: 120, duration-text: "4.0 s" }; }
+        }
+        Row {
+            title: "Section + ValueSlider (inspector form), 280 px wide; EmptyState; DialogButtons Windows / macOS";
+            Rectangle {
+                width: 280px;
+                background: Theme.surface-pane;
+                VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-xl;
+                    Section {
+                        title: "Photo duration";
+                        ValueSlider { minimum: 0.5; maximum: 20; step: 0.5; value: 4; value-text: "4 s"; label: "Photo duration"; }
+                        HorizontalLayout {
+                            spacing: Theme.space-xs;
+                            for s in [2, 3, 4, 5, 8] : ChoiceButton { text: s + " s"; horizontal-stretch: 1; selected: s == 4; }
+                        }
+                    }
+                    Section {
+                        title: "Framing";
+                        ComboBox { height: Theme.control-height; model: ["Fit inside (bars)"]; }
+                        ActionButton { text: "Rotate 90°"; icon: Icons.arrow-rotate-clockwise; }
+                    }
+                }
+            }
+            Rectangle {
+                width: 320px;
+                background: Theme.surface-window;
+                EmptyState {
+                    width: parent.width;
+                    icon: Icons.image-multiple;
+                    title: "Your library is empty";
+                    description: "Add the photos, videos and music for your slideshow.";
+                    action-text: "Add folder…";
+                    secondary-text: "Add files…";
+                }
+            }
+            VerticalLayout {
+                spacing: Theme.space-m;
+                alignment: start;
+                Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: false; primary-text: "Export…"; secondary-text: "Cancel"; } }
+                Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: true; primary-text: "Export…"; secondary-text: "Cancel"; } }
+            }
+        }
+    }
+}

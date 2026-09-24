@@ -794,6 +794,7 @@ dependencies = [
  "crossbeam-channel",
  "i-slint-backend-winit",
  "image",
+ "regex",
  "rfd",
  "serde",
  "serde_json",
