@@ -58,7 +58,8 @@ fn every_component_card_points_at_an_existing_component() {
         .iter()
         .map(|f| ui(f))
         .collect();
-    let re = regex::Regex::new(r"→ `([A-Za-z0-9_-]+)`").unwrap();
+    // Only the "Implementation:" line names components; prose may use arrows.
+    let re = regex::Regex::new(r"(?m)^Implementation:.*?→ `([A-Za-z0-9_-]+)`").unwrap();
     let mut broken = Vec::new();
     for entry in entries {
         let path = entry.unwrap().path();
