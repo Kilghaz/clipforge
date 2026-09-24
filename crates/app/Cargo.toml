@@ -11,6 +11,10 @@ build = "build.rs"
 name = "clipforge"
 path = "src/main.rs"
 
+[[bin]]
+name = "screenshot"
+path = "src/bin/screenshot.rs"
+
 [dependencies]
 clipforge-core.workspace = true
 clipforge-i18n.workspace = true

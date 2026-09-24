@@ -194,9 +194,6 @@ msgstr "1 Clip ausgewählt"
 msgid "{} clips selected"
 msgstr "{} Clips ausgewählt"
 
-msgid "Fit"
-msgstr "Einpassen"
-
 msgid "Fit inside (bars)"
 msgstr "Ganz zeigen (Balken)"
 
@@ -278,9 +275,6 @@ msgstr "Schließen"
 msgid "Export…"
 msgstr "Exportieren…"
 
-msgid "Zoom"
-msgstr "Zoom"
-
 msgid "Hide Library"
 msgstr "Mediathek ausblenden"
 
@@ -344,9 +338,6 @@ msgstr "Neueste zuerst. Klicken für älteste zuerst"
 msgid "Oldest first. Click for newest first"
 msgstr "Älteste zuerst. Klicken für neueste zuerst"
 
-msgid "No selection: changes apply to all {} clips"
-msgstr "Keine Auswahl: Änderungen gelten für alle {} Clips"
-
 msgid "Nothing matches your search"
 msgstr "Nichts passt zu deiner Suche"
 
@@ -383,9 +374,6 @@ msgstr "Gespeichert unter {}"
 msgid "Search the library"
 msgstr "Mediathek durchsuchen"
 
-msgid "Settings for new clips"
-msgstr "Einstellungen für neue Clips"
-
 msgid "Settings…"
 msgstr "Einstellungen…"
 
@@ -409,3 +397,27 @@ msgstr "Deine Mediathek ist leer"
 
 msgid "Your slideshow is empty"
 msgstr "Deine Diashow ist leer"
+
+msgid "All clips"
+msgstr "Alle Clips"
+
+msgid "Changes apply to the selection"
+msgstr "Änderungen gelten für die Auswahl"
+
+msgid "Defaults for clips you add"
+msgstr "Voreinstellungen für neue Clips"
+
+msgid "Framing"
+msgstr "Bildausschnitt"
+
+msgid "New clips"
+msgstr "Neue Clips"
+
+msgid "Nothing selected: changes apply to all {} clips"
+msgstr "Nichts ausgewählt: Änderungen gelten für alle {} Clips"
+
+msgid "Project title"
+msgstr "Projekttitel"
+
+msgid "Timeline"
+msgstr "Zeitleiste"

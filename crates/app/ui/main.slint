@@ -28,7 +28,8 @@ export component MainWindow inherits Window {
     icon: @image-url("../../../assets/icons/256x256.png");
     background: Theme.surface-window;
     // Dark only (ADR-0009); the style's palette follows.
-    init => { Palette.color-scheme = ColorScheme.dark; }
+    init => { Palette.color-scheme = ColorScheme.dark; Shell.library-max-width = self.width - 640px; }
+    changed width => { Shell.library-max-width = self.width - 640px; }
 
     // Settings state, owned by Rust.
     in-out property <int> language-index: 0;
@@ -76,7 +77,8 @@ export component MainWindow inherits Window {
 
     HorizontalLayout {
         if Shell.library-visible : LibraryPage {
-            width: Shell.library-width;
+            // Never squeeze the editor below ~640 px (inspector + preview).
+            width: max(280px, min(Shell.library-width, Shell.library-max-width));
         }
         // Divider: 1 px line with an 8 px grab area; drag to resize the
         // library panel, double-click to reset (Fluent "SplitView").
@@ -99,7 +101,7 @@ export component MainWindow inherits Window {
                         // The panel starts at the window's left edge, so the
                         // pointer's window x is the new width (stable while the
                         // divider itself moves under the pointer).
-                        Shell.library-width = max(260px, min(root.width - 600px, divider.absolute-position.x + self.mouse-x - 4px));
+                        Shell.library-width = max(280px, min(root.width - 640px, divider.absolute-position.x + self.mouse-x - 4px));
                     }
                 }
             }
@@ -140,7 +142,7 @@ export component MainWindow inherits Window {
     if Shell.settings-open : DialogFrame {
         title: @tr("Settings");
         dialog-width: 520px;
-        dialog-height: 360px;
+        dialog-height: 320px;
         dismissed => { Shell.settings-open = false; }
         SettingsPage {
             language-index <=> root.language-index;

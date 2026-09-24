@@ -136,13 +136,17 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 |---|---|---|
 | `Icon` | Fluent iconography | SVG recoloured via `colorize`; 16 or 20 px. |
 | `IconButton` | Fluent "Button", Spectrum "Action button" | std `Button` with icon + mandatory `Tooltip` and accessible label. |
+| `ActionButton` | Fluent "Button" | std `Button` pinned to `control-height` (a bare `Button` stretches to its layout cell and breaks alignment). Use it for every text button. |
+| `Bar` | Fluent "CommandBar" | Fixed-height bar whose children are exactly `control-height` tall and vertically centred. Use it for every toolbar, filter and action row. |
+| `Section` | Spectrum "Form" (vertical labels) | Label above controls, 8 px inside, 24 px between sections. Use it for inspectors and dialogs. |
 | `SectionLabel`, `Caption`, `BodyText` | Spectrum typography | The three text roles; no other sizes in screens. |
 | `Divider`, `VDivider` | Fluent separators | 1 px `Palette.border`. |
 | `Badge` | Spectrum "Badge" | Icon-only status over thumbnails/clips, tinted by semantic colour. |
 | `EmptyState` | Primer "Empty states", Spectrum "Illustrated message" | Icon, title, description, primary + secondary action. |
 | `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`. |
 | Library grid cell (`library.slint`) | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, hover tint, accent selection ring, drag source. Geometry mirrored in `library_view.rs`. |
-| Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, transition overlay, mute badge, trim handles shown on hover. |
+| Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, thumbnail, solid label footer, transition overlay, mute badge, trim handles shown on hover. |
+| Timeline ruler (`editor.slint`) | Premiere / Spectrum "Slider" ticks | One tick per second, labels thinned by zoom level, playhead with grab head. |
 | `ValueSlider` (`editor.slint`) | Spectrum "Slider" | Slider with live value read-out and accessible label. |
 | Panel divider (`main.slint`) | Fluent "SplitView" | 1 px line, 8 px grab area, accent on hover, double-click resets. |
 | Drop overlay / drag ghost | Fluent drag-and-drop visuals | Tinted zone + border while hovering; ghost shows icon and count, accent when droppable. |
@@ -189,7 +193,17 @@ against the feature and tick each line:
 - [ ] **Help and documentation:** empty states and tooltips teach the
       feature; `docs/ux/keyboard.md` and `manual-checks.md` are updated.
 
-Plus the visual pass:
+Plus the visual pass. Render the UI offscreen first; it needs no window
+and no screen-recording permission:
+
+```
+cargo run -p clipforge-app --bin screenshot          # all scenes
+cargo run -p clipforge-app --bin screenshot -- populated narrow
+```
+
+Scenes land in `target/screenshots/` (`empty`, `populated`, `export`,
+`settings`, `narrow` = 900 × 560). Look at every one that the change touches;
+add a scene to `crates/app/src/bin/screenshot.rs` when a new state appears.
 
 - [ ] Screenshot on the fluent style (and cupertino if available) and compare
       against the Spectrum / Fluent reference for the component: states,

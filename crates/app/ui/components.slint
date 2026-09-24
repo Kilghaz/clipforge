@@ -42,12 +42,46 @@ export component IconButton inherits Rectangle {
     Tooltip { text: @markdown("\{root.tooltip}"); }
 }
 
+/// Text button at the standard control height; std `Button` alone stretches
+/// to its layout cell, which breaks alignment in bars (Fluent "Button").
+export component ActionButton inherits Button {
+    height: Theme.control-height;
+    min-width: 80px;
+    colorize-icon: true;
+}
+
+/// Toolbar row: fixed bar height, controls exactly `control-height` tall and
+/// vertically centred (Fluent "CommandBar": 48 px bar, 32 px controls).
+export component Bar inherits Rectangle {
+    in property <length> bar-height: Theme.toolbar-height;
+    in property <length> side-padding: Theme.space-l;
+    height: root.bar-height;
+    HorizontalLayout {
+        padding-left: root.side-padding;
+        padding-right: root.side-padding;
+        padding-top: (root.bar-height - Theme.control-height) / 2;
+        padding-bottom: (root.bar-height - Theme.control-height) / 2;
+        spacing: Theme.space-s;
+        @children
+    }
+}
+
 /// Section heading inside panes and inspectors (Spectrum "Field label").
 export component SectionLabel inherits Text {
     color: Theme.text-secondary;
     font-size: Theme.font-secondary;
     font-weight: Theme.weight-semibold;
     vertical-alignment: center;
+}
+
+/// Inspector / form section: label above, controls below, 8 px apart
+/// (Spectrum "Form", vertical labels). Sections are 24 px apart.
+export component Section inherits VerticalLayout {
+    in property <string> title;
+    spacing: Theme.space-s;
+    alignment: start;
+    SectionLabel { text: root.title; }
+    @children
 }
 
 /// Small secondary text (timecodes, counts, hints).
@@ -134,13 +168,13 @@ export component EmptyState inherits VerticalLayout {
     if root.action-text != "" || root.secondary-text != "" : HorizontalLayout {
         alignment: center;
         spacing: Theme.space-s;
-        if root.action-text != "" : Button {
+        if root.action-text != "" : ActionButton {
             text: root.action-text;
             primary: true;
             enabled: root.action-enabled;
             clicked => { root.action(); }
         }
-        if root.secondary-text != "" : Button {
+        if root.secondary-text != "" : ActionButton {
             text: root.secondary-text;
             clicked => { root.secondary(); }
         }
@@ -201,7 +235,7 @@ export component DialogButtons inherits HorizontalLayout {
     callback secondary();
     spacing: Theme.space-s;
     alignment: end;
-    if root.macos && root.secondary-text != "" : Button { text: root.secondary-text; clicked => { root.secondary(); } }
-    if root.primary-visible : Button { text: root.primary-text; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
-    if !root.macos && root.secondary-text != "" : Button { text: root.secondary-text; clicked => { root.secondary(); } }
+    if root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; clicked => { root.secondary(); } }
+    if root.primary-visible : ActionButton { text: root.primary-text; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
+    if !root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; clicked => { root.secondary(); } }
 }

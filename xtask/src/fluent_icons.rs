@@ -48,6 +48,8 @@ const ICONS: &[(&str, &str, bool)] = &[
     ("Speaker Mute", "speaker_mute", false),
     ("Video", "video", false),
     ("Warning", "warning", false),
+    ("Zoom In", "zoom_in", false),
+    ("Zoom Out", "zoom_out", false),
 ];
 
 const LICENSE: &str = "Fluent UI System Icons

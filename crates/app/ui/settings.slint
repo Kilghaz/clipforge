@@ -21,6 +21,7 @@ export component SettingsPage inherits VerticalLayout {
                 BodyText { text: @tr("Interface language"); horizontal-stretch: 1; }
                 ComboBox {
                     width: 240px;
+                    height: Theme.control-height;
                     model: root.language-options;
                     current-index <=> root.language-index;
                     selected => { root.language-selected(self.current-index); }

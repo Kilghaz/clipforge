@@ -31,6 +31,7 @@ platform, jobs, i18n, core → nothing internal
 | Tests only | `cargo nextest run --workspace` (or `cargo test --workspace`) |
 | One crate | `cargo nextest run -p clipforge-core` |
 | Run the app | `cargo run -p clipforge-app` (`RUST_LOG=info` for logs) |
+| Screenshots for the visual pass | `cargo run -p clipforge-app --bin screenshot` → `target/screenshots/*.png` (offscreen, no window needed) |
 | Regenerate fixtures | `cargo xtask fixtures` (needs ffmpeg with libx264/libx265) |
 | Regenerate icons | `cargo xtask icons` (needs `rsvg-convert` or macOS) |
 | Fetch UI icon subset | `cargo xtask fluent-icons` (needs `curl`; add names to `xtask/src/fluent_icons.rs` and `ui/theme.slint`) |
@@ -80,9 +81,12 @@ Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest carg
     Prefer a Slint `std-widgets` component, then a component modelled on the
     Spectrum / Fluent definition, then a new design. Colours come from
     `Palette` and `ui/theme.slint`, spacing from the 4/8/12/16/24/32/40 scale,
-    icons from the Fluent icon subset; the app is dark only. After
-    implementing, run the "After implementing" checklist in `DESIGN.md`
-    (NN/G heuristics plus the visual pass) and fix what fails.
+    icons from the Fluent icon subset; the app is dark only. Text buttons
+    are `ActionButton`, toolbars are `Bar`, inspector groups are `Section`.
+    After implementing, render `cargo run -p clipforge-app --bin screenshot`,
+    LOOK at the PNGs, then run the "After implementing" checklist in
+    `DESIGN.md` (NN/G heuristics plus the visual pass) and fix what fails.
+    Never call a UI change done without having looked at the screenshots.
 
 ## Definition of done
 
