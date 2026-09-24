@@ -1,7 +1,7 @@
 import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "shell.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, Bar, SectionLabel, Caption, BodyText, Divider, Badge, EmptyState } from "components.slint";
+import { Icon, IconButton, ActionButton, SearchField, Bar, SectionLabel, Caption, BodyText, Divider, Badge, EmptyState } from "components.slint";
 
 export struct MediaCell {
     index: int,
@@ -223,13 +223,11 @@ export component LibraryPage inherits Rectangle {
         Bar {
             bar-height: Theme.bar-height;
             side-padding: Theme.space-l;
-                LineEdit {
-                    height: Theme.control-height;
+                SearchField {
                     horizontal-stretch: 1;
-                    placeholder-text: @tr("Search");
+                    placeholder: @tr("Search the library");
                     text <=> LibraryState.search-text;
                     edited(t) => { LibraryState.search-changed(t); }
-                    accessible-label: @tr("Search the library");
                 }
         }
         Bar {

@@ -62,8 +62,6 @@ msgstr "Dateien hinzufügen…"
 msgid "Add folder…"
 msgstr "Ordner hinzufügen…"
 
-msgid "Search"
-msgstr "Suchen"
 
 msgid "All"
 msgstr "Alle"
@@ -421,3 +419,6 @@ msgstr "Projekttitel"
 
 msgid "Timeline"
 msgstr "Zeitleiste"
+
+msgid "Clear search"
+msgstr "Suche löschen"

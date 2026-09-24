@@ -4,7 +4,7 @@
 // Not part of the app; nothing here is translated (labels are for us).
 import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, Bar, Section, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogButtons } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogButtons } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
 import { ClipView, ValueSlider, TimelineClip } from "editor.slint";
 
@@ -65,8 +65,10 @@ export component GalleryWindow inherits Window {
             Button { text: "std icon"; icon: Icons.save; colorize-icon: true; }
         }
         Row {
-            title: "Std controls at control-height: LineEdit, ComboBox, CheckBox, Slider, ProgressIndicator";
-            LineEdit { height: Theme.control-height; width: 200px; placeholder-text: "Search"; }
+            title: "SearchField empty / with text / disabled; std ComboBox, CheckBox, Slider, ProgressIndicator at control-height";
+            SearchField { width: 200px; placeholder: "Search the library"; }
+            SearchField { width: 200px; placeholder: "Search the library"; text: "holiday"; }
+            SearchField { width: 160px; placeholder: "Search"; enabled: false; }
             ComboBox { height: Theme.control-height; width: 160px; model: ["Fit inside (bars)", "Fill frame (crop)"]; }
             CheckBox { text: "Mute"; checked: true; }
             Slider { width: 160px; value: 40; }

@@ -151,6 +151,7 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `Icon` | Fluent iconography | SVG recoloured via `colorize`; 16 or 20 px. |
 | `IconButton` | Fluent "Button", Spectrum "Action button" | std `Button` with icon + mandatory `Tooltip` and accessible label. |
 | `ActionButton` | Fluent "Button" | std `Button` pinned to `control-height` (a bare `Button` stretches to its layout cell and breaks alignment). Use it for every text button. |
+| `SearchField` | Fluent "TextBox" + Spectrum "Search field" | Magnifier left, clear button when text is present, Escape clears, accent focus line. Replaces the bare `LineEdit` for search. |
 | `ChoiceButton` | Spectrum "Action group" | One option of a small set (duration presets); own selected/hover/pressed/disabled states because the std checked style differs per platform. |
 | `Bar` | Fluent "CommandBar" | Fixed-height bar whose children are exactly `control-height` tall and vertically centred. Use it for every toolbar, filter and action row. |
 | `Section` | Spectrum "Form" (vertical labels) | Label above controls, 8 px inside, 24 px between sections. Use it for inspectors and dialogs. |
