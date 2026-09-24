@@ -1,5 +1,6 @@
 [package]
 name = "clipforge-app"
+default-run = "clipforge"
 description = "ClipForge desktop application (Slint UI)."
 version.workspace = true
 edition.workspace = true
