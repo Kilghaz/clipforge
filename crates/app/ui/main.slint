@@ -5,7 +5,7 @@ import { EditorPage, EditorState, TimelineClip, StripRect } from "editor.slint";
 import { Shell } from "shell.slint";
 import { GalleryWindow } from "gallery.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, DialogFrame, DialogButtons } from "components.slint";
+import { Icon, DialogFrame, DialogButtons, Title, Caption } from "components.slint";
 
 export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, StripRect, Shell, GalleryWindow }
 
@@ -45,32 +45,32 @@ export component MainWindow inherits Window {
     MenuBar {
         Menu {
             title: @tr("File");
-            MenuItem { title: @tr("New Project"); activated => { EditorState.new-project(); } }
-            MenuItem { title: @tr("Open Project…"); activated => { EditorState.open-project(); } }
-            MenuItem { title: @tr("Save Project"); activated => { EditorState.save-project(); } }
-            MenuItem { title: @tr("Save Project As…"); activated => { EditorState.save-project-as(); } }
+            MenuItem { title: @tr("New project"); activated => { EditorState.new-project(); } }
+            MenuItem { title: @tr("Open project…"); activated => { EditorState.open-project(); } }
+            MenuItem { title: @tr("Save project"); activated => { EditorState.save-project(); } }
+            MenuItem { title: @tr("Save project as…"); activated => { EditorState.save-project-as(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Export Video…"); enabled: EditorState.clip-count > 0; activated => { EditorState.export-open = true; } }
+            MenuItem { title: @tr("Export video…"); enabled: EditorState.clip-count > 0; activated => { EditorState.export-open = true; } }
             MenuSeparator {}
             MenuItem { title: @tr("Add files to library…"); activated => { LibraryState.add-files(); } }
             MenuItem { title: @tr("Add folder to library…"); activated => { LibraryState.add-folder(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Settings…"); activated => { Shell.settings-open = true; } }
+            MenuItem { title: @tr("Settings…"); enabled: !EditorState.export-open; activated => { Shell.settings-open = true; } }
             MenuSeparator {}
-            MenuItem { title: @tr("Quit"); activated => { root.quit(); } }
+            MenuItem { title: Shell.macos ? @tr("Quit") : @tr("Exit"); activated => { root.quit(); } }
         }
         Menu {
             title: @tr("Edit");
             MenuItem { title: @tr("Undo"); enabled: EditorState.can-undo; activated => { EditorState.undo(); } }
             MenuItem { title: @tr("Redo"); enabled: EditorState.can-redo; activated => { EditorState.redo(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Select All Clips"); enabled: EditorState.clip-count > 0; activated => { EditorState.select-all(); } }
-            MenuItem { title: @tr("Remove Selected Clips"); enabled: EditorState.selected-count > 0; activated => { EditorState.delete-selected(); } }
+            MenuItem { title: @tr("Select all clips"); enabled: EditorState.clip-count > 0; activated => { EditorState.select-all(); } }
+            MenuItem { title: @tr("Remove selected clips"); enabled: EditorState.selected-count > 0; activated => { EditorState.delete-selected(); } }
         }
         Menu {
             title: @tr("View");
             MenuItem {
-                title: Shell.library-visible ? @tr("Hide Library") : @tr("Show Library");
+                title: Shell.library-visible ? @tr("Hide library") : @tr("Show library");
                 activated => { Shell.library-visible = !Shell.library-visible; }
             }
         }
@@ -143,15 +143,14 @@ export component MainWindow inherits Window {
     if Shell.settings-open : DialogFrame {
         title: @tr("Settings");
         dialog-width: 520px;
-        dialog-height: 320px;
         dismissed => { Shell.settings-open = false; }
+        accepted => { Shell.settings-open = false; }
         SettingsPage {
             language-index <=> root.language-index;
             language-options: root.language-options;
             app-version: root.app-version;
             language-selected(i) => { root.language-selected(i); }
         }
-        Rectangle { vertical-stretch: 1; }
         DialogButtons {
             macos: Shell.macos;
             primary-text: @tr("Close");

@@ -17,10 +17,10 @@ msgstr "Systemsprache"
 msgid "File"
 msgstr "Datei"
 
-msgid "New Project"
+msgid "New project"
 msgstr "Neues Projekt"
 
-msgid "Open Project…"
+msgid "Open project…"
 msgstr "Projekt öffnen…"
 
 msgid "Settings"
@@ -61,7 +61,6 @@ msgstr "Dateien hinzufügen…"
 
 msgid "Add folder…"
 msgstr "Ordner hinzufügen…"
-
 
 msgid "All"
 msgstr "Alle"
@@ -151,7 +150,7 @@ msgid "Untitled slideshow"
 msgstr "Unbenannte Diashow"
 
 msgid "Added {} items to the timeline"
-msgstr "{} Elemente zur Timeline hinzugefügt"
+msgstr "{} Elemente zur Zeitleiste hinzugefügt"
 
 msgid "{} items skipped (audio files and items without metadata cannot be added yet)"
 msgstr "{} Elemente übersprungen (Audiodateien und Elemente ohne Metadaten können noch nicht hinzugefügt werden)"
@@ -159,13 +158,13 @@ msgstr "{} Elemente übersprungen (Audiodateien und Elemente ohne Metadaten kön
 msgid "ffmpeg was not found. Install it or place it next to the app."
 msgstr "ffmpeg wurde nicht gefunden. Installiere es oder lege es neben die App."
 
-msgid "Save Project"
+msgid "Save project"
 msgstr "Projekt speichern"
 
-msgid "Save Project As…"
+msgid "Save project as…"
 msgstr "Projekt speichern unter…"
 
-msgid "Export Video…"
+msgid "Export video…"
 msgstr "Video exportieren…"
 
 msgid "Edit"
@@ -177,26 +176,20 @@ msgstr "Rückgängig"
 msgid "Redo"
 msgstr "Wiederholen"
 
-msgid "Select All Clips"
+msgid "Select all clips"
 msgstr "Alle Clips auswählen"
 
-msgid "Remove Selected Clips"
+msgid "Remove selected clips"
 msgstr "Ausgewählte Clips entfernen"
 
 msgid "Add to timeline"
-msgstr "Zur Timeline hinzufügen"
+msgstr "Zur Zeitleiste hinzufügen"
 
 msgid "1 clip selected"
 msgstr "1 Clip ausgewählt"
 
 msgid "{} clips selected"
 msgstr "{} Clips ausgewählt"
-
-msgid "Fit inside (bars)"
-msgstr "Ganz zeigen (Balken)"
-
-msgid "Fill frame (crop)"
-msgstr "Bild füllen (beschneiden)"
 
 msgid "Rotate 90°"
 msgstr "Um 90° drehen"
@@ -226,7 +219,7 @@ msgid "Select all"
 msgstr "Alle auswählen"
 
 msgid "Remove from timeline"
-msgstr "Aus Timeline entfernen"
+msgstr "Aus Zeitleiste entfernen"
 
 msgid "Export video"
 msgstr "Video exportieren"
@@ -255,9 +248,6 @@ msgstr "Am besten"
 msgid "Optimize for YouTube"
 msgstr "Für YouTube optimieren"
 
-msgid "HDR (available once HDR sources are supported)"
-msgstr "HDR (verfügbar, sobald HDR-Quellen unterstützt werden)"
-
 msgid "Exporting… {}%"
 msgstr "Exportiere… {}%"
 
@@ -273,17 +263,17 @@ msgstr "Schließen"
 msgid "Export…"
 msgstr "Exportieren…"
 
-msgid "Hide Library"
+msgid "Hide library"
 msgstr "Mediathek ausblenden"
 
-msgid "Show Library"
+msgid "Show library"
 msgstr "Mediathek einblenden"
 
 msgid "Add all"
 msgstr "Alle hinzufügen"
 
 msgid "Add {} to timeline"
-msgstr "{} zur Timeline hinzufügen"
+msgstr "{} hinzufügen"
 
 msgid "Mute"
 msgstr "Stumm"
@@ -300,9 +290,6 @@ msgstr "{} ausgewählt"
 msgid "Add all from library"
 msgstr "Alles aus der Mediathek hinzufügen"
 
-msgid "Add the photos, videos and music for your slideshow. Files stay where they are; nothing is copied."
-msgstr "Füge die Fotos, Videos und Musik für deine Diashow hinzu. Die Dateien bleiben, wo sie sind; nichts wird kopiert."
-
 msgid "Could not be read"
 msgstr "Konnte nicht gelesen werden"
 
@@ -317,12 +304,6 @@ msgstr "Details ausblenden"
 
 msgid "Show details"
 msgstr "Details anzeigen"
-
-msgid "Hide library"
-msgstr "Mediathek ausblenden"
-
-msgid "Show library"
-msgstr "Mediathek anzeigen"
 
 msgid "Made with Slint. Icons: Fluent UI System Icons (MIT)."
 msgstr "Erstellt mit Slint. Symbole: Fluent UI System Icons (MIT)."
@@ -364,7 +345,7 @@ msgid "Undo (⌘Z)"
 msgstr "Rückgängig (⌘Z)"
 
 msgid "Remove {} from timeline"
-msgstr "{} aus der Zeitleiste entfernen"
+msgstr "{} entfernen"
 
 msgid "Saved to {}"
 msgstr "Gespeichert unter {}"
@@ -383,9 +364,6 @@ msgstr "Zeitleisten-Zoom"
 
 msgid "Transition duration"
 msgstr "Übergangsdauer"
-
-msgid "Try another word or set the type filter to \"All\"."
-msgstr "Versuche ein anderes Wort oder stelle den Typfilter auf „Alle“."
 
 msgid "Volume"
 msgstr "Lautstärke"
@@ -422,3 +400,66 @@ msgstr "Zeitleiste"
 
 msgid "Clear search"
 msgstr "Suche löschen"
+
+msgid "2 seconds"
+msgstr "2 Sekunden"
+
+msgid "3 seconds"
+msgstr "3 Sekunden"
+
+msgid "4 seconds"
+msgstr "4 Sekunden"
+
+msgid "5 seconds"
+msgstr "5 Sekunden"
+
+msgid "8 seconds"
+msgstr "8 Sekunden"
+
+msgid "Add the photos, videos and music for your slideshow. You can also drop files or folders anywhere in this window. Files stay where they are; nothing is copied."
+msgstr "Füge die Fotos, Videos und Musik für deine Diashow hinzu. Du kannst Dateien oder Ordner auch einfach in dieses Fenster ziehen. Die Dateien bleiben, wo sie sind; nichts wird kopiert."
+
+msgid "Clear search and filter"
+msgstr "Suche und Filter zurücksetzen"
+
+msgid "Clear selection (Esc)"
+msgstr "Auswahl aufheben (Esc)"
+
+msgid "Exit"
+msgstr "Beenden"
+
+msgid "Fill frame"
+msgstr "Ausfüllen"
+
+msgid "Fill frame, cropped"
+msgstr "Ausfüllen, beschnitten"
+
+msgid "Fit inside"
+msgstr "Einpassen"
+
+msgid "Fit inside, with bars"
+msgstr "Einpassen, mit Balken"
+
+msgid "HDR export becomes available once HDR sources are supported."
+msgstr "HDR-Export wird verfügbar, sobald HDR-Quellen unterstützt werden."
+
+msgid "High dynamic range"
+msgstr "Hoher Dynamikumfang (HDR)"
+
+msgid "No audio in your library"
+msgstr "Keine Musik in deiner Mediathek"
+
+msgid "No photos in your library"
+msgstr "Keine Fotos in deiner Mediathek"
+
+msgid "No videos in your library"
+msgstr "Keine Videos in deiner Mediathek"
+
+msgid "Photo duration presets"
+msgstr "Voreinstellungen für die Fotodauer"
+
+msgid "Set the type filter to \"All\" to see everything."
+msgstr "Stelle den Typfilter auf „Alle“, um alles zu sehen."
+
+msgid "Try another word, or clear the search and filter."
+msgstr "Versuche ein anderes Wort oder setze Suche und Filter zurück."

@@ -4,9 +4,9 @@
 // Not part of the app; nothing here is translated (labels are for us).
 import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
-import { ClipView, ValueSlider, TimelineClip } from "editor.slint";
+import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState } from "editor.slint";
 
 component Row inherits VerticalLayout {
     in property <string> title;
@@ -48,6 +48,7 @@ export component GalleryWindow inherits Window {
             IconButton { icon: Icons.speaker-mute; tooltip: "Mute"; checkable: true; checked: true; }
             IconButton { icon: Icons.arrow-undo; tooltip: "Undo"; enabled: false; }
             IconButton { icon: Icons.play; tooltip: "Play"; primary: true; enabled: false; }
+            IconButton { icon: Icons.dismiss; tooltip: "Clear selection (quiet)"; quiet: true; }
             Guide { IconButton { icon: Icons.add; tooltip: "Add"; background: transparent; border-color: transparent; } }
             Guide { Icon { source: Icons.folder-add; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; } }
         }
@@ -58,9 +59,12 @@ export component GalleryWindow inherits Window {
             ActionButton { text: "Add to timeline"; primary: true; }
             ActionButton { text: "Export…"; icon: Icons.share; primary: true; }
             ActionButton { text: "Remove"; icon: Icons.delete; enabled: false; }
+            ActionButton { text: "Export…"; icon: Icons.share; primary: true; enabled: false; }
+            ActionButton { text: "Aus Zeitleiste entfernen"; icon: Icons.delete; }
             ChoiceButton { text: "4 s"; selected: true; }
-            ChoiceButton { text: "5 s"; }
+            ChoiceButton { text: "Fill frame"; }
             ChoiceButton { text: "8 s"; enabled: false; }
+            ChoiceButton { text: "4 s"; selected: true; enabled: false; }
             Button { text: "std Button"; }
             Button { text: "std icon"; icon: Icons.save; colorize-icon: true; }
         }
@@ -68,7 +72,10 @@ export component GalleryWindow inherits Window {
             title: "SearchField empty / with text / disabled; std ComboBox, CheckBox, Slider, ProgressIndicator at control-height";
             SearchField { width: 200px; placeholder: "Search the library"; }
             SearchField { width: 200px; placeholder: "Search the library"; text: "holiday"; }
-            SearchField { width: 160px; placeholder: "Search"; enabled: false; }
+            SearchField { width: 160px; placeholder: "Search"; text: "x"; enabled: false; }
+            CheckBox { text: "Unchecked"; }
+            CheckBox { text: "Disabled"; enabled: false; }
+            ComboBox { height: Theme.control-height; width: 120px; model: ["Disabled"]; enabled: false; }
             ComboBox { height: Theme.control-height; width: 160px; model: ["Fit inside (bars)", "Fill frame (crop)"]; }
             CheckBox { text: "Mute"; checked: true; }
             Slider { width: 160px; value: 40; }
@@ -76,7 +83,7 @@ export component GalleryWindow inherits Window {
             ProgressIndicator { width: 32px; indeterminate: true; }
         }
         Row {
-            title: "Bar (48 px) with mixed controls: everything must sit on one centre line";
+            title: "Bar 48 px (toolbar) and Bar 40 px (dense: search row, transport): everything on one centre line";
             Rectangle {
                 width: 720px;
                 background: Theme.surface-pane;
@@ -92,12 +99,28 @@ export component GalleryWindow inherits Window {
                 }
                 Rectangle { y: parent.height / 2; height: 1px; width: parent.width; background: Theme.danger; }
             }
+            Rectangle {
+                width: 420px;
+                background: Theme.surface-pane;
+                Bar {
+                    width: parent.width;
+                    bar-height: Theme.bar-height;
+                    side-padding: Theme.space-s;
+                    IconButton { icon: Icons.play; tooltip: "Play"; }
+                    SecondaryText { text: "00:00:07 / 00:00:26"; color: Theme.text; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Icon { source: Icons.zoom-out; size: Theme.icon-s; color: Theme.text-secondary; }
+                    Slider { width: 100px; value: 40; }
+                    Icon { source: Icons.zoom-in; size: Theme.icon-s; color: Theme.text-secondary; }
+                }
+                Rectangle { y: parent.height / 2; height: 1px; width: parent.width; background: Theme.danger; }
+            }
         }
         Row {
             title: "Text roles: title 16 / body 14 / secondary 12 / caption 11, SectionLabel; Divider";
-            Text { text: "Title 16 semibold"; color: Theme.text; font-size: Theme.font-title; font-weight: Theme.weight-semibold; }
+            Title { text: "Title 16 semibold"; }
             BodyText { text: "Body 14"; }
-            Text { text: "Secondary 12"; color: Theme.text-secondary; font-size: Theme.font-secondary; }
+            SecondaryText { text: "Secondary 12"; }
             Caption { text: "Caption 11"; }
             SectionLabel { text: "Section label"; }
             Rectangle { width: 120px; height: Theme.control-height; Divider { y: parent.height / 2; width: parent.width; } }
@@ -128,13 +151,7 @@ export component GalleryWindow inherits Window {
             KindBadge { kind: 0; cloud: true; }
             KindBadge { kind: 0; failed: true; }
             Badge { icon: Icons.speaker-mute; label: "Muted"; }
-            Rectangle {
-                background: Theme.warning;
-                border-radius: Theme.radius-s;
-                height: Theme.control-height-s;
-                width: 44px;
-                Text { text: "HDR"; color: Theme.on-warning; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-            }
+            Badge { text: "HDR"; label: "High dynamic range"; }
         }
         Row {
             title: "Library cells: photo, selected, video, audio (no thumb), pending, failed, cloud";
@@ -165,14 +182,15 @@ export component GalleryWindow inherits Window {
                     Section {
                         title: "Photo duration";
                         ValueSlider { minimum: 0.5; maximum: 20; step: 0.5; value: 4; value-text: "4 s"; label: "Photo duration"; }
-                        HorizontalLayout {
-                            spacing: Theme.space-xs;
-                            for s in [2, 3, 4, 5, 8] : ChoiceButton { text: s + " s"; horizontal-stretch: 1; selected: s == 4; }
-                        }
+                        ChoiceGroup { label: "Photo duration presets"; options: ["2 s", "3 s", "4 s", "5 s", "8 s"]; selected-index: 2; }
+                    }
+                    Section {
+                        title: "Volume (disabled while muted)";
+                        ValueSlider { enabled: false; minimum: 0; maximum: 200; step: 5; value: 100; value-text: "100 %"; label: "Volume"; }
                     }
                     Section {
                         title: "Framing";
-                        ComboBox { height: Theme.control-height; model: ["Fit inside (bars)"]; }
+                        ChoiceGroup { label: "Framing"; options: ["Fit inside", "Fill frame"]; selected-index: 0; }
                         ActionButton { text: "Rotate 90°"; icon: Icons.arrow-rotate-clockwise; }
                     }
                 }
@@ -189,11 +207,44 @@ export component GalleryWindow inherits Window {
                     secondary-text: "Add files…";
                 }
             }
+            Rectangle {
+                width: 320px;
+                background: Theme.surface-window;
+                EmptyState {
+                    width: parent.width;
+                    icon: Icons.search;
+                    title: "Nothing matches your search";
+                    description: "Try another word, or clear the search and filter.";
+                    action-text: "Clear search and filter";
+                }
+            }
             VerticalLayout {
                 spacing: Theme.space-m;
                 alignment: start;
                 Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: false; primary-text: "Export…"; secondary-text: "Cancel"; } }
                 Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: true; primary-text: "Export…"; secondary-text: "Cancel"; } }
+                Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: false; primary-text: "Export…"; primary-enabled: false; secondary-text: "Cancel"; } }
+                Rectangle { width: 320px; height: Theme.control-height; DialogButtons { width: parent.width; macos: false; primary-text: "Close"; } }
+            }
+        }
+        Row {
+            title: "TimelineStrip: ruler with zoom-aware labels, clips, playhead with grab head, accent drop marker at 0:05";
+            Rectangle {
+                width: 900px;
+                clip: true;
+                init => {
+                    EditorState.pixels-per-second = 60;
+                    EditorState.strip-width = 700;
+                    EditorState.playhead-x = 150;
+                    EditorState.drop-marker = 1;
+                    EditorState.drop-marker-x = 300;
+                    EditorState.clips = [
+                        { index: 0, id: "a", title: "IMG_4021.jpg", thumb: root.sample, has-thumb: true, x: 8, width: 240, duration-text: "4.0 s" },
+                        { index: 1, id: "b", title: "Clip 2.mov", thumb: root.sample, has-thumb: true, x: 252, width: 360, overlap: 60, selected: true, transition: 1, is-video: true, duration-text: "0:06" },
+                    ];
+                }
+                height: strip-preview.height;
+                strip-preview := TimelineStrip { width: parent.width; }
             }
         }
     }

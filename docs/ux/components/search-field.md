@@ -99,3 +99,8 @@ Used in: `crates/app/ui/library.slint` (library search row, stretches to the pan
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: clear button gated on `enabled`; disabled frame and icon dim; `label` property → `accessible-label` on the input.
+- Open (nice): hover state on the frame; Ctrl/Cmd+F → AUDIT-2026-09 #16; context menu.

@@ -25,6 +25,8 @@ export component IconButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> primary;
     in property <bool> checkable;
+    /// Borderless until hovered (Fluent command-bar buttons).
+    in property <bool> quiet;
     in-out property <bool> checked;
     callback clicked;
     property <bool> accent: root.primary || root.checked;
@@ -32,8 +34,8 @@ export component IconButton inherits Rectangle {
     height: Theme.control-height;
     border-radius: Theme.radius-s;
     border-width: 1px;
-    border-color: root.accent ? transparent : Theme.border;
-    background: root.accent ? Theme.accent : Theme.surface-card;
+    border-color: root.accent || root.quiet ? transparent : Theme.border;
+    background: root.accent ? Theme.accent : (root.quiet ? transparent : Theme.surface-card);
     animate background { duration: Theme.motion-fast; }
     accessible-role: button;
     accessible-label: root.tooltip;
@@ -97,18 +99,24 @@ export component IconButton inherits Rectangle {
 /// unreadable in cupertino; this one uses our tokens (Spectrum "Action group").
 export component ChoiceButton inherits Rectangle {
     in property <string> text;
+    /// Spoken name when `text` is an abbreviation ("4 s" → "4 seconds").
+    in property <string> accessible-text;
     in property <bool> enabled: true;
     in property <bool> selected;
+    /// False inside a ChoiceGroup: the group is the single tab stop.
+    in property <bool> focusable: true;
+    /// Draw the focus ring on the group's behalf.
+    in property <bool> show-focus;
     callback clicked;
     height: Theme.control-height;
-    min-width: 40px;
+    min-width: max(40px, label.preferred-width + 2 * Theme.space-m);
     border-radius: Theme.radius-s;
     border-width: 1px;
     border-color: root.selected ? transparent : Theme.border;
     background: root.selected ? Theme.accent : Theme.surface-card;
     animate background { duration: Theme.motion-fast; }
     accessible-role: button;
-    accessible-label: root.text;
+    accessible-label: root.accessible-text != "" ? root.accessible-text : root.text;
     accessible-enabled: root.enabled;
     accessible-checkable: true;
     accessible-checked: root.selected;
@@ -129,7 +137,7 @@ export component ChoiceButton inherits Rectangle {
     ]
 
     focus := FocusScope {
-        enabled: root.enabled;
+        enabled: root.enabled && root.focusable;
         key-pressed(event) => {
             if event.text == Key.Return || event.text == Key.Space { touch.clicked(); return accept; }
             return reject;
@@ -148,7 +156,7 @@ export component ChoiceButton inherits Rectangle {
         width: parent.width;
         height: parent.height;
     }
-    if focus.has-focus : Rectangle {
+    if focus.has-focus || root.show-focus : Rectangle {
         x: -2px;
         y: -2px;
         width: parent.width + 4px;
@@ -164,6 +172,8 @@ export component ChoiceButton inherits Rectangle {
 /// clears, Enter is not needed because filtering happens as you type.
 export component SearchField inherits Rectangle {
     in property <string> placeholder;
+    /// Accessible name; defaults to the placeholder.
+    in property <string> label: root.placeholder;
     in property <bool> enabled: true;
     in-out property <string> text;
     callback edited(string);
@@ -172,7 +182,7 @@ export component SearchField inherits Rectangle {
     border-radius: Theme.radius-s;
     border-width: 1px;
     border-color: input.has-focus ? Theme.accent : Theme.border;
-    background: input.has-focus ? Theme.surface-window : Theme.surface-card;
+    background: !root.enabled ? Theme.control-disabled : (input.has-focus ? Theme.surface-window : Theme.surface-card);
     animate background, border-color { duration: Theme.motion-fast; }
     forward-focus: input;
 
@@ -183,7 +193,7 @@ export component SearchField inherits Rectangle {
         Icon {
             source: Icons.search;
             size: Theme.icon-s;
-            color: Theme.text-secondary;
+            color: root.enabled ? Theme.text-secondary : Theme.text-disabled;
             y: (parent.height - self.height) / 2;
         }
         Rectangle {
@@ -209,6 +219,7 @@ export component SearchField inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 accessible-placeholder-text: root.placeholder;
+                accessible-label: root.label;
                 edited => { root.edited(self.text); }
                 key-pressed(event) => {
                     if event.text == Key.Escape && self.text != "" {
@@ -220,7 +231,7 @@ export component SearchField inherits Rectangle {
                 }
             }
         }
-        if root.text != "" : Rectangle {
+        if root.text != "" && root.enabled : Rectangle {
             width: Theme.control-height-s;
             height: Theme.control-height-s;
             y: (parent.height - self.height) / 2;
@@ -252,11 +263,60 @@ export component SearchField inherits Rectangle {
     }
 }
 
+/// A labelled set of mutually exclusive options (Fluent "RadioButtons",
+/// Spectrum "ActionGroup" single-select): one tab stop, arrow keys move the
+/// selection, the group carries the accessible name. Use for 2–5 static
+/// options instead of a ComboBox.
+export component ChoiceGroup inherits VerticalLayout {
+    in property <[string]> options;
+    /// Spoken names per option; falls back to `options`.
+    in property <[string]> accessible-options: [];
+    in property <string> label;
+    in property <bool> enabled: true;
+    in-out property <int> selected-index;
+    callback changed(int);
+    spacing: 0;
+    accessible-role: groupbox;
+    accessible-label: root.label;
+    forward-focus: group-focus;
+    function select(i: int) {
+        if i >= 0 && i < root.options.length && i != root.selected-index {
+            root.selected-index = i;
+            root.changed(i);
+        }
+    }
+    group-focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.UpArrow { root.select(max(0, root.selected-index - 1)); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.DownArrow { root.select(min(root.options.length - 1, root.selected-index + 1)); return accept; }
+            if event.text == Key.Home { root.select(0); return accept; }
+            if event.text == Key.End { root.select(root.options.length - 1); return accept; }
+            return reject;
+        }
+        HorizontalLayout {
+            spacing: Theme.space-xs;
+            for option[i] in root.options : ChoiceButton {
+                text: option;
+                accessible-text: i < root.accessible-options.length ? root.accessible-options[i] : "";
+                horizontal-stretch: 1;
+                enabled: root.enabled;
+                focusable: false;
+                selected: i == root.selected-index;
+                show-focus: group-focus.has-focus && i == root.selected-index;
+                clicked => { root.select(i); group-focus.focus(); }
+            }
+        }
+    }
+}
+
 /// Text button at the standard control height; std `Button` alone stretches
 /// to its layout cell, which breaks alignment in bars (Fluent "Button").
 export component ActionButton inherits Button {
     height: Theme.control-height;
-    min-width: 80px;
+    // Fluent asks 120 px for command buttons; panes as narrow as 280 px
+    // cannot afford it, so 96 here and 120 in DialogButtons (DESIGN.md §4).
+    min-width: 96px;
     colorize-icon: true;
 }
 
@@ -282,6 +342,24 @@ export component SectionLabel inherits Text {
     font-size: Theme.font-secondary;
     font-weight: Theme.weight-semibold;
     vertical-alignment: center;
+    overflow: elide;
+}
+
+/// Pane / dialog-section heading (16 semibold).
+export component Title inherits Text {
+    color: Theme.text;
+    font-size: Theme.font-title;
+    font-weight: Theme.weight-semibold;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+/// Secondary running text (12 regular): status lines, hints.
+export component SecondaryText inherits Text {
+    color: Theme.text-secondary;
+    font-size: Theme.font-secondary;
+    vertical-alignment: center;
+    overflow: elide;
 }
 
 /// Inspector / form section: label above, controls below, 8 px apart
@@ -326,20 +404,35 @@ export component VDivider inherits Rectangle {
 export component Badge inherits Rectangle {
     in property <image> icon;
     in property <brush> tint: Theme.text;
+    /// Spoken / tooltip name of what the badge means.
     in property <string> label;
-    width: 22px;
-    height: 22px;
+    /// Short text instead of an icon ("HDR"); Spectrum label badge.
+    in property <string> text;
+    width: root.text != "" ? badge-text.preferred-width + 2 * Theme.space-s : 22px;
+    height: root.text != "" ? Theme.control-height-s : 22px;
     border-radius: Theme.radius-s;
     background: Theme.badge-backdrop;
     accessible-role: image;
-    accessible-label: root.label;
-    Icon {
+    accessible-label: root.label != "" ? root.label : root.text;
+    if root.text == "" : Icon {
         source: root.icon;
         size: Theme.icon-s;
         color: root.tint;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
     }
+    badge-text := Text {
+        visible: root.text != "";
+        text: root.text;
+        color: root.tint;
+        font-size: Theme.font-caption;
+        font-weight: Theme.weight-semibold;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+    if root.label != "" : Tooltip { text: @markdown("\{root.label}"); }
 }
 
 /// Empty state: what this area is, why it is empty, one next step
@@ -356,9 +449,10 @@ export component EmptyState inherits VerticalLayout {
     alignment: center;
     spacing: Theme.space-m;
     padding: Theme.space-xl;
+    max-width: 480px;
     HorizontalLayout {
         alignment: center;
-        Icon { source: root.icon; size: 40px; color: Theme.text-secondary; }
+        Icon { source: root.icon; size: Theme.icon-xl; color: Theme.text-secondary; }
     }
     Text {
         text: root.title;
@@ -398,8 +492,11 @@ export component EmptyState inherits VerticalLayout {
 export component DialogFrame inherits Rectangle {
     in property <string> title;
     in property <length> dialog-width: 480px;
-    in property <length> dialog-height: 360px;
+    /// 0 = size to content.
+    in property <length> dialog-height: 0;
     callback dismissed();
+    /// Enter: activate the dialog's default action (Fluent DefaultButton).
+    callback accepted();
     background: Theme.scrim;
     // Swallow clicks on the scrim (do not close: accidental loss of input).
     TouchArea { }
@@ -407,18 +504,19 @@ export component DialogFrame inherits Rectangle {
         init => { self.focus(); }
         key-pressed(event) => {
             if event.text == Key.Escape { root.dismissed(); return accept; }
+            if event.text == Key.Return { root.accepted(); return accept; }
             return reject;
         }
         Rectangle {
             width: root.dialog-width;
-            height: root.dialog-height;
+            height: root.dialog-height > 0 ? root.dialog-height : content.preferred-height;
             border-radius: Theme.radius-l;
             border-width: 1px;
             border-color: Theme.border;
             background: Theme.surface-pane;
             clip: true;
             TouchArea { }
-            VerticalLayout {
+            content := VerticalLayout {
                 padding: Theme.space-xl;
                 spacing: Theme.space-l;
                 Text {
@@ -445,7 +543,7 @@ export component DialogButtons inherits HorizontalLayout {
     callback secondary();
     spacing: Theme.space-s;
     alignment: end;
-    if root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; clicked => { root.secondary(); } }
-    if root.primary-visible : ActionButton { text: root.primary-text; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
-    if !root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; clicked => { root.secondary(); } }
+    if root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; min-width: 120px; clicked => { root.secondary(); } }
+    if root.primary-visible : ActionButton { text: root.primary-text; min-width: 120px; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
+    if !root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; min-width: 120px; clicked => { root.secondary(); } }
 }

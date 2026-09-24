@@ -84,3 +84,8 @@ Bars carry no strings of their own. Strings of the controls inside are covered b
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: Escape clears the selection in library and timeline (view-model callbacks); a quiet × button appears in the selection bar while items are selected; gallery row for the 40 px dense bar.
+- Open: Apple HIG Toolbars page still unread (JS-rendered); arrow-key navigation between commands (nice).

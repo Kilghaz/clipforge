@@ -116,3 +116,9 @@ Primer: sentence case, succinct, no line breaks, verb first; Fluent: usually one
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: "Add to timeline" demoted to a default button (one primary per window). German labels shortened to "{} hinzufügen" / "{} entfernen"; "Timeline" unified to "Zeitleiste" across the .po. Gallery rows for primary+disabled and the longest German label.
+- Decided: `min-width` 96 px in panes, 120 px in dialogs (recorded in DESIGN.md §2).
+- Open (nice): disabled-reason tooltip.

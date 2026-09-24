@@ -12,7 +12,7 @@ pub(crate) const CELL_WIDTH: f32 = 112.0;
 /// Visible width of a cell (without the gap).
 pub(crate) const CELL_VISIBLE_WIDTH: f32 = 104.0;
 /// Height of a grid row; must match the row height in `library.slint`.
-pub(crate) const ROW_HEIGHT: f32 = 116.0;
+pub(crate) const ROW_HEIGHT: f32 = 120.0;
 /// Visible height of a cell.
 pub(crate) const CELL_VISIBLE_HEIGHT: f32 = 112.0;
 /// Left padding of the grid, in logical pixels.

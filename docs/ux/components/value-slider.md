@@ -91,3 +91,8 @@ Used in: inspector "Photo duration" (0.5–20 s, step 0.5), "Volume" (0–200 %,
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: disabled ValueSlider in the gallery.
+- Deferred: decimal separator per language → AUDIT-2026-09 #11; exact-value alternative → #17.

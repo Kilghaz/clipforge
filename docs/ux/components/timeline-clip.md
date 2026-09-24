@@ -154,3 +154,8 @@ Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, vid
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: Escape clears the selection, End jumps to the end; trim hit area 16 px; footer on the 24 px step; placeholder icon on clips without thumbnail; `TimelineStrip` extracted and shown in the gallery (ruler, playhead, drop marker); manual-checks wording.
+- Deferred to AUDIT-2026-09: keyboard access #2, context menu #5, snapping #6, precise trim #7, follow playhead #8, drag visual #9, zoom shortcuts #16, a11y #18.

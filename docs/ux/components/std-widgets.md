@@ -88,3 +88,8 @@ All rows about radius, fill colours, check glyph, popup shadow, focus ring, thum
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: two- and three-option ComboBoxes replaced by `ChoiceGroup` (framing, orientation, export resolution, quality); Mute and Optimize-for-YouTube are `Switch`es; permanently disabled HDR checkbox replaced by a caption; menu items sentence-cased; "Exit" on Windows, "Quit" on macOS; filter/sort combos carry tooltips.
+- Deferred: import cancel → AUDIT-2026-09 #10; shortcuts in menus → #12; Help menu → #16.

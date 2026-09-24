@@ -133,3 +133,9 @@ alternative. German ~30 % longer.
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: library empty state hidden while a scan/import runs; description mentions drag and drop; "no results" has a "Clear search and filter" action and names the type filter when the search box is empty; `max-width` 480; icon size tokens; gallery shows library and no-results variants.
+- Fixed elsewhere: "Timeline"/"Zeitleiste" unified.
+- Open (nice): timeline empty state action when the library is empty.

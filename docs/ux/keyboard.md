@@ -8,8 +8,11 @@
 | Space | Play / pause | M3 |
 | J / K / L | Reverse / pause / forward | M3 |
 | ← / → | Previous / next frame | M3 |
-| Cmd/Ctrl+A | Select all clips | M2 |
+| Cmd/Ctrl+A | Select all clips (timeline) / all items (library, when it has focus) | M2 |
+| Esc | Clear selection (library or timeline); cancel a library drag | M3 |
+| End | Playhead to the end | M3 |
+| ← → ↑ ↓ | In a choice group: move the selection | M3 |
 | Delete | Remove selected clips | M2 |
 | Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z | Undo / redo | M2 |
-| Cmd/Ctrl+D | Duplicate selection | M2 |
+| Cmd/Ctrl+D | Duplicate selection (planned, not wired yet) | M4 |
 | T | Transition palette for selection | M4 |

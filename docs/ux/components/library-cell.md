@@ -139,3 +139,8 @@ Primer content rules: sentence case, verb-first, ellipsis on dialog openers.
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: Ctrl/Cmd+A selects all, Escape clears or cancels a drag (library `FocusScope`, focused on click); grid padding symmetric and rows 120 px (8 px gap); placeholder icon token.
+- Deferred to AUDIT-2026-09: keyboard navigation #1, remove undo #3, context menu #4, drag ghost #14, a11y roles #18.

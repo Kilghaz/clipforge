@@ -1,8 +1,8 @@
-import { Button, ComboBox, SpinBox, CheckBox, Slider, ProgressIndicator, LineEdit, ScrollView } from "std-widgets.slint";
+import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView } from "std-widgets.slint";
 import { Shell } from "shell.slint";
 import { LibraryState } from "library.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, Bar, Section, SectionLabel, Caption, BodyText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
 
 /// Where the timeline strip is on screen, for cross-panel drops.
 export struct StripRect {
@@ -85,6 +85,7 @@ export global EditorState {
     callback toggle-play();
     callback zoom-changed(float);
     callback select-all();
+    callback clear-selection();
     callback delete-selected();
     callback undo();
     callback redo();
@@ -153,7 +154,7 @@ export component ClipView inherits Rectangle {
             }
             if !root.item.has-thumb : Icon {
                 source: root.item.is-video ? Icons.video : Icons.image;
-                size: 28px;
+                size: Theme.icon-l;
                 color: Theme.text-disabled;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
@@ -161,7 +162,7 @@ export component ClipView inherits Rectangle {
         }
         // Solid footer keeps the label legible over any footage.
         Rectangle {
-            height: 22px;
+            height: Theme.control-height-s;
             background: Theme.surface-card;
             HorizontalLayout {
                 padding-left: Theme.space-s;
@@ -190,7 +191,7 @@ export component ClipView inherits Rectangle {
     // Shown on hover so the affordance is discoverable without clutter.
     trim-left := TouchArea {
         x: 0;
-        width: 10px;
+        width: 16px;
         enabled: root.item.is-video;
         mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
@@ -203,18 +204,18 @@ export component ClipView inherits Rectangle {
         if root.item.is-video : Rectangle { width: 4px; height: parent.height; x: 0; background: Theme.text; opacity: root.hovered || root.item.selected ? 0.7 : 0.25; animate opacity { duration: Theme.motion-fast; } }
     }
     trim-right := TouchArea {
-        x: parent.width - 10px;
-        width: 10px;
+        x: parent.width - 16px;
+        width: 16px;
         enabled: root.item.is-video;
         mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
             if e.kind == PointerEventKind.move && self.pressed {
-                EditorState.trim-dragged(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
+                EditorState.trim-dragged(root.item.index, false, root.item.x + (parent.width - 16px + self.mouse-x) / 1px);
             } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
-                EditorState.trim-released(root.item.index, false, root.item.x + (parent.width - 10px + self.mouse-x) / 1px);
+                EditorState.trim-released(root.item.index, false, root.item.x + (parent.width - 16px + self.mouse-x) / 1px);
             }
         }
-        if root.item.is-video : Rectangle { width: 4px; height: parent.height; x: 6px; background: Theme.text; opacity: root.hovered || root.item.selected ? 0.7 : 0.25; animate opacity { duration: Theme.motion-fast; } }
+        if root.item.is-video : Rectangle { width: 4px; height: parent.height; x: 12px; background: Theme.text; opacity: root.hovered || root.item.selected ? 0.7 : 0.25; animate opacity { duration: Theme.motion-fast; } }
     }
 }
 
@@ -248,6 +249,108 @@ export component ValueSlider inherits HorizontalLayout {
     }
 }
 
+/// Timeline strip: time ruler, clips, playhead, drop and trim markers.
+/// Ruler 24 px, clips 100 px, 8 px margins (DESIGN.md §4).
+export component TimelineStrip inherits Rectangle {
+    /// On-screen rectangle and scroll offset, for cross-panel drops.
+    out property <StripRect> rect: {
+        x: root.absolute-position.x / 1px,
+        y: root.absolute-position.y / 1px,
+        width: root.width / 1px,
+        height: root.height / 1px,
+        scroll: -flick.content-x / 1px,
+    };
+    property <length> ruler-height: 24px;
+    property <length> clip-top: self.ruler-height + Theme.space-xs;
+    property <length> clip-height: 100px;
+    // One tick per second; a label every `label-step` seconds so
+    // labels never crowd at low zoom.
+    property <int> label-step: EditorState.pixels-per-second >= 80 ? 1 : (EditorState.pixels-per-second >= 40 ? 2 : (EditorState.pixels-per-second >= 20 ? 5 : 10));
+    property <int> tick-count: ceil(flick.content-width / (EditorState.pixels-per-second * 1px)) + 1;
+    height: self.clip-top + self.clip-height + Theme.space-s;
+    background: Theme.surface-window;
+    flick := Flickable {
+        content-width: max(EditorState.strip-width * 1px + 200px, self.width);
+        content-height: self.height;
+        TouchArea {
+            width: parent.content-width;
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.move) && self.pressed {
+                    EditorState.scrub(self.mouse-x / 1px);
+                }
+            }
+        }
+        // Time ruler.
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.content-width;
+            height: root.ruler-height;
+            background: Theme.surface-pane;
+            Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: Theme.border; }
+            for i in root.tick-count : Rectangle {
+                x: i * EditorState.pixels-per-second * 1px;
+                y: parent.height - self.height;
+                width: 1px;
+                height: mod(i, root.label-step) == 0 ? 8px : 4px;
+                background: Theme.text-secondary;
+            }
+            for i in root.tick-count : Text {
+                visible: mod(i, root.label-step) == 0;
+                x: i * EditorState.pixels-per-second * 1px + Theme.space-xs;
+                y: 2px;
+                text: floor(i / 60) + ":" + (mod(i, 60) < 10 ? "0" : "") + mod(i, 60);
+                color: Theme.text-secondary;
+                font-size: Theme.font-caption;
+            }
+        }
+        for clip in EditorState.clips : ClipView {
+            item: clip;
+            x: clip.x * 1px;
+            y: root.clip-top;
+            width: clip.width * 1px;
+            height: root.clip-height;
+        }
+        if EditorState.trim-marker >= 0 : Rectangle {
+            x: EditorState.trim-marker-x * 1px - 1px;
+            y: root.clip-top - Theme.space-xs;
+            width: 2px;
+            height: root.clip-height + Theme.space-s;
+            background: Theme.text;
+        }
+        // Insertion point while dragging from the library.
+        if EditorState.drop-marker >= 0 : Rectangle {
+            x: EditorState.drop-marker-x * 1px - 1px;
+            y: root.clip-top - Theme.space-xs;
+            width: 3px;
+            height: root.clip-height + Theme.space-s;
+            background: Theme.accent;
+        }
+        // Playhead with a grab head in the ruler.
+        Rectangle {
+            x: EditorState.playhead-x * 1px - 1px;
+            y: 0;
+            width: 2px;
+            height: parent.height;
+            background: Theme.playhead;
+        }
+        Rectangle {
+            x: EditorState.playhead-x * 1px - 6px;
+            y: 0;
+            width: 12px;
+            height: 12px;
+            border-radius: Theme.radius-s;
+            background: Theme.playhead;
+        }
+    }
+    if Shell.drag-over-timeline : Rectangle {
+        background: Theme.drop-target;
+        border-width: 2px;
+        border-color: Theme.accent;
+    }
+}
+
+
 component Inspector inherits Rectangle {
     background: Theme.surface-pane;
     width: 296px;
@@ -259,13 +362,10 @@ component Inspector inherits Rectangle {
             // Context line: what the controls below apply to.
             VerticalLayout {
                 spacing: Theme.space-xs;
-                Text {
+                Title {
                     text: EditorState.selected-count == 0
                         ? (EditorState.clip-count == 0 ? @tr("New clips") : @tr("All clips"))
                         : (EditorState.selected-count == 1 ? @tr("1 clip selected") : @tr("{} clips selected", EditorState.selected-count));
-                    color: Theme.text;
-                    font-size: Theme.font-title;
-                    font-weight: Theme.weight-semibold;
                 }
                 Caption {
                     text: EditorState.selected-count == 0
@@ -286,19 +386,20 @@ component Inspector inherits Rectangle {
                     label: @tr("Photo duration");
                     released(v) => { EditorState.duration-changed(v); }
                 }
-                HorizontalLayout {
-                    spacing: Theme.space-xs;
-                    for s in [2, 3, 4, 5, 8] : ChoiceButton {
-                        text: s + " s";
-                        horizontal-stretch: 1;
-                        selected: EditorState.duration-seconds == s;
-                        clicked => { EditorState.duration-seconds = s; EditorState.duration-changed(s); }
+                ChoiceGroup {
+                    label: @tr("Photo duration presets");
+                    options: ["2 s", "3 s", "4 s", "5 s", "8 s"];
+                    accessible-options: [@tr("2 seconds"), @tr("3 seconds"), @tr("4 seconds"), @tr("5 seconds"), @tr("8 seconds")];
+                    selected-index: EditorState.duration-seconds == 2 ? 0 : EditorState.duration-seconds == 3 ? 1 : EditorState.duration-seconds == 4 ? 2 : EditorState.duration-seconds == 5 ? 3 : EditorState.duration-seconds == 8 ? 4 : -1;
+                    changed(i) => {
+                        EditorState.duration-seconds = i == 0 ? 2 : i == 1 ? 3 : i == 2 ? 4 : i == 3 ? 5 : 8;
+                        EditorState.duration-changed(EditorState.duration-seconds);
                     }
                 }
             }
             if EditorState.has-video-target : Section {
                 title: @tr("Audio");
-                CheckBox {
+                Switch {
                     text: @tr("Mute");
                     checked <=> EditorState.muted;
                     toggled => { EditorState.muted-changed(self.checked); }
@@ -317,12 +418,12 @@ component Inspector inherits Rectangle {
             }
             Section {
                 title: @tr("Framing");
-                ComboBox {
-                    height: Theme.control-height;
-                    model: [@tr("Fit inside (bars)"), @tr("Fill frame (crop)")];
-                    current-index <=> EditorState.fit-index;
-                    selected => { EditorState.fit-changed(self.current-index); }
-                    accessible-label: @tr("Framing");
+                ChoiceGroup {
+                    label: @tr("Framing");
+                    options: [@tr("Fit inside"), @tr("Fill frame")];
+                    accessible-options: [@tr("Fit inside, with bars"), @tr("Fill frame, cropped")];
+                    selected-index <=> EditorState.fit-index;
+                    changed(i) => { EditorState.fit-changed(i); }
                 }
                 ActionButton { text: @tr("Rotate 90°"); icon: Icons.arrow-rotate-clockwise; clicked => { EditorState.rotate-selected(); } }
             }
@@ -349,12 +450,11 @@ component Inspector inherits Rectangle {
             Divider { }
             Section {
                 title: @tr("Project");
-                ComboBox {
-                    height: Theme.control-height;
-                    model: [@tr("Landscape 16:9"), @tr("Portrait 9:16")];
-                    current-index <=> EditorState.aspect-index;
-                    selected => { EditorState.aspect-changed(self.current-index); }
-                    accessible-label: @tr("Orientation");
+                ChoiceGroup {
+                    label: @tr("Orientation");
+                    options: [@tr("Landscape 16:9"), @tr("Portrait 9:16")];
+                    selected-index <=> EditorState.aspect-index;
+                    changed(i) => { EditorState.aspect-changed(i); }
                 }
             }
             Section {
@@ -374,21 +474,28 @@ component Inspector inherits Rectangle {
 component ExportDialog inherits DialogFrame {
     title: @tr("Export video");
     dialog-width: 480px;
-    dialog-height: 380px;
     dismissed => { if EditorState.export-status != 1 { EditorState.export-open = false; } }
-    HorizontalLayout {
-        spacing: Theme.space-m;
-        BodyText { text: @tr("Resolution"); width: 120px; }
-        ComboBox { height: Theme.control-height; model: [@tr("Full HD (1080p)"), @tr("4K (2160p)")]; current-index <=> EditorState.export-resolution-index; enabled: EditorState.export-status != 1; accessible-label: @tr("Resolution"); }
+    accepted => { if EditorState.export-status != 1 { EditorState.export-start(); } }
+    Section {
+        title: @tr("Resolution");
+        ChoiceGroup {
+            label: @tr("Resolution");
+            options: [@tr("Full HD (1080p)"), @tr("4K (2160p)")];
+            enabled: EditorState.export-status != 1;
+            selected-index <=> EditorState.export-resolution-index;
+        }
     }
-    HorizontalLayout {
-        spacing: Theme.space-m;
-        BodyText { text: @tr("Quality"); width: 120px; }
-        ComboBox { height: Theme.control-height; model: [@tr("Good"), @tr("Better"), @tr("Best")]; current-index <=> EditorState.export-quality-index; enabled: EditorState.export-status != 1; accessible-label: @tr("Quality"); }
+    Section {
+        title: @tr("Quality");
+        ChoiceGroup {
+            label: @tr("Quality");
+            options: [@tr("Good"), @tr("Better"), @tr("Best")];
+            enabled: EditorState.export-status != 1;
+            selected-index <=> EditorState.export-quality-index;
+        }
     }
-    CheckBox { text: @tr("Optimize for YouTube"); checked <=> EditorState.export-youtube; enabled: EditorState.export-status != 1; }
-    CheckBox { text: @tr("HDR (available once HDR sources are supported)"); checked: false; enabled: false; }
-    Rectangle { vertical-stretch: 1; }
+    Switch { text: @tr("Optimize for YouTube"); checked <=> EditorState.export-youtube; enabled: EditorState.export-status != 1; }
+    Caption { text: @tr("HDR export becomes available once HDR sources are supported."); wrap: word-wrap; overflow: clip; }
     if EditorState.export-status == 1 : ProgressIndicator { progress: EditorState.export-progress; }
     if EditorState.export-status != 0 : HorizontalLayout {
         spacing: Theme.space-s;
@@ -396,13 +503,13 @@ component ExportDialog inherits DialogFrame {
             source: EditorState.export-status == 2 ? Icons.checkmark-circle : Icons.error-circle;
             color: EditorState.export-status == 2 ? Theme.success : Theme.danger;
         }
-        Text {
+        SecondaryText {
             text: EditorState.export-status == 1 ? @tr("Exporting… {}%", round(EditorState.export-progress * 100))
                 : EditorState.export-status == 2 ? @tr("Saved to {}", EditorState.export-message)
                 : @tr("Export failed: {}", EditorState.export-message);
             color: Theme.text;
-            font-size: Theme.font-secondary;
             wrap: word-wrap;
+            overflow: clip;
             horizontal-stretch: 1;
         }
     }
@@ -436,6 +543,8 @@ export component EditorPage inherits Rectangle {
             if event.text == Key.LeftArrow { EditorState.step-frames(event.modifiers.shift ? -10 : -1); return accept; }
             if event.text == Key.RightArrow { EditorState.step-frames(event.modifiers.shift ? 10 : 1); return accept; }
             if event.text == Key.Home { EditorState.scrub(0); return accept; }
+            if event.text == Key.End { EditorState.scrub(EditorState.strip-width); return accept; }
+            if event.text == Key.Escape { EditorState.clear-selection(); return accept; }
             return reject;
         }
 
@@ -461,7 +570,7 @@ export component EditorPage inherits Rectangle {
                             accessible-label: @tr("Project title");
                         }
                         ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
-                        IconButton { icon: Icons.settings; tooltip: @tr("Settings"); clicked => { Shell.settings-open = true; } }
+                        IconButton { icon: Icons.settings; tooltip: @tr("Settings"); enabled: !EditorState.export-open; clicked => { Shell.settings-open = true; } }
                 }
                 Divider { }
                 // Preview
@@ -500,7 +609,7 @@ export component EditorPage inherits Rectangle {
                             enabled: EditorState.clip-count > 0;
                             clicked => { EditorState.toggle-play(); }
                         }
-                        BodyText { text: EditorState.time-text + " / " + EditorState.total-text; font-size: Theme.font-secondary; }
+                        SecondaryText { text: EditorState.time-text + " / " + EditorState.total-text; color: Theme.text; }
                         Rectangle { horizontal-stretch: 1; }
                         // Timeline zoom: icons at both ends label the slider.
                         Icon { source: Icons.zoom-out; size: Theme.icon-s; color: Theme.text-secondary; }
@@ -517,97 +626,7 @@ export component EditorPage inherits Rectangle {
                 }
                 Divider { }
                 // Timeline strip
-                strip := Rectangle {
-                    // Ruler 24 px, clips 100 px, 8 px margins.
-                    property <length> ruler-height: 24px;
-                    property <length> clip-top: self.ruler-height + Theme.space-xs;
-                    property <length> clip-height: 100px;
-                    // One tick per second; a label every `label-step` seconds so
-                    // labels never crowd at low zoom.
-                    property <int> label-step: EditorState.pixels-per-second >= 80 ? 1 : (EditorState.pixels-per-second >= 40 ? 2 : (EditorState.pixels-per-second >= 20 ? 5 : 10));
-                    property <int> tick-count: ceil(flick.content-width / (EditorState.pixels-per-second * 1px)) + 1;
-                    height: self.clip-top + self.clip-height + Theme.space-s;
-                    background: Theme.surface-window;
-                    flick := Flickable {
-                        content-width: max(EditorState.strip-width * 1px + 200px, self.width);
-                        content-height: self.height;
-                        TouchArea {
-                            width: parent.content-width;
-                            pointer-event(e) => {
-                                if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.move) && self.pressed {
-                                    EditorState.scrub(self.mouse-x / 1px);
-                                }
-                            }
-                        }
-                        // Time ruler.
-                        Rectangle {
-                            x: 0;
-                            y: 0;
-                            width: parent.content-width;
-                            height: strip.ruler-height;
-                            background: Theme.surface-pane;
-                            Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: Theme.border; }
-                            for i in strip.tick-count : Rectangle {
-                                x: i * EditorState.pixels-per-second * 1px;
-                                y: parent.height - self.height;
-                                width: 1px;
-                                height: mod(i, strip.label-step) == 0 ? 8px : 4px;
-                                background: Theme.text-secondary;
-                            }
-                            for i in strip.tick-count : Text {
-                                visible: mod(i, strip.label-step) == 0;
-                                x: i * EditorState.pixels-per-second * 1px + Theme.space-xs;
-                                y: 2px;
-                                text: floor(i / 60) + ":" + (mod(i, 60) < 10 ? "0" : "") + mod(i, 60);
-                                color: Theme.text-secondary;
-                                font-size: Theme.font-caption;
-                            }
-                        }
-                        for clip in EditorState.clips : ClipView {
-                            item: clip;
-                            x: clip.x * 1px;
-                            y: strip.clip-top;
-                            width: clip.width * 1px;
-                            height: strip.clip-height;
-                        }
-                        if EditorState.trim-marker >= 0 : Rectangle {
-                            x: EditorState.trim-marker-x * 1px - 1px;
-                            y: strip.clip-top - Theme.space-xs;
-                            width: 2px;
-                            height: strip.clip-height + Theme.space-s;
-                            background: Theme.text;
-                        }
-                        // Insertion point while dragging from the library.
-                        if EditorState.drop-marker >= 0 : Rectangle {
-                            x: EditorState.drop-marker-x * 1px - 1px;
-                            y: strip.clip-top - Theme.space-xs;
-                            width: 3px;
-                            height: strip.clip-height + Theme.space-s;
-                            background: Theme.accent;
-                        }
-                        // Playhead with a grab head in the ruler.
-                        Rectangle {
-                            x: EditorState.playhead-x * 1px - 1px;
-                            y: 0;
-                            width: 2px;
-                            height: parent.height;
-                            background: Theme.playhead;
-                        }
-                        Rectangle {
-                            x: EditorState.playhead-x * 1px - 6px;
-                            y: 0;
-                            width: 12px;
-                            height: 12px;
-                            border-radius: Theme.radius-s;
-                            background: Theme.playhead;
-                        }
-                    }
-                    if Shell.drag-over-timeline : Rectangle {
-                        background: Theme.drop-target;
-                        border-width: 2px;
-                        border-color: Theme.accent;
-                    }
-                }
+                strip := TimelineStrip { }
             }
             VDivider { }
             Inspector { }
@@ -616,11 +635,5 @@ export component EditorPage inherits Rectangle {
     if EditorState.export-open : ExportDialog { }
 
     /// On-screen rectangle of the timeline strip, for cross-panel drops.
-    out property <StripRect> strip-rect: {
-        x: strip.absolute-position.x / 1px,
-        y: strip.absolute-position.y / 1px,
-        width: strip.width / 1px,
-        height: strip.height / 1px,
-        scroll: -flick.content-x / 1px,
-    };
+    out property <StripRect> strip-rect: strip.rect;
 }

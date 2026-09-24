@@ -58,12 +58,17 @@ not belong in a desktop app.
   groups 16, panel padding 16, dialog padding 24.
 - **Sizing:** controls 32 px tall (Spectrum size M) in toolbars and dialogs,
   24 px (size S) inside dense areas such as clip chips and timeline rulers.
-  Minimum click target 24 × 24 px, minimum touch-safe 32 × 32.
+  Minimum click target 24 × 24 px, minimum touch-safe 32 × 32. Text buttons
+  are at least 96 px wide in panes and 120 px in dialogs (Fluent asks 120
+  everywhere; panes as narrow as 280 px cannot afford it).
 - **Corner radius:** 4 px for controls, 6 px for cards and clips, 8 px for
   dialogs and popovers.
 - **Typography:** the style's default font (`StyleMetrics.default-font-size`
   ≈ 14 px is body). Scale: 11 (caption / timecode), 12 (secondary), 14
-  (body), 16 (section title), 20 (dialog title). No other sizes. Numbers in
+  (body), 16 (section title), 20 (dialog title). No other sizes. Accepted
+  deviation from Fluent (12 px minimum, 14 semibold section headers): the
+  editor follows Spectrum's denser scale; captions are never the only
+  carrier of essential information. Numbers in
   timecodes and counters use tabular figures where the font allows.
 - **Semantic tokens** (defined once in `ui/theme.slint`, never inline):
   `photo`, `video`, `audio`, `title` clip colours; `warning` and `danger`;
@@ -152,12 +157,15 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `IconButton` | Fluent "Button", Spectrum "Action button" | std `Button` with icon + mandatory `Tooltip` and accessible label. |
 | `ActionButton` | Fluent "Button" | std `Button` pinned to `control-height` (a bare `Button` stretches to its layout cell and breaks alignment). Use it for every text button. |
 | `SearchField` | Fluent "TextBox" + Spectrum "Search field" | Magnifier left, clear button when text is present, Escape clears, accent focus line. Replaces the bare `LineEdit` for search. |
+| `ChoiceGroup` | Fluent "RadioButtons", Spectrum "ActionGroup" (single select) | Labelled set of 2–5 options: one tab stop, arrow keys, accessible group name. Replaces ComboBoxes with few static options (framing, orientation, export resolution/quality, presets). |
+| `Title`, `SecondaryText` | Spectrum typography | Complete the text roles (16 semibold, 12 regular) so screens never set a font size directly. |
+| `TimelineStrip` (`editor.slint`) | Premiere conventions, NN/G direct manipulation | Ruler, clips, playhead with grab head, drop and trim markers; exposes its on-screen rect for drops. |
 | `ChoiceButton` | Spectrum "Action group" | One option of a small set (duration presets); own selected/hover/pressed/disabled states because the std checked style differs per platform. |
 | `Bar` | Fluent "CommandBar" | Fixed-height bar whose children are exactly `control-height` tall and vertically centred. Use it for every toolbar, filter and action row. |
 | `Section` | Spectrum "Form" (vertical labels) | Label above controls, 8 px inside, 24 px between sections. Use it for inspectors and dialogs. |
 | `SectionLabel`, `Caption`, `BodyText` | Spectrum typography | The three text roles; no other sizes in screens. |
 | `Divider`, `VDivider` | Fluent separators | 1 px `Palette.border`. |
-| `Badge` | Spectrum "Badge" | Icon-only status over thumbnails/clips, tinted by semantic colour. |
+| `Badge` | Spectrum "Badge" | Icon or short-text status over thumbnails/clips, tinted by semantic colour, always with a tooltip naming its meaning. |
 | `EmptyState` | Primer "Empty states", Spectrum "Illustrated message" | Icon, title, description, primary + secondary action. |
 | `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`. |
 | Library grid cell (`library.slint`) | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, hover tint, accent selection ring, drag source. Geometry mirrored in `library_view.rs`. |

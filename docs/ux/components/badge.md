@@ -118,3 +118,8 @@ Badges are non-interactive; states are the value variants.
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: tooltip on every badge with a label; `text` variant (Spectrum label badge, 24 px) used for the HDR tag in the inspector and gallery, neutral backdrop instead of the warning colour.
+- Deferred: composed accessible labels on cells and clips → AUDIT-2026-09 #18.

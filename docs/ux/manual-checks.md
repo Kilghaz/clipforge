@@ -50,13 +50,13 @@ Things CI cannot verify. Run before tagging a milestone.
       Cmd/Ctrl while starting the band adds to the selection). "Add N to
       timeline" reflects the count.
 - [ ] Drag one or more selected library cells onto the timeline: a badge
-      follows the pointer, turns blue over the strip, the orange marker shows
+      follows the pointer, turns blue over the strip, the accent-coloured marker shows
       the insertion point, and releasing inserts the photos there.
 - [ ] Dragging the divider resizes the library panel smoothly without the
       panel jittering or thumbnails flickering.
 - [ ] Click, shift-click and Cmd/Ctrl-click select clips as expected;
       Cmd/Ctrl+A selects all; Delete removes; Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z undo/redo.
-- [ ] Drag a clip (or a selection) to a new position; the orange marker
+- [ ] Drag a clip (or a selection) to a new position; the accent-coloured marker
       shows the drop point.
 - [ ] With nothing selected, the duration slider changes every clip in one
       undo step; with a selection, only those clips.
@@ -106,3 +106,18 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Icon-only buttons: icon centred, hover and pressed tints visible,
       keyboard focus ring visible when tabbing; duration presets readable when
       selected.
+
+## Component audit pass (2026-09-24)
+
+- [ ] Duration presets, framing, orientation, export resolution and quality
+      are choice groups: one Tab stop each, Left/Right (or Up/Down) move the
+      selection, the selected option shows the focus ring.
+- [ ] Library: Ctrl/Cmd+A selects everything, Esc clears the selection, Esc
+      during a drag abandons it; the × in the action bar clears too.
+- [ ] Timeline: Esc clears the clip selection; End jumps to the end.
+- [ ] Dialogs: Enter triggers the primary action (Export…, Close); the
+      Settings entry is disabled while the export dialog is open.
+- [ ] Search: clear button hidden when disabled; the field dims when disabled.
+- [ ] Library empty state does not appear while a scan/import is running;
+      "no results" offers "Clear search and filter" and names the type filter
+      when the search box is empty.

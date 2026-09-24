@@ -93,7 +93,7 @@ fn main() -> Result<()> {
         let path = out.join(format!("{scene}.png"));
         if scene == "gallery" {
             // 2× so 1 px details (borders, centring) are visible.
-            let (w, h, scale) = (1480, 1240, 2.0);
+            let (w, h, scale) = (1480, 1760, 2.0);
             window.dispatch_event(WindowEvent::ScaleFactorChanged {
                 scale_factor: scale,
             });

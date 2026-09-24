@@ -215,6 +215,7 @@ impl EditorController {
             i.sync_timeline();
         });
         on!(on_select_all, |i| i.select_all());
+        on!(on_clear_selection, |i| i.clear_selection());
         on!(on_delete_selected, |i| i.delete_selected());
         on!(on_undo, |i| i.undo());
         on!(on_redo, |i| i.redo());
@@ -402,6 +403,12 @@ impl Inner {
 
     fn select_all(&mut self) {
         self.selection.select_all(&self.project.clips);
+        self.sync_timeline();
+    }
+
+    /// Escape: drop the selection (DESIGN.md §3 selection model).
+    fn clear_selection(&mut self) {
+        self.selection.clear();
         self.sync_timeline();
     }
 

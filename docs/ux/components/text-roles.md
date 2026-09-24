@@ -138,3 +138,9 @@ and headings; captions short and not repeating the label.
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: `Title` and `SecondaryText` components added and used (library header, inspector heading, transport time, export status); `SectionLabel` elides.
+- Decided: 11 px caption and 12 px semibold section labels stay (Spectrum scale; recorded in DESIGN.md §2 as an accepted Fluent deviation).
+- Open (nice): disabled variant, Section accessible grouping.

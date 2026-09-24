@@ -160,6 +160,9 @@ impl LibraryController {
             .marquee_start(x, y, additive));
         on!(on_marquee_move, |i, x, y| i.marquee_move(x, y));
         on!(on_marquee_end, |i| i.marquee_end());
+        on!(on_select_all, |i| i.select_all());
+        on!(on_clear_selection, |i| i.clear_selection());
+        on!(on_cancel_drag, |i| i.cancel_drag());
         on!(on_cell_shown, |i, idx| {
             if let Ok(idx) = usize::try_from(idx) {
                 i.cell_shown(idx);
@@ -554,6 +557,36 @@ impl Inner {
         if let Some(w) = self.state() {
             w.global::<LibraryState>().set_marquee_visible(false);
         }
+    }
+
+    /// Ctrl/Cmd+A in the library: select every visible item.
+    fn select_all(&mut self) {
+        let before = self.selection.ids.clone();
+        self.selection.ids.extend(self.ids.iter().copied());
+        self.set_selection_from(&before);
+    }
+
+    /// Escape in the library: drop the selection.
+    fn clear_selection(&mut self) {
+        let before = self.selection.ids.clone();
+        self.selection.clear();
+        self.set_selection_from(&before);
+    }
+
+    /// Escape during a drag: abandon it without dropping anything.
+    fn cancel_drag(&mut self) {
+        let Some(press) = self.press.take() else {
+            return;
+        };
+        if press.dragging {
+            if let Some(w) = self.state() {
+                w.global::<Shell>().set_drag_active(false);
+            }
+            if let Some(hook) = self.drop_hover.clone() {
+                hook(None);
+            }
+        }
+        self.marquee_end();
     }
 
     fn refresh_inspector(&self) {

@@ -159,3 +159,9 @@ actions opening a dialog.
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: Enter triggers the dialog's primary action (`accepted` callback); dialogs size to content (`dialog-height` 0); Settings cannot open over a running export; "Export video…" sentence-cased; gallery rows for single-button and disabled-primary.
+- Deferred: focus trap and initial focus → AUDIT-2026-09 #13.
+- Open (nice): open motion, `macos` default guard.

@@ -1,7 +1,7 @@
 import { ListView, LineEdit, ComboBox, Button, ScrollView, ProgressIndicator } from "std-widgets.slint";
 import { Shell } from "shell.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, SearchField, Bar, SectionLabel, Caption, BodyText, Divider, Badge, EmptyState } from "components.slint";
+import { Icon, IconButton, ActionButton, SearchField, Bar, SectionLabel, Caption, BodyText, Title, Divider, Badge, EmptyState } from "components.slint";
 
 export struct MediaCell {
     index: int,
@@ -91,6 +91,10 @@ export global LibraryState {
     callback add-selected-to-timeline();
     callback add-all-to-timeline();
     callback cell-double-clicked(int);
+    /// Keyboard: Ctrl/Cmd+A, Escape (clear selection / cancel drag).
+    callback select-all();
+    callback clear-selection();
+    callback cancel-drag();
 }
 
 /// Media type / status badge in the thumbnail corner.
@@ -155,7 +159,7 @@ export component CellView inherits Rectangle {
             // Placeholder while the thumbnail loads or when none exists.
             if !root.cell.has-image : Icon {
                 source: root.cell.kind == 2 ? Icons.music-note : (root.cell.kind == 1 ? Icons.video : Icons.image);
-                size: 28px;
+                size: Theme.icon-l;
                 color: root.cell.pending ? Theme.text-disabled : Theme.text-secondary;
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
@@ -199,20 +203,27 @@ export component LibraryPage inherits Rectangle {
     property <int> total-count: LibraryState.total-count;
     property <InspectorInfo> inspector: LibraryState.inspector;
     property <bool> details-open: false;
+    /// Empty state only when nothing is running; while scanning the status
+    /// bar carries the progress (NN/G: never show "empty" during loading).
+    property <bool> idle: LibraryState.status-kind == 0 || LibraryState.status-kind == 3;
 
     background: Theme.surface-pane;
+    forward-focus: keys;
 
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.modifiers.meta || event.modifiers.control) && event.text == "a" { LibraryState.select-all(); return accept; }
+            if event.text == Key.Escape {
+                if Shell.drag-active { LibraryState.cancel-drag(); } else { LibraryState.clear-selection(); }
+                return accept;
+            }
+            return reject;
+        }
     VerticalLayout {
         // Header: title, count, add actions.
         Bar {
             side-padding: Theme.space-l;
-                Text {
-                    text: @tr("Library");
-                    color: Theme.text;
-                    font-size: Theme.font-title;
-                    font-weight: Theme.weight-semibold;
-                    vertical-alignment: center;
-                }
+                Title { text: @tr("Library"); }
                 Caption { text: root.total-count == 1 ? @tr("1 item") : @tr("{} items", root.total-count); }
                 Rectangle { horizontal-stretch: 1; }
                 IconButton { icon: Icons.document-add; tooltip: @tr("Add files…"); clicked => { LibraryState.add-files(); } }
@@ -241,6 +252,7 @@ export component LibraryPage inherits Rectangle {
                     current-index <=> LibraryState.filter-index;
                     selected => { LibraryState.filter-changed(self.current-index); }
                     accessible-label: @tr("Filter by type");
+                    Tooltip { text: @markdown("\{@tr("Filter by type")}"); }
                 }
                 ComboBox {
                     horizontal-stretch: 1;
@@ -250,6 +262,7 @@ export component LibraryPage inherits Rectangle {
                     current-index <=> LibraryState.sort-index;
                     selected => { LibraryState.sort-changed(self.current-index); }
                     accessible-label: @tr("Sort by");
+                    Tooltip { text: @markdown("\{@tr("Sort by")}"); }
                 }
                 IconButton {
                     icon: LibraryState.descending ? Icons.arrow-sort-down : Icons.arrow-sort-up;
@@ -268,14 +281,15 @@ export component LibraryPage inherits Rectangle {
             init => { LibraryState.grid-width = self.width; }
             lv := ListView {
                 for row[r] in root.rows : Rectangle {
-                    height: 116px;
+                    height: 120px;
                     // Empty space in a row starts a marquee selection.
                     TouchArea {
                         pointer-event(e) => {
                             if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                                LibraryState.marquee-start(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px, e.modifiers.shift || e.modifiers.control || e.modifiers.meta);
+                                keys.focus();
+                                LibraryState.marquee-start(self.mouse-x / 1px, r * 120 + self.mouse-y / 1px, e.modifiers.shift || e.modifiers.control || e.modifiers.meta);
                             } else if e.kind == PointerEventKind.move && self.pressed {
-                                LibraryState.marquee-move(self.mouse-x / 1px, r * 116 + self.mouse-y / 1px);
+                                LibraryState.marquee-move(self.mouse-x / 1px, r * 120 + self.mouse-y / 1px);
                             } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
                                 LibraryState.marquee-end();
                             }
@@ -283,11 +297,13 @@ export component LibraryPage inherits Rectangle {
                     }
                     HorizontalLayout {
                         padding-left: Theme.space-m;
+                        padding-right: Theme.space-m;
+                        padding-top: Theme.space-xs;
                         spacing: Theme.space-s;
                         alignment: start;
                         for cell in row.cells : CellView {
                             cell: cell;
-                            pressed(shift, toggle) => { LibraryState.cell-pressed(cell.index, shift, toggle); }
+                            pressed(shift, toggle) => { keys.focus(); LibraryState.cell-pressed(cell.index, shift, toggle); }
                             dragged(x, y) => { LibraryState.cell-drag-moved(cell.index, x, y); }
                             released(x, y) => { LibraryState.cell-released(cell.index, x, y); }
                             double-clicked => { LibraryState.cell-double-clicked(cell.index); }
@@ -305,10 +321,10 @@ export component LibraryPage inherits Rectangle {
                 border-width: 1px;
                 border-color: Theme.selection;
             }
-            if root.rows.length == 0 && root.total-count == 0 : EmptyState {
+            if root.rows.length == 0 && root.total-count == 0 && root.idle : EmptyState {
                 icon: Icons.image-multiple;
                 title: @tr("Your library is empty");
-                description: @tr("Add the photos, videos and music for your slideshow. Files stay where they are; nothing is copied.");
+                description: @tr("Add the photos, videos and music for your slideshow. You can also drop files or folders anywhere in this window. Files stay where they are; nothing is copied.");
                 action-text: @tr("Add folder…");
                 secondary-text: @tr("Add files…");
                 action => { LibraryState.add-folder(); }
@@ -316,8 +332,17 @@ export component LibraryPage inherits Rectangle {
             }
             if root.rows.length == 0 && root.total-count > 0 : EmptyState {
                 icon: Icons.search;
-                title: @tr("Nothing matches your search");
-                description: @tr("Try another word or set the type filter to \"All\".");
+                title: LibraryState.search-text == ""
+                    ? (LibraryState.filter-index == 1 ? @tr("No photos in your library") : LibraryState.filter-index == 2 ? @tr("No videos in your library") : @tr("No audio in your library"))
+                    : @tr("Nothing matches your search");
+                description: LibraryState.search-text == "" ? @tr("Set the type filter to \"All\" to see everything.") : @tr("Try another word, or clear the search and filter.");
+                action-text: @tr("Clear search and filter");
+                action => {
+                    LibraryState.search-text = "";
+                    LibraryState.search-changed("");
+                    LibraryState.filter-index = 0;
+                    LibraryState.filter-changed(0);
+                }
             }
         }
         Divider { }
@@ -326,7 +351,6 @@ export component LibraryPage inherits Rectangle {
             side-padding: Theme.space-l;
                 ActionButton {
                     text: LibraryState.selected-count > 1 ? @tr("Add {} to timeline", LibraryState.selected-count) : @tr("Add to timeline");
-                    primary: true;
                     enabled: LibraryState.selected-count > 0;
                     clicked => { LibraryState.add-selected-to-timeline(); }
                 }
@@ -334,6 +358,12 @@ export component LibraryPage inherits Rectangle {
                     text: @tr("Add all");
                     enabled: root.rows.length > 0;
                     clicked => { LibraryState.add-all-to-timeline(); }
+                }
+                if LibraryState.selected-count > 0 : IconButton {
+                    icon: Icons.dismiss;
+                    tooltip: @tr("Clear selection (Esc)");
+                    quiet: true;
+                    clicked => { LibraryState.clear-selection(); }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 IconButton {
@@ -376,13 +406,7 @@ export component LibraryPage inherits Rectangle {
                     HorizontalLayout {
                         spacing: Theme.space-s;
                         alignment: start;
-                        if root.inspector.hdr : Rectangle {
-                            background: Theme.warning;
-                            border-radius: Theme.radius-s;
-                            height: Theme.control-height;
-                            width: 44px;
-                            Text { text: "HDR"; color: Theme.on-warning; font-size: Theme.font-caption; font-weight: Theme.weight-semibold; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
-                        }
+                        if root.inspector.hdr : Badge { text: "HDR"; label: @tr("High dynamic range"); y: (parent.height - self.height) / 2; }
                         ActionButton { text: @tr("Show in folder"); icon: Icons.folder-open; clicked => { LibraryState.reveal-selected(); } }
                         ActionButton { text: @tr("Remove from library"); icon: Icons.delete; clicked => { LibraryState.remove-selected(); } }
                     }
@@ -411,6 +435,8 @@ export component LibraryPage inherits Rectangle {
                 }
             }
         }
+    }
+
     }
 
     // Active drop zone (NN/G drag and drop: signal the zone while hovering).

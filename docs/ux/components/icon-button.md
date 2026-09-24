@@ -107,3 +107,9 @@ Tooltips are the only strings. All go through `@tr()` with German entries. Sente
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: `quiet` variant added (used for the clear-selection button). Tooltips on the library filter/sort combos.
+- Accepted: icon-only add-files / add-folder / sort buttons in the library header (the empty state offers the same actions as labelled buttons; header width is 280–500 px). Tooltip on keyboard focus is a Slint limitation → AUDIT-2026-09 #15.
+- Open (nice): filled glyph for checked state; hover/pressed evidence needs a state-preview property.

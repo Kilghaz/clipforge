@@ -100,3 +100,8 @@ Labels are `s + " s"` built in `editor.slint` without `@tr()`. The unit symbol "
 
 Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given) ·
 🔒 owned by the Slint style, accepted.
+
+## Resolution 2026-09-24
+
+- Fixed: `ChoiceGroup` component: accessible group with label, one tab stop, Left/Right/Up/Down/Home/End move the selection, focus ring on the selected option; per-option `accessible-text` ("4 seconds"). Horizontal padding from label width. Gallery rows for selected+disabled and a long label. Used for duration presets, framing, orientation, export resolution and quality.
+- Decided: 4 px gap inside a group is the compact-density exception for justified option sets.
