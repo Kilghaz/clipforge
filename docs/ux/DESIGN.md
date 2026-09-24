@@ -169,6 +169,25 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 
 (Add a row whenever a custom component lands.)
 
+## 4b. Spec cards and skills
+
+Each component has a spec card in `docs/ux/components/<name>.md` (template:
+`TEMPLATE.md`), written from the fetched reference pages, listing every
+element, state, metric and behaviour rule the references define, with a
+status and evidence per row. The card exists before the component is used in
+a screen. Four project skills run the ritual:
+
+| Skill | When | Produces |
+|---|---|---|
+| `/ux-prepare <feature>` | before coding a visible feature | task statement, sources, behaviour decisions, components to reuse |
+| `/ux-component-spec <component>` | component created or touched | spec card + gap list |
+| `/ux-review` | after any UI change | findings with severity from renders, cards, heuristics |
+| `/ux-feature-audit <area>` | per feature area, periodically | `docs/ux/AUDIT-<date>.md` findings |
+
+Tests back this up: `ui_tokens.rs` (no literals outside the theme) and
+`gallery_coverage.rs` (every exported component has a gallery row; cards
+point at real components).
+
 ## 5. Usability checks
 
 ### Before implementing

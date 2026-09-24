@@ -88,6 +88,9 @@ Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest carg
     (includes `gallery.png` at 2×), LOOK at the PNGs, then run the "After implementing" checklist in
     `DESIGN.md` (NN/G heuristics plus the visual pass) and fix what fails.
     Never call a UI change done without having looked at the screenshots.
+    Skills for this: `/ux-prepare` before a feature, `/ux-component-spec`
+    for every new or touched component (spec card in `docs/ux/components/`),
+    `/ux-review` after the change, `/ux-feature-audit` per feature area.
 
 ## Definition of done
 
