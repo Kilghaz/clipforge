@@ -57,6 +57,9 @@ category = "Video"
 icons = ["../../assets/icons/icon.icns", "../../assets/icons/icon.ico", "../../assets/icons/*.png"]
 out-dir = "../../dist"
 before-packaging-command = ""
+# The crate has two binaries (the app and the offscreen `screenshot` tool);
+# only the app goes into the bundle.
+binaries = [{ path = "clipforge", main = true }]
 
 # Formats are passed on the command line per OS (see .github/workflows/ci.yml):
 #   macOS:   cargo packager --release -p clipforge-app --formats app,dmg
