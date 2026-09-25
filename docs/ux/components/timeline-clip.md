@@ -159,3 +159,7 @@ Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given)
 
 - Fixed: Escape clears the selection, End jumps to the end; trim hit area 16 px; footer on the 24 px step; placeholder icon on clips without thumbnail; `TimelineStrip` extracted and shown in the gallery (ruler, playhead, drop marker); manual-checks wording.
 - Deferred to AUDIT-2026-09: keyboard access #2, context menu #5, snapping #6, precise trim #7, follow playhead #8, drag visual #9, zoom shortcuts #16, a11y #18.
+
+## Resolution 2026-09-25
+
+- Fixed: keyboard access (AUDIT #2): ↑/↓ previous/next clip with playhead jump (←/→ keep frame stepping), Shift extends, Ctrl/Cmd moves focus only, Enter toggles, Alt/Option+←/→ reorders by one place (one `Reorder` per press); the strip is its own tab stop, clicks focus it, the focused clip scrolls into view. Inset keyboard-only focus ring. Clips are `list-item`s with selected state; labels include duration and muted. Gallery rows for selected+focus and focus only.

@@ -200,12 +200,75 @@ pub(crate) fn cells_in_rect(
     out
 }
 
+/// A keyboard move inside the grid (Fluent GridView inner navigation).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum GridNav {
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+}
+
+/// Where focus lands after `nav` from `from` in a grid of `len` items laid
+/// out in `columns`, with `page_rows` fully visible rows. `None` for an
+/// empty grid. A stale `from` is clamped first; moving down from the last
+/// row stays put, and down into a shorter last row lands on the last item.
+#[must_use]
+pub(crate) fn grid_nav(
+    from: usize,
+    len: usize,
+    columns: usize,
+    page_rows: usize,
+    nav: GridNav,
+) -> Option<usize> {
+    let last = len.checked_sub(1)?;
+    let cols = columns.max(1);
+    let from = from.min(last);
+    let down = |rows: usize| {
+        if row_of(from, cols) == row_of(last, cols) {
+            from
+        } else {
+            (from + rows * cols).min(last)
+        }
+    };
+    let up = |rows: usize| from.checked_sub(rows * cols).unwrap_or(from % cols);
+    let page = page_rows.max(1);
+    Some(match nav {
+        GridNav::Left => from.saturating_sub(1),
+        GridNav::Right => (from + 1).min(last),
+        GridNav::Up => up(1),
+        GridNav::Down => down(1),
+        GridNav::Home => 0,
+        GridNav::End => last,
+        GridNav::PageUp => up(page),
+        GridNav::PageDown => down(page),
+    })
+}
+
+/// How a keyboard move affects the selection (Fluent extended selection).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum KeyMode {
+    /// Plain arrow: selection follows focus.
+    Replace,
+    /// Shift: range from the anchor to the new focus.
+    Extend,
+    /// Ctrl/Cmd: focus moves, selection stays.
+    FocusOnly,
+}
+
 /// Multi-selection over the ordered grid items.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GridSelection {
     pub ids: std::collections::HashSet<clipforge_core::MediaId>,
     /// Anchor for shift-range selection, as an index into the current order.
     pub anchor: Option<usize>,
+    /// Keyboard focus, as an index into the current order. Clicks move it
+    /// too, so the keyboard continues from where the mouse was.
+    pub focus: Option<usize>,
 }
 
 impl GridSelection {
@@ -221,6 +284,7 @@ impl GridSelection {
         let Some(&clicked) = ids.get(index) else {
             return;
         };
+        self.focus = Some(index);
         if shift {
             let anchor = self.anchor.unwrap_or(index).min(ids.len() - 1);
             let (lo, hi) = if anchor <= index {
@@ -271,12 +335,53 @@ impl GridSelection {
             .collect()
     }
 
+    /// Moves focus to `index` and updates the selection per `mode`.
+    pub(crate) fn key_select(
+        &mut self,
+        ids: &[clipforge_core::MediaId],
+        index: usize,
+        mode: KeyMode,
+    ) {
+        if index >= ids.len() {
+            return;
+        }
+        match mode {
+            KeyMode::Replace => self.click(ids, index, false, false),
+            KeyMode::Extend => self.click(ids, index, true, false),
+            KeyMode::FocusOnly => self.focus = Some(index),
+        }
+    }
+
+    /// Space: flips the focused item in or out of the selection.
+    pub(crate) fn toggle_focused(&mut self, ids: &[clipforge_core::MediaId]) {
+        if let Some(f) = self.focus {
+            self.click(ids, f, false, true);
+        }
+    }
+
+    /// Where focus goes when the grid is entered with Tab: the last focused
+    /// item, else the first selected one, else the first item.
+    #[must_use]
+    pub(crate) fn entry_focus(&self, ids: &[clipforge_core::MediaId]) -> Option<usize> {
+        if ids.is_empty() {
+            return None;
+        }
+        self.focus
+            .filter(|f| *f < ids.len())
+            .or_else(|| ids.iter().position(|id| self.ids.contains(id)))
+            .or(Some(0))
+    }
+
     pub(crate) fn retain_existing(&mut self, ids: &[clipforge_core::MediaId]) {
         let existing: std::collections::HashSet<_> = ids.iter().copied().collect();
         self.ids.retain(|id| existing.contains(id));
         if self.anchor.is_some_and(|a| a >= ids.len()) {
             self.anchor = None;
         }
+        self.focus = match ids.len().checked_sub(1) {
+            None => None,
+            Some(last) => self.focus.map(|f| f.min(last)),
+        };
     }
 
     pub(crate) fn clear(&mut self) {
@@ -470,5 +575,145 @@ mod tests {
         assert!(w.contains(1) && w.contains(4) && w.contains(5));
         w.clear();
         assert!(!w.contains(1));
+    }
+
+    #[test]
+    fn grid_nav_moves_in_reading_order_and_clamps() {
+        // 10 items in 4 columns: rows [0..4), [4..8), [8..10).
+        let nav = |from, n| grid_nav(from, 10, 4, 2, n);
+        assert_eq!(nav(0, GridNav::Left), Some(0), "clamps at the start");
+        assert_eq!(nav(3, GridNav::Right), Some(4), "wraps to the next row");
+        assert_eq!(nav(4, GridNav::Left), Some(3), "wraps to the previous row");
+        assert_eq!(nav(9, GridNav::Right), Some(9), "clamps at the end");
+        assert_eq!(nav(5, GridNav::Up), Some(1));
+        assert_eq!(nav(1, GridNav::Up), Some(1), "top row stays");
+        assert_eq!(nav(1, GridNav::Down), Some(5));
+        assert_eq!(nav(6, GridNav::Home), Some(0));
+        assert_eq!(nav(2, GridNav::End), Some(9));
+        assert_eq!(grid_nav(0, 0, 4, 2, GridNav::Right), None, "empty grid");
+    }
+
+    #[test]
+    fn grid_nav_down_into_short_last_row_lands_on_last_item() {
+        // Column 3 of row 1 (index 7) has no cell below it in the last row.
+        assert_eq!(grid_nav(7, 10, 4, 2, GridNav::Down), Some(9));
+        assert_eq!(
+            grid_nav(9, 10, 4, 2, GridNav::Down),
+            Some(9),
+            "last row stays"
+        );
+        assert_eq!(
+            grid_nav(20, 10, 4, 2, GridNav::Left),
+            Some(8),
+            "stale index clamps, then moves"
+        );
+    }
+
+    #[test]
+    fn grid_nav_page_moves_by_visible_rows() {
+        // 40 items, 4 columns, 3 visible rows.
+        assert_eq!(grid_nav(1, 40, 4, 3, GridNav::PageDown), Some(13));
+        assert_eq!(grid_nav(13, 40, 4, 3, GridNav::PageUp), Some(1));
+        assert_eq!(
+            grid_nav(5, 40, 4, 3, GridNav::PageUp),
+            Some(1),
+            "clamps to the top row"
+        );
+        assert_eq!(
+            grid_nav(38, 40, 4, 3, GridNav::PageDown),
+            Some(38),
+            "last row stays"
+        );
+        assert_eq!(
+            grid_nav(30, 40, 4, 3, GridNav::PageDown),
+            Some(39),
+            "short of a full page lands on the last item's row"
+        );
+        assert_eq!(
+            grid_nav(1, 40, 4, 0, GridNav::PageDown),
+            Some(5),
+            "at least one row"
+        );
+    }
+
+    fn media_ids(n: usize) -> Vec<clipforge_core::MediaId> {
+        (0..n).map(|_| clipforge_core::MediaId::new()).collect()
+    }
+
+    #[test]
+    fn keyboard_select_plain_replaces_and_sets_anchor() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        sel.key_select(&ids, 2, KeyMode::Replace);
+        sel.key_select(&ids, 3, KeyMode::Replace);
+        assert_eq!(sel.ordered(&ids), vec![ids[3]]);
+        assert_eq!(sel.anchor, Some(3));
+        assert_eq!(sel.focus, Some(3));
+    }
+
+    #[test]
+    fn keyboard_select_shift_extends_from_anchor() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        sel.key_select(&ids, 1, KeyMode::Replace);
+        sel.key_select(&ids, 2, KeyMode::Extend);
+        sel.key_select(&ids, 4, KeyMode::Extend);
+        assert_eq!(sel.ordered(&ids), ids[1..=4].to_vec());
+        assert_eq!(sel.anchor, Some(1), "anchor stays while extending");
+        sel.key_select(&ids, 0, KeyMode::Extend);
+        assert_eq!(
+            sel.ordered(&ids),
+            ids[0..=1].to_vec(),
+            "range flips around the anchor"
+        );
+    }
+
+    #[test]
+    fn keyboard_focus_only_leaves_the_selection() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        sel.key_select(&ids, 1, KeyMode::Replace);
+        sel.key_select(&ids, 4, KeyMode::FocusOnly);
+        assert_eq!(sel.ordered(&ids), vec![ids[1]]);
+        assert_eq!(sel.focus, Some(4));
+        assert_eq!(sel.anchor, Some(1));
+    }
+
+    #[test]
+    fn keyboard_toggle_flips_one_and_moves_anchor() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        sel.key_select(&ids, 1, KeyMode::Replace);
+        sel.key_select(&ids, 3, KeyMode::FocusOnly);
+        sel.toggle_focused(&ids);
+        assert_eq!(sel.ordered(&ids), vec![ids[1], ids[3]]);
+        assert_eq!(sel.anchor, Some(3));
+        sel.toggle_focused(&ids);
+        assert_eq!(sel.ordered(&ids), vec![ids[1]]);
+    }
+
+    #[test]
+    fn entry_focus_prefers_last_focus_then_selection_then_first() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        assert_eq!(sel.entry_focus(&ids), Some(0));
+        sel.click(&ids, 4, false, false);
+        sel.focus = None;
+        assert_eq!(sel.entry_focus(&ids), Some(4));
+        sel.focus = Some(2);
+        assert_eq!(sel.entry_focus(&ids), Some(2));
+        assert_eq!(GridSelection::default().entry_focus(&[]), None);
+    }
+
+    #[test]
+    fn clicks_move_focus_and_refresh_clamps_it() {
+        let ids = media_ids(6);
+        let mut sel = GridSelection::default();
+        sel.click(&ids, 5, false, false);
+        assert_eq!(sel.focus, Some(5));
+        sel.retain_existing(&ids[..3]);
+        assert_eq!(sel.focus, Some(2));
+        sel.retain_existing(&[]);
+        assert_eq!(sel.focus, None);
     }
 }

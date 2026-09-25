@@ -119,11 +119,48 @@ fn secs(t: Ticks) -> f32 {
     t.as_seconds_f64() as f32
 }
 
-/// Selection with an anchor for shift-clicks.
+/// Direction of a keyboard reorder (Alt/Option + ←/→).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Nudge {
+    Earlier,
+    Later,
+}
+
+/// The `to` for `Command::move_clips` that moves the selected clips one
+/// position earlier or later. A scattered selection is gathered into a
+/// block next to its first (earlier) or last (later) clip. `None` when the
+/// block already sits at that edge.
+#[must_use]
+pub(crate) fn nudge_target(len: usize, indices: &[usize], dir: Nudge) -> Option<usize> {
+    let valid = || indices.iter().copied().filter(|i| *i < len);
+    let first = valid().min()?;
+    let last = valid().max()?;
+    match dir {
+        Nudge::Earlier => first.checked_sub(1),
+        Nudge::Later => (last + 1 < len).then_some(last + 2),
+    }
+}
+
+/// Next (`forward`) or previous clip for ↑/↓. Without a focused clip, the
+/// first or last clip. A stale index is clamped first.
+#[must_use]
+pub(crate) fn clip_nav(focus: Option<usize>, len: usize, forward: bool) -> Option<usize> {
+    let last = len.checked_sub(1)?;
+    Some(match focus {
+        None if forward => 0,
+        None => last,
+        Some(f) if forward => (f.min(last) + 1).min(last),
+        Some(f) => f.min(last).saturating_sub(1),
+    })
+}
+
+/// Selection with an anchor for shift-clicks and a keyboard focus.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Selection {
     pub ids: BTreeSet<ClipId>,
     pub anchor: Option<ClipId>,
+    /// Keyboard focus; clicks move it too.
+    pub focus: Option<ClipId>,
 }
 
 impl Selection {
@@ -132,6 +169,7 @@ impl Selection {
         let Some(clicked) = clips.get(index).map(|c| c.id) else {
             return;
         };
+        self.focus = Some(clicked);
         if shift {
             let anchor_idx = self
                 .anchor
@@ -167,6 +205,26 @@ impl Selection {
         self.anchor = None;
     }
 
+    /// Moves keyboard focus to `index` without touching the selection.
+    pub(crate) fn set_focus(&mut self, clips: &[Clip], index: usize) {
+        if let Some(c) = clips.get(index) {
+            self.focus = Some(c.id);
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn focus_index(&self, clips: &[Clip]) -> Option<usize> {
+        let f = self.focus?;
+        clips.iter().position(|c| c.id == f)
+    }
+
+    /// Enter: flips the focused clip in or out of the selection.
+    pub(crate) fn toggle_focused(&mut self, clips: &[Clip]) {
+        if let Some(i) = self.focus_index(clips) {
+            self.click(clips, i, false, true);
+        }
+    }
+
     /// Drops ids that no longer exist.
     pub(crate) fn retain_existing(&mut self, clips: &[Clip]) {
         let existing: BTreeSet<ClipId> = clips.iter().map(|c| c.id).collect();
@@ -175,6 +233,11 @@ impl Selection {
             && !existing.contains(&a)
         {
             self.anchor = None;
+        }
+        if let Some(f) = self.focus
+            && !existing.contains(&f)
+        {
+            self.focus = None;
         }
     }
 
@@ -244,8 +307,8 @@ pub(crate) fn clips_for(project: &Project, refs: &[MediaRef]) -> Vec<Clip> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clipforge_core::MediaId;
     use clipforge_core::project::{Transition, TransitionKind};
+    use clipforge_core::{Command, MediaId};
 
     fn photos(secs: &[i64]) -> Vec<Clip> {
         secs.iter()
@@ -373,5 +436,80 @@ mod tests {
         let c = clips_for(&p, &[v]);
         assert!(!c[0].is_photo());
         assert_eq!(c[0].duration(), Ticks::from_seconds(12));
+    }
+
+    #[test]
+    fn nudge_left_and_right_move_the_block_by_one() {
+        // Block [2, 3] of 6 clips.
+        assert_eq!(nudge_target(6, &[2, 3], Nudge::Earlier), Some(1));
+        assert_eq!(nudge_target(6, &[2, 3], Nudge::Later), Some(5));
+        let Some(Command::Reorder { order }) = Command::move_clips(6, &[2, 3], 1) else {
+            panic!("earlier must reorder");
+        };
+        assert_eq!(order, vec![0, 2, 3, 1, 4, 5]);
+        let Some(Command::Reorder { order }) = Command::move_clips(6, &[2, 3], 5) else {
+            panic!("later must reorder");
+        };
+        assert_eq!(order, vec![0, 1, 4, 2, 3, 5]);
+    }
+
+    #[test]
+    fn nudge_at_the_edges_is_none() {
+        assert_eq!(nudge_target(4, &[0], Nudge::Earlier), None);
+        assert_eq!(nudge_target(4, &[3], Nudge::Later), None);
+        assert_eq!(nudge_target(4, &[2, 3], Nudge::Later), None);
+        assert_eq!(nudge_target(4, &[], Nudge::Later), None);
+        assert_eq!(nudge_target(4, &[9], Nudge::Earlier), None, "stale index");
+        // Second to last moves to the end.
+        assert_eq!(nudge_target(4, &[2], Nudge::Later), Some(4));
+    }
+
+    #[test]
+    fn nudge_gathers_a_scattered_selection() {
+        // [1, 4] of 6, earlier: the block lands before the clip preceding the
+        // first selected one.
+        let to = nudge_target(6, &[1, 4], Nudge::Earlier);
+        assert_eq!(to, Some(0));
+        let Some(Command::Reorder { order }) = Command::move_clips(6, &[1, 4], 0) else {
+            panic!("must reorder");
+        };
+        assert_eq!(order, vec![1, 4, 0, 2, 3, 5]);
+        // Later: after the clip following the last selected one.
+        assert_eq!(nudge_target(6, &[1, 4], Nudge::Later), Some(6));
+    }
+
+    #[test]
+    fn clip_nav_clamps_at_both_ends() {
+        assert_eq!(clip_nav(None, 0, true), None, "empty timeline");
+        assert_eq!(clip_nav(None, 3, true), Some(0), "no focus yet: first clip");
+        assert_eq!(
+            clip_nav(None, 3, false),
+            Some(2),
+            "no focus yet going back: last clip"
+        );
+        assert_eq!(clip_nav(Some(0), 3, false), Some(0));
+        assert_eq!(clip_nav(Some(1), 3, true), Some(2));
+        assert_eq!(clip_nav(Some(2), 3, true), Some(2));
+        assert_eq!(
+            clip_nav(Some(7), 3, false),
+            Some(1),
+            "stale index clamps, then moves"
+        );
+    }
+
+    #[test]
+    fn timeline_focus_follows_clicks_and_survives_removal() {
+        let clips = photos(&[1, 1, 1, 1]);
+        let mut sel = Selection::default();
+        sel.click(&clips, 2, false, false);
+        assert_eq!(sel.focus_index(&clips), Some(2));
+        sel.set_focus(&clips, 3);
+        assert_eq!(sel.focus_index(&clips), Some(3));
+        assert_eq!(sel.indices(&clips), vec![2], "focus alone does not select");
+        sel.toggle_focused(&clips);
+        assert_eq!(sel.indices(&clips), vec![2, 3]);
+        let fewer = clips[..3].to_vec();
+        sel.retain_existing(&fewer);
+        assert_eq!(sel.focus_index(&fewer), None, "focused clip removed");
     }
 }

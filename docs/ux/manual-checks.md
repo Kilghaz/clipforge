@@ -121,3 +121,22 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Library empty state does not appear while a scan/import is running;
       "no results" offers "Clear search and filter" and names the type filter
       when the search box is empty.
+
+## Keyboard access to grid and timeline (2026-09-25)
+
+- [ ] Tab from the sort button lands in the library grid; a white focus ring
+      appears on the entry item (last focused, else first selected, else first).
+      Clicking a cell hides the ring; the next arrow key shows it again from
+      the clicked cell.
+- [ ] Arrows move focus and selection; Shift extends; Ctrl/Cmd moves the ring
+      only; Space toggles; Page Up/Down jump by visible rows; the focused row
+      scrolls into view at both ends of a long library.
+- [ ] Enter in the grid adds the selection to the timeline.
+- [ ] ↑/↓ anywhere in the editor select the previous/next clip, move the
+      playhead to its start, and scroll the strip to keep the clip visible.
+      ←/→ still step frames after clicking a clip.
+- [ ] Alt/Option+←/→ moves the selected clips by one place; Cmd/Ctrl+Z undoes
+      each press separately.
+- [ ] Tab reaches the timeline strip; Enter toggles the focused clip.
+- [ ] VoiceOver / Narrator announce the grid and strip as lists, items with
+      their selected state, clips with duration and "muted".

@@ -463,3 +463,9 @@ msgstr "Stelle den Typfilter auf „Alle“, um alles zu sehen."
 
 msgid "Try another word, or clear the search and filter."
 msgstr "Versuche ein anderes Wort oder setze Suche und Filter zurück."
+
+msgid "Library items"
+msgstr "Mediathek-Elemente"
+
+msgid "Timeline clips"
+msgstr "Clips in der Zeitleiste"
