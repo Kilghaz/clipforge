@@ -62,7 +62,9 @@ gallery rows before they appear in a screen; DESIGN §4 table rows.
   the up/down buttons (one undo step each), remove with ×. "Loop" repeats the
   playlist until the show ends (on by default); the music always ends with
   the show with the fade-out. "Lower under video sound" (duck, on by
-  default) lowers the music while a video plays its own sound.
+  default) lowers the music while a video plays its own sound so both add
+  up to full volume (video 20 % → music 80 %; video 100 % → music off;
+  changed 2026-09-25 on request, was a fixed -10 dB).
 - **Fit slideshow to music:** sets one duration for every photo so the show
   is as long as one pass of the playlist (videos and title cards keep their
   length). One undo step (`SetPhotoDuration`); disabled without photos or

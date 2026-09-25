@@ -537,7 +537,8 @@ mod tests {
         .unwrap();
         let out = mix(&p, &f);
         assert_eq!(out.len(), 8 * AUDIO_SAMPLE_RATE as usize * AUDIO_CHANNELS);
-        let duck = clipforge_core::Music::DUCK_LEVEL;
+        // The video plays at 100 %, so the music makes way completely.
+        let duck = 0.0;
         // At 2.5 s: video 0.5 + song (0.5 s into the loop -> 0.005) ducked.
         assert!((at(&out, 2_500) - (0.5 + 0.005 * duck)).abs() < 1e-3);
         // At 6.25 s: photo, song 0.25 s into its 7th pass, full level.

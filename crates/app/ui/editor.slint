@@ -917,6 +917,7 @@ component Inspector inherits Rectangle {
                     checked <=> EditorState.music-duck;
                     toggled => { EditorState.music-duck-changed(self.checked); }
                 }
+                Caption { text: @tr("Video and music add up to full volume: a video at 20 % leaves 80 % music."); wrap: word-wrap; overflow: clip; }
             }
             Section {
                 title: @tr("Fades");

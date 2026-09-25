@@ -732,3 +732,6 @@ msgstr "Wiederholt die Musik bis zum Ende der Diashow."
 
 msgid "Remove all songs"
 msgstr "Alle Musikstücke entfernen"
+
+msgid "Video and music add up to full volume: a video at 20 % leaves 80 % music."
+msgstr "Video und Musik ergeben zusammen die volle Lautstärke: Ein Video mit 20 % lässt 80 % Musik."

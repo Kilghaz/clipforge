@@ -75,7 +75,9 @@ pub struct Music {
     /// Start the playlist again when it ends before the show does.
     #[serde(default = "yes")]
     pub looped: bool,
-    /// Lower the music while a video clip plays its own sound.
+    /// Lower the music while a video clip plays its own sound, so video and
+    /// music add up to the full level: a video at 20 % volume leaves 80 %
+    /// music, a video at 100 % silences the music.
     #[serde(default = "yes")]
     pub duck: bool,
 }
@@ -108,9 +110,6 @@ impl Default for Music {
 impl Music {
     pub const MAX_VOLUME: u16 = 200;
     pub const DEFAULT_FADE_OUT: Ticks = Ticks::from_seconds(3);
-    /// Music level while ducked: about -10 dB, so speech in a video clip
-    /// stays clear while the music is still audible.
-    pub const DUCK_LEVEL: f32 = 0.3;
     /// Time the level takes to go down before and come back after a
     /// video's sound.
     pub const DUCK_RAMP: Ticks = Ticks::from_millis(500);
@@ -230,9 +229,9 @@ pub struct MusicEnvelope {
     fade_out: f64,
     /// When the music stops (seconds).
     music_end: f64,
-    /// Merged intervals (seconds) where a video plays sound; empty when
+    /// Where video clips play sound (seconds) and at what gain; empty when
     /// ducking is off.
-    ducked: Vec<(f64, f64)>,
+    ducked: Vec<SoundInterval>,
     duck_ramp: f64,
 }
 
@@ -277,49 +276,55 @@ impl MusicEnvelope {
         g as f32
     }
 
+    /// Music share left over by the video sound at `t`: `1 - video gain`
+    /// (capped at 100 %), eased in and out over the ramp around each clip.
+    /// Overlapping clips (a dissolve) count with the louder one.
     fn duck_factor(&self, t: f64) -> f64 {
-        // Closeness 1 inside an interval, falling linearly to 0 over the
-        // ramp on either side.
-        let mut closeness: f64 = 0.0;
-        for &(a, b) in &self.ducked {
-            let c = if t >= a && t < b {
-                1.0
-            } else if t < a {
-                1.0 - (a - t) / self.duck_ramp
-            } else {
-                1.0 - (t - b) / self.duck_ramp
-            };
-            closeness = closeness.max(c);
-            if a > t + self.duck_ramp {
+        let mut taken: f64 = 0.0;
+        for iv in &self.ducked {
+            if iv.start > t + self.duck_ramp {
                 break;
             }
+            // 1 inside the clip, falling linearly to 0 over the ramp.
+            let closeness = if t >= iv.start && t < iv.end {
+                1.0
+            } else if t < iv.start {
+                1.0 - (iv.start - t) / self.duck_ramp
+            } else {
+                1.0 - (t - iv.end) / self.duck_ramp
+            };
+            taken = taken.max(closeness.clamp(0.0, 1.0) * f64::from(iv.gain.min(1.0)));
         }
-        let closeness = closeness.clamp(0.0, 1.0);
-        1.0 - (1.0 - f64::from(Music::DUCK_LEVEL)) * closeness
+        1.0 - taken
     }
 }
 
-/// Timeline intervals (seconds, merged, ascending) where a video clip plays
-/// sound.
+/// Where a video clip plays sound on the timeline (seconds) and how loud.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SoundInterval {
+    pub start: f64,
+    pub end: f64,
+    /// The clip's linear gain (1 = 100 %).
+    pub gain: f32,
+}
+
+/// Every video clip that plays sound, ascending by start.
 #[must_use]
-pub fn sound_intervals(project: &Project) -> Vec<(f64, f64)> {
+pub fn sound_intervals(project: &Project) -> Vec<SoundInterval> {
     let places = placements(&project.clips);
-    let mut spans: Vec<(f64, f64)> = project
+    let mut spans: Vec<SoundInterval> = project
         .clips
         .iter()
         .zip(&places)
         .filter(|(c, _)| matches!(c.source, ClipSource::Video { .. }) && c.gain() > 0.0)
-        .map(|(_, p)| (p.start.as_seconds_f64(), p.end.as_seconds_f64()))
+        .map(|(c, p)| SoundInterval {
+            start: p.start.as_seconds_f64(),
+            end: p.end.as_seconds_f64(),
+            gain: c.gain(),
+        })
         .collect();
-    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut merged: Vec<(f64, f64)> = Vec::with_capacity(spans.len());
-    for (a, b) in spans {
-        match merged.last_mut() {
-            Some(last) if a <= last.1 => last.1 = last.1.max(b),
-            _ => merged.push((a, b)),
-        }
-    }
-    merged
+    spans.sort_by(|a, b| a.start.total_cmp(&b.start));
+    spans
 }
 
 #[cfg(test)]
@@ -451,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn music_ducks_under_video_sound_with_ramps() {
+    fn music_makes_room_for_the_video_sound() {
         let mut p = show(2, &[60]); // photos 0..8 s
         let video = media(RefKind::Video, Some(4));
         Command::InsertClips {
@@ -461,45 +466,67 @@ mod tests {
         .apply(&mut p)
         .unwrap(); // photo 0..4, video 4..8, photo 8..12
         p.music.fade_out = Ticks::ZERO;
-        let env = MusicEnvelope::new(&p, Ticks::from_seconds(12));
-        let level = Music::DUCK_LEVEL;
-        assert!((env.gain_at(2.0) - 1.0).abs() < 1e-6);
-        assert!(
-            (env.gain_at(3.75) - (1.0 + level) / 2.0).abs() < 1e-3,
-            "ramp down"
-        );
-        assert!((env.gain_at(6.0) - level).abs() < 1e-6);
-        assert!(
-            (env.gain_at(8.25) - (1.0 + level) / 2.0).abs() < 1e-3,
-            "ramp up"
-        );
-        assert!((env.gain_at(10.0) - 1.0).abs() < 1e-6);
+        let at = |p: &Project, t: f64| MusicEnvelope::new(p, Ticks::from_seconds(12)).gain_at(t);
+        // Video at 100 %: only the video is heard.
+        assert!((at(&p, 2.0) - 1.0).abs() < 1e-6);
+        assert!(at(&p, 6.0).abs() < 1e-6);
+        assert!((at(&p, 3.75) - 0.5).abs() < 1e-3, "ramp down");
+        assert!((at(&p, 8.25) - 0.5).abs() < 1e-3, "ramp up");
+        assert!((at(&p, 10.0) - 1.0).abs() < 1e-6);
+        // 50 % video → 50 % music; 20 % → 80 %; louder than 100 % → silent.
+        for (volume, music) in [(50, 0.5), (20, 0.8), (150, 0.0)] {
+            p.clips[1].volume_percent = volume;
+            assert!((at(&p, 6.0) - music).abs() < 1e-6, "{volume} %");
+        }
+        // The music volume setting still scales what is left.
+        p.clips[1].volume_percent = 50;
+        p.music.volume_percent = 50;
+        assert!((at(&p, 6.0) - 0.25).abs() < 1e-6);
         // Off, or a muted video: no ducking.
+        p.music.volume_percent = 100;
         p.music.duck = false;
-        let env = MusicEnvelope::new(&p, Ticks::from_seconds(12));
-        assert!((env.gain_at(6.0) - 1.0).abs() < 1e-6);
+        assert!((at(&p, 6.0) - 1.0).abs() < 1e-6);
         p.music.duck = true;
         p.clips[1].muted = true;
-        let env = MusicEnvelope::new(&p, Ticks::from_seconds(12));
-        assert!((env.gain_at(6.0) - 1.0).abs() < 1e-6);
+        assert!((at(&p, 6.0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
-    fn overlapping_sound_intervals_merge() {
+    fn overlapping_clips_duck_by_the_louder_one() {
         let mut p = Project::new();
         let v = media(RefKind::Video, Some(4));
         let mut b = Clip::video(v.id, Ticks::from_seconds(4));
+        b.volume_percent = 40;
         b.transition_in = crate::project::Transition {
             kind: crate::project::TransitionKind::CrossDissolve,
             duration: Ticks::SECOND,
         };
+        let mut a = Clip::video(v.id, Ticks::from_seconds(4));
+        a.volume_percent = 70;
         Command::InsertClips {
-            entries: vec![(0, Clip::video(v.id, Ticks::from_seconds(4))), (1, b)],
+            entries: vec![(0, a), (1, b)],
             media: vec![v],
         }
         .apply(&mut p)
-        .unwrap();
-        assert_eq!(sound_intervals(&p), vec![(0.0, 7.0)]);
+        .unwrap(); // a 0..4, b 3..7
+        let iv = sound_intervals(&p);
+        assert_eq!(iv.len(), 2);
+        assert!((iv[1].start - 3.0).abs() < 1e-9 && (iv[1].gain - 0.4).abs() < 1e-6);
+        let refs: Vec<MediaRef> = vec![media(RefKind::Audio, Some(60))];
+        let music = Music {
+            songs: vec![Song::new(refs[0].id)],
+            fade_out: Ticks::ZERO,
+            ..Music::default()
+        };
+        Command::SetMusic { music, media: refs }
+            .apply(&mut p)
+            .unwrap();
+        let env = MusicEnvelope::new(&p, Ticks::from_seconds(7));
+        assert!(
+            (env.gain_at(3.5) - 0.3).abs() < 1e-6,
+            "70 % clip wins in the overlap"
+        );
+        assert!((env.gain_at(5.0) - 0.6).abs() < 1e-6);
     }
 
     #[test]
