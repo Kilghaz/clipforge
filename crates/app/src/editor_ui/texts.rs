@@ -7,7 +7,7 @@ use std::time::Instant;
 use clipforge_core::text::{FRAME_UNITS, Font, TextAlign, TextId, TextItem, TextMotion};
 use clipforge_core::timeline::total_duration;
 use clipforge_core::{Command, Ticks};
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, SharedString};
 use tracing::warn;
 
 use super::Inner;
@@ -657,7 +657,7 @@ impl Inner {
                     .is_some_and(|t| self.text_focus == Some(t.id)),
             })
             .collect();
-        s.set_text_blocks(ModelRc::new(VecModel::from(lane)));
+        super::update_rows(&self.text_blocks_model, lane);
         s.set_text_rows(i32::try_from(rows).unwrap_or(1));
         s.set_frame_aspect(self.frame_aspect());
 
@@ -682,7 +682,7 @@ impl Inner {
                 }
             })
             .collect();
-        s.set_preview_texts(ModelRc::new(VecModel::from(visible)));
+        super::update_rows(&self.preview_texts_model, visible);
 
         // Inline editor.
         let editing = self

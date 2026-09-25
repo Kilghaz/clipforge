@@ -143,6 +143,10 @@ struct Inner {
     /// Project frame index last rendered while playing, for pacing.
     last_played_frame: i64,
     clips_model: Rc<VecModel<TimelineClip>>,
+    /// Text lane and preview overlay rows. Updated in place: replacing the
+    /// model would rebuild the elements, including the one being dragged.
+    text_blocks_model: Rc<VecModel<crate::ui::TextBlockView>>,
+    preview_texts_model: Rc<VecModel<crate::ui::PreviewText>>,
     strip_thumbs: HashMap<MediaId, slint::Image>,
     preview_dirty: bool,
     last_preview: Instant,
@@ -180,6 +184,10 @@ impl EditorController {
         let clips_model = Rc::new(VecModel::default());
         let state = window.global::<EditorState>();
         state.set_clips(ModelRc::from(Rc::clone(&clips_model)));
+        let text_blocks_model = Rc::new(VecModel::default());
+        state.set_text_blocks(ModelRc::from(Rc::clone(&text_blocks_model)));
+        let preview_texts_model = Rc::new(VecModel::default());
+        state.set_preview_texts(ModelRc::from(Rc::clone(&preview_texts_model)));
 
         let mut project = Project::new();
         let autosave = dirs.data.join("autosave.clipforge.json");
@@ -219,6 +227,8 @@ impl EditorController {
             snapshot: Arc::new(Project::new()),
             last_played_frame: -1,
             clips_model,
+            text_blocks_model,
+            preview_texts_model,
             strip_thumbs: HashMap::new(),
             preview_dirty: true,
             last_preview: Instant::now() - PREVIEW_MIN_INTERVAL,
@@ -1304,15 +1314,7 @@ impl Inner {
             });
         }
         // Reuse the model in place to avoid flicker.
-        if self.clips_model.row_count() == rows.len() {
-            for (i, row) in rows.into_iter().enumerate() {
-                if self.clips_model.row_data(i).as_ref() != Some(&row) {
-                    self.clips_model.set_row_data(i, row);
-                }
-            }
-        } else {
-            self.clips_model.set_vec(rows);
-        }
+        update_rows(&self.clips_model, rows);
         if let Some(w) = self.state() {
             let s = w.global::<EditorState>();
             s.set_strip_width(editor_view::strip_width(&boxes));
@@ -1704,4 +1706,18 @@ fn frame_to_image(frame: &Frame) -> slint::Image {
         frame.height,
     );
     slint::Image::from_rgba8(buffer)
+}
+
+/// Replaces a model's rows in place (same length: only changed rows), so
+/// Slint keeps the elements, and a gesture on one of them, alive.
+pub(crate) fn update_rows<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {
+    if model.row_count() == rows.len() {
+        for (i, row) in rows.into_iter().enumerate() {
+            if model.row_data(i).as_ref() != Some(&row) {
+                model.set_row_data(i, row);
+            }
+        }
+    } else {
+        model.set_vec(rows);
+    }
 }
