@@ -1,0 +1,287 @@
+// The export window (docs/ux/decisions/m6-export.md): a separate, non-modal
+// top-level window so the editor stays usable while it is open or an export
+// runs. Its state lives in `ExportState`; Rust mirrors status and progress
+// into `EditorState` for the toolbar.
+
+import { ComboBox, Switch, ProgressIndicator, ScrollView, Palette } from "std-widgets.slint";
+import { Shell } from "shell.slint";
+import { Theme, Icons } from "theme.slint";
+import { Icon, ActionButton, ChoiceGroup, Section, Caption, SecondaryText, DialogButtons, Disclosure } from "components.slint";
+
+export global ExportState {
+    in-out property <int> export-resolution-index;
+    in-out property <int> export-quality-index: 1;
+    in-out property <bool> export-youtube: true;
+    in-out property <bool> export-hdr;
+    // 0 available, 1 no HDR videos on the timeline, 2 no GPU
+    in-out property <int> export-hdr-availability: 1;
+    in-out property <bool> export-advanced-open;
+    // Advanced: index 0 is "Automatic" / "Project".
+    in-out property <int> export-codec-index;
+    in-out property <int> export-frame-rate-index;
+    in-out property <int> export-video-bitrate-index;
+    in-out property <int> export-audio-bitrate-index;
+    in-out property <int> export-container-index;
+    // Summary line, from Rust.
+    in-out property <string> export-size-text;
+    in-out property <string> export-codec-name: "H.264";
+    in-out property <float> export-video-mbps: 12;
+    in-out property <int> export-audio-kbps: 256;
+    in-out property <float> export-auto-video-mbps: 12;
+    in-out property <int> export-auto-audio-kbps: 256;
+    in-out property <float> export-project-fps: 30;
+    in-out property <string> export-extension: "mp4";
+    // 0 idle, 1 running, 2 done, 3 failed, 4 done but the file differs from the plan
+    in-out property <int> export-status: 0;
+    in-out property <float> export-progress;
+    // -1 unknown, 0 less than a minute, else minutes
+    in-out property <int> export-minutes-left: -1;
+    in-out property <string> export-output-name;
+    in-out property <string> export-message;
+    // Finished while the dialog was closed: the toolbar button shows it.
+    in-out property <bool> export-unseen;
+    callback export-start();
+    callback export-cancel();
+    // Options changed or the window opened: recompute summary and HDR state.
+    callback export-refresh();
+    callback export-reveal();
+    callback close();
+    // Advanced opened or closed: Rust fits the window to the content.
+    callback layout-changed();
+}
+
+export component ExportWindow inherits Window {
+    property <bool> running: ExportState.export-status == 1;
+    property <bool> hdr-on: ExportState.export-hdr && ExportState.export-hdr-availability == 0;
+    // Right after an export finishes, closing is the likely next step
+    // (Fluent default button); changing an option makes exporting it again.
+    in-out property <bool> options-touched;
+    property <bool> close-is-default: ExportState.export-status >= 2 && !root.options-touched;
+    /// Height the content wants, for sizing the window.
+    // +8 px: the button row takes a few pixels more than it reports, which
+    // would leave a needless scrollbar at exactly this height.
+    out property <length> content-height: frame.preferred-height + 8px;
+    function touch() {
+        root.options-touched = true;
+        ExportState.export-refresh();
+    }
+    function begin-export() {
+        root.options-touched = false;
+        ExportState.export-start();
+    }
+    title: @tr("Export video");
+    icon: @image-url("../../../assets/icons/256x256.png");
+    default-font-size: Theme.font-body;
+    background: Theme.surface-pane;
+    preferred-width: 520px;
+    min-width: 460px;
+    min-height: 320px;
+    init => { Palette.color-scheme = ColorScheme.dark; }
+
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            // Esc and Cmd/Ctrl+W close the window; a running export keeps going.
+            if event.text == Key.Escape { ExportState.close(); return accept; }
+            if (event.modifiers.meta || event.modifiers.control) && (event.text == "w" || event.text == "W") { ExportState.close(); return accept; }
+            if event.text == Key.Return {
+                if root.close-is-default { ExportState.close(); }
+                else if !root.running { root.begin-export(); }
+                return accept;
+            }
+            return reject;
+        }
+        frame := VerticalLayout {
+            padding: Theme.space-xl;
+            // The body keeps a scrollbar gutter on the right instead.
+            padding-right: Theme.space-xl - Theme.space-m;
+            spacing: Theme.space-l;
+            flick := ScrollView {
+                property <bool> scrolls: content.height > self.visible-height + 2px;
+                vertical-stretch: 1;
+                preferred-height: body.preferred-height;
+                horizontal-scrollbar-policy: always-off;
+                vertical-scrollbar-policy: self.scrolls ? ScrollBarPolicy.as-needed : ScrollBarPolicy.always-off;
+                body := VerticalLayout {
+                    // Gutter for the scrollbar so it never covers controls.
+                    padding-right: Theme.space-m;
+                    alignment: start;
+                    // Not stretched (alignment start): its height is what the
+                    // content needs at this width, wrapped captions included.
+                    content := VerticalLayout {
+                    spacing: Theme.space-l;
+                    // Slint sizes a wrapped caption as one line here; room
+                    // for the extra line so nothing is cut or out of reach.
+                    padding-bottom: Theme.space-xl;
+                    Section {
+                        title: @tr("Resolution");
+                        ChoiceGroup {
+                            label: @tr("Resolution");
+                            options: [@tr("Full HD (1080p)"), @tr("4K (2160p)")];
+                            enabled: !root.running;
+                            selected-index <=> ExportState.export-resolution-index;
+                            changed => { root.touch(); }
+                        }
+                    }
+                    Section {
+                        title: @tr("Quality");
+                        ChoiceGroup {
+                            label: @tr("Quality");
+                            options: [@tr("Good"), @tr("Better"), @tr("Best")];
+                            enabled: !root.running;
+                            selected-index <=> ExportState.export-quality-index;
+                            changed => { root.touch(); }
+                        }
+                        Caption {
+                            text: @tr("About {0} · {1} · {2} Mbit/s · {3}", ExportState.export-size-text, ExportState.export-codec-name, round(ExportState.export-video-mbps * 10) / 10, ExportState.export-extension == "mov" ? "MOV" : "MP4");
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: Theme.space-s;
+                        Switch {
+                            text: @tr("Optimize for YouTube");
+                            checked <=> ExportState.export-youtube;
+                            enabled: !root.running;
+                            toggled => { root.touch(); }
+                        }
+                        Switch {
+                            text: @tr("HDR (for iPhone and YouTube HDR)");
+                            checked <=> ExportState.export-hdr;
+                            enabled: !root.running && ExportState.export-hdr-availability == 0;
+                            toggled => { root.touch(); }
+                        }
+                        Caption {
+                            text: ExportState.export-hdr-availability == 1 ? @tr("Available when an HDR video is on the timeline.")
+                                : ExportState.export-hdr-availability == 2 ? @tr("HDR export needs a graphics card this computer does not offer.")
+                                : @tr("HEVC 10-bit HLG. Plays in HDR on iPhone, Mac and YouTube; photos and texts keep their look.");
+                            wrap: word-wrap;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: Theme.space-s;
+                        Disclosure {
+                            text: @tr("Advanced");
+                            expanded <=> ExportState.export-advanced-open;
+                            toggled => { ExportState.layout-changed(); }
+                        }
+                        if ExportState.export-advanced-open : GridLayout {
+                            spacing-horizontal: Theme.space-m;
+                            spacing-vertical: Theme.space-s;
+                            Row {
+                                SecondaryText { text: @tr("Codec"); vertical-alignment: center; }
+                                ComboBox {
+                                    model: root.hdr-on ? [@tr("HEVC (always for HDR)")] : [@tr("Automatic"), "H.264", "HEVC"];
+                                    current-index: root.hdr-on ? 0 : ExportState.export-codec-index;
+                                    enabled: !root.running && !root.hdr-on;
+                                    selected => { ExportState.export-codec-index = self.current-index; root.touch(); }
+                                    accessible-label: @tr("Codec");
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            Row {
+                                SecondaryText { text: @tr("Frame rate"); vertical-alignment: center; }
+                                ComboBox {
+                                    model: [@tr("Project ({0} fps)", round(ExportState.export-project-fps * 100) / 100), "24 fps", "25 fps", "30 fps", "50 fps", "60 fps"];
+                                    current-index <=> ExportState.export-frame-rate-index;
+                                    enabled: !root.running;
+                                    selected => { root.touch(); }
+                                    accessible-label: @tr("Frame rate");
+                                }
+                            }
+                            Row {
+                                SecondaryText { text: @tr("Video bitrate"); vertical-alignment: center; }
+                                ComboBox {
+                                    model: [@tr("Automatic ({0} Mbit/s)", round(ExportState.export-auto-video-mbps * 10) / 10), "8 Mbit/s", "12 Mbit/s", "16 Mbit/s", "20 Mbit/s", "35 Mbit/s", "50 Mbit/s", "80 Mbit/s"];
+                                    current-index <=> ExportState.export-video-bitrate-index;
+                                    enabled: !root.running;
+                                    selected => { root.touch(); }
+                                    accessible-label: @tr("Video bitrate");
+                                }
+                            }
+                            Row {
+                                SecondaryText { text: @tr("Audio bitrate"); vertical-alignment: center; }
+                                ComboBox {
+                                    model: [@tr("Automatic ({0} kbit/s)", ExportState.export-auto-audio-kbps), "128 kbit/s", "192 kbit/s", "256 kbit/s", "320 kbit/s", "384 kbit/s"];
+                                    current-index <=> ExportState.export-audio-bitrate-index;
+                                    enabled: !root.running;
+                                    selected => { root.touch(); }
+                                    accessible-label: @tr("Audio bitrate");
+                                }
+                            }
+                            Row {
+                                SecondaryText { text: @tr("File format"); vertical-alignment: center; }
+                                ComboBox {
+                                    model: ExportState.export-youtube ? [@tr("MP4 (always for YouTube)")] : ["MP4", "MOV"];
+                                    current-index: ExportState.export-youtube ? 0 : ExportState.export-container-index;
+                                    enabled: !root.running && !ExportState.export-youtube;
+                                    selected => { ExportState.export-container-index = self.current-index; root.touch(); }
+                                    accessible-label: @tr("File format");
+                                }
+                            }
+                        }
+                    }
+                    if root.running : VerticalLayout {
+                        spacing: Theme.space-s;
+                        ProgressIndicator { progress: ExportState.export-progress; }
+                        SecondaryText {
+                            text: ExportState.export-minutes-left < 0 ? @tr("Exporting… {0}%", round(ExportState.export-progress * 100))
+                                : ExportState.export-minutes-left == 0 ? @tr("Exporting… {0}% · less than a minute left", round(ExportState.export-progress * 100))
+                                : @tr("Exporting… {0}% · about {1} min left", round(ExportState.export-progress * 100), ExportState.export-minutes-left);
+                            color: Theme.text;
+                        }
+                        Caption { text: @tr("You can keep editing and close this window. Changes you make now are not part of this export."); wrap: word-wrap; }
+                    }
+                    if ExportState.export-status >= 2 : HorizontalLayout {
+                        spacing: Theme.space-s;
+                        VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                source: ExportState.export-status == 2 ? Icons.checkmark-circle : ExportState.export-status == 4 ? Icons.warning : Icons.error-circle;
+                                color: ExportState.export-status == 2 ? Theme.success : ExportState.export-status == 4 ? Theme.warning : Theme.danger;
+                            }
+                        }
+                        SecondaryText {
+                            text: ExportState.export-status == 2 ? @tr("Saved {0} ({1})", ExportState.export-output-name, ExportState.export-size-text)
+                                : ExportState.export-status == 4 ? @tr("Saved {0}, but the file differs from the plan: {1}", ExportState.export-output-name, ExportState.export-message)
+                                : @tr("Export failed: {0}", ExportState.export-message);
+                            color: Theme.text;
+                            wrap: word-wrap;
+                            overflow: clip;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        if ExportState.export-status != 3 : ActionButton {
+                            text: Shell.macos ? @tr("Show in Finder") : @tr("Show in Explorer");
+                            clicked => { ExportState.export-reveal(); }
+                        }
+                    }
+                    }
+                }
+            }
+            DialogButtons {
+                padding-right: Theme.space-m;
+                macos: Shell.macos;
+                primary-text: root.running || root.close-is-default ? @tr("Close") : @tr("Export…");
+                secondary-text: root.running ? @tr("Cancel export") : root.close-is-default ? @tr("Export again…") : @tr("Close");
+                primary => {
+                    if root.running || root.close-is-default { ExportState.close(); }
+                    else { root.begin-export(); }
+                }
+                secondary => {
+                    if root.running { ExportState.export-cancel(); }
+                    else if root.close-is-default { root.begin-export(); }
+                    else { ExportState.close(); }
+                }
+            }
+        }
+        // More content below: a hairline above the buttons.
+        if flick.scrolls && -flick.content-y + flick.visible-height < content.height - 1px : Rectangle {
+            x: 0;
+            y: flick.y + flick.height + Theme.space-l / 2;
+            width: parent.width;
+            height: 1px;
+            background: Theme.border;
+        }
+    }
+}

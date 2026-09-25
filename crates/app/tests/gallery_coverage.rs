@@ -54,10 +54,15 @@ fn every_component_card_points_at_an_existing_component() {
     let Ok(entries) = fs::read_dir(&dir) else {
         return; // no cards yet
     };
-    let all: String = ["components.slint", "library.slint", "editor.slint"]
-        .iter()
-        .map(|f| ui(f))
-        .collect();
+    let all: String = [
+        "components.slint",
+        "library.slint",
+        "editor.slint",
+        "export_window.slint",
+    ]
+    .iter()
+    .map(|f| ui(f))
+    .collect();
     // Only the "Implementation:" line names components; prose may use arrows.
     let re = regex::Regex::new(r"(?m)^Implementation:.*?→ `([A-Za-z0-9_-]+)`").unwrap();
     let mut broken = Vec::new();

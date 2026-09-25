@@ -817,8 +817,6 @@ msgstr "Textgröße ändern"
 msgid "Change text width"
 msgstr "Textbreite ändern"
 
-msgid "Keep editing"
-msgstr "Weiter bearbeiten"
 
 msgid "Cancel export"
 msgstr "Export abbrechen"
@@ -883,8 +881,8 @@ msgstr "Exportiere… {0} % · weniger als eine Minute"
 msgid "Exporting… {0}% · about {1} min left"
 msgstr "Exportiere… {0} % · noch etwa {1} Min."
 
-msgid "You can keep editing. Changes you make now are not part of this export."
-msgstr "Sie können weiter bearbeiten. Änderungen ab jetzt sind nicht Teil dieses Exports."
+msgid "You can keep editing and close this window. Changes you make now are not part of this export."
+msgstr "Sie können weiter bearbeiten und dieses Fenster schließen. Änderungen ab jetzt sind nicht Teil dieses Exports."
 
 msgid "Saved {0} ({1})"
 msgstr "{0} gespeichert ({1})"

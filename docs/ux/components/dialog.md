@@ -3,7 +3,9 @@
 Status: audited 2026-09-24
 Implementation: `crates/app/ui/components.slint` → `DialogFrame`, `DialogButtons`
 Usages: Settings (`crates/app/ui/main.slint`, content in `settings.slint`),
-`ExportDialog` (`crates/app/ui/editor.slint`)
+(Export moved to its own window on 2026-09-25, see `export-window.md`; the
+rows below that mention Export describe its dialog-era behaviour, which the
+window keeps.)
 Gallery rows: "DialogFrame (scaled preview, 480 × 200) with its fixed button row; …"
 and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 
@@ -43,7 +45,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | single-button (informational) | Fluent: one safe button; Apple: "Done", not "Cancel" | Settings: "Close" as accent primary only | ✅ | none in gallery |
 | primary disabled | Fluent | `primary-enabled` prop, unused by callers | ✅ prop, no gallery row | |
 | focus (keyboard) | Fluent: default button focused unless content is focusable | `FocusScope.init => focus()` puts focus on the invisible scope, no control shows a ring | ❌ | |
-| two dialogs at once | Fluent: "only one ContentDialog open per window" | Settings (gear button, View menu) can open over an open Export dialog; nothing prevents it | ❌ | |
+| two dialogs at once | Fluent: "only one ContentDialog open per window" | only Settings is a dialog now; Export is a separate window | ✅ | |
 
 ## Metrics
 

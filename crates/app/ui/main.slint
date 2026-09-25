@@ -4,10 +4,11 @@ import { LibraryPage, LibraryState, MediaCell, GridRow, InspectorInfo } from "li
 import { EditorPage, EditorState, TimelineClip, StripRect } from "editor.slint";
 import { Shell } from "shell.slint";
 import { GalleryWindow } from "gallery.slint";
+import { ExportWindow, ExportState } from "export_window.slint";
 import { Theme, Icons } from "theme.slint";
 import { Icon, DialogFrame, DialogButtons, Title, Caption } from "components.slint";
 
-export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, StripRect, Shell, GalleryWindow }
+export { LibraryState, MediaCell, GridRow, InspectorInfo, EditorState, TimelineClip, StripRect, Shell, GalleryWindow, ExportWindow, ExportState }
 
 /// Strings Rust needs in the current UI language.
 export global Strings {
@@ -61,12 +62,12 @@ export component MainWindow inherits Window {
             MenuItem { title: @tr("Save project"); activated => { EditorState.save-project(); } }
             MenuItem { title: @tr("Save project as…"); activated => { EditorState.save-project-as(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Export video…"); enabled: EditorState.clip-count > 0; activated => { EditorState.export-open = true; } }
+            MenuItem { title: @tr("Export video…"); enabled: EditorState.clip-count > 0; activated => { EditorState.open-export(); } }
             MenuSeparator {}
             MenuItem { title: @tr("Add files to library…"); activated => { LibraryState.add-files(); } }
             MenuItem { title: @tr("Add folder to library…"); activated => { LibraryState.add-folder(); } }
             MenuSeparator {}
-            MenuItem { title: @tr("Settings…"); enabled: !EditorState.export-open; activated => { Shell.settings-open = true; } }
+            MenuItem { title: @tr("Settings…"); activated => { Shell.settings-open = true; } }
             MenuSeparator {}
             MenuItem { title: Shell.macos ? @tr("Quit") : @tr("Exit"); activated => { root.quit(); } }
         }

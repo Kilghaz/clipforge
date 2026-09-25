@@ -104,8 +104,9 @@ not belong in a desktop app.
   progress (determinate when the total is known), longer than 10 s can be
   cancelled and lets the user continue working (CLAUDE.md rule 4).
 - **Dialogs are rare.** Prefer inline editing, inspector panels and toasts.
-  A dialog is used for export settings, the settings screen and irreversible
-  confirmations. Button order follows the platform: Windows `[OK] [Cancel]`,
+  A dialog is used for the settings screen and irreversible confirmations.
+  Export has its own non-modal window (`ui/export_window.slint`) so the
+  editor stays usable while it is open and while an export runs. Button order follows the platform: Windows `[OK] [Cancel]`,
   macOS `[Cancel] [OK]`; the primary action is named after the verb
   ("Export", not "OK").
 - **Empty states explain and offer the next step**: what this area is, why
@@ -182,7 +183,8 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `MusicLane` (`editor.slint`) | Premiere / Clipchamp audio track, NN/G direct manipulation | 40 px lane under the clips: song blocks on the strip's time scale, looped repeats dimmed, fade-out ramp, empty state with "Add music…"; click / Enter selects the music. |
 | `SongRow` | Fluent list view item | Song name and length with quiet move up / down / remove buttons (Music inspector). |
 | `SwatchGroup` | Spectrum "ColorSwatchPicker" | Single choice from named colour swatches; one tab stop, arrow keys, names as tooltips. Title card backgrounds. |
-| `Disclosure` | Primer "Progressive disclosure" | Chevron + label that shows or hides a section (export dialog "Advanced"); expanded state for screen readers. |
+| `Disclosure` | Primer "Progressive disclosure" | Chevron + label that shows or hides a section (export window "Advanced"); expanded state for screen readers. |
+| `ExportWindow` (`export_window.slint`) | NN/G non-modal dialogs, Fluent dialog anatomy | Separate non-modal window for export options, progress and result; fitted to its content, scrolls with a fixed button row, closing never cancels. |
 | `ExportStatusButton` | NN/G visibility of system status, Spectrum "Progress bar" | Takes the Export button's place while an export runs in the background or finished unseen: percentage with a thin bar, or the result icon; click reopens the dialog. |
 | Drop overlay / drag ghost | Fluent drag-and-drop visuals | Tinted zone + border while hovering; ghost shows icon and count, accent when droppable. |
 

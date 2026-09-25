@@ -1,7 +1,7 @@
 # Disclosure (spec card)
 
 Status: draft 2026-09-25
-Implementation: `crates/app/ui/components.slint` → `Disclosure` (export dialog "Advanced")
+Implementation: `crates/app/ui/components.slint` → `Disclosure` (export window "Advanced")
 Gallery rows: "Disclosure collapsed / expanded; ExportStatusButton …"
 
 ## References (read, not remembered)

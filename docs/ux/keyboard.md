@@ -6,7 +6,8 @@ Rationale for the grid and timeline keys:
 | Key | Action | Since |
 |---|---|---|
 | Cmd/Ctrl+, | Settings | M0 |
-| Esc | Close the Settings / Export dialog; a running export keeps going in the background | M3, M6 |
+| Esc | Close the Settings dialog | M3 |
+| Esc, Cmd/Ctrl+W (export window) | Close the export window; a running export keeps going | M6 |
 | Cmd/Ctrl+Q | Quit | M0 |
 | Space | Play / pause | M3 |
 | J / K / L | Reverse / pause / forward | M3 |
@@ -36,7 +37,7 @@ Rationale for the grid and timeline keys:
 | Mouse wheel / trackpad over the timeline | Scroll the timeline sideways (dragging never scrolls; it moves, trims or scrubs) | M5 |
 | Tab to the text lane, ← / → | Move the focus between texts in time order (the playhead follows) | M5 |
 | Enter / Space (text lane) | Select the focused text; Enter again edits it in place | M5 |
-| Space / Enter on "Advanced" (export dialog) | Show or hide the advanced export settings | M6 |
+| Space / Enter on "Advanced" (export window) | Show or hide the advanced export settings | M6 |
 | Font field: type, ↑ / ↓, Enter, Esc | Filter the fonts, move through the list, pick, close and restore | M5 |
 | ← / → (alignment group) | Left / centre / right alignment | M5 |
 | ← → ↑ ↓ (texts selected) | Nudge the selected texts by 0.5 % of the frame; Shift: 5 % | M5 |

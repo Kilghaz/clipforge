@@ -29,7 +29,9 @@ mod ui {
     )]
     slint::include_modules!();
 }
-use ui::{EditorState, MainWindow, PreviewText, TextBlockView, TimelineClip};
+use ui::{
+    EditorState, ExportState, ExportWindow, MainWindow, PreviewText, TextBlockView, TimelineClip,
+};
 
 fn window() -> MainWindow {
     i_slint_backend_testing::init_no_event_loop();
@@ -62,7 +64,7 @@ fn type_text(w: &MainWindow, text: &str) {
     }
 }
 
-fn press_key(w: &MainWindow, key: Key) {
+fn press_key(w: &impl ComponentHandle, key: Key) {
     let s: SharedString = key.into();
     w.window()
         .dispatch_event(WindowEvent::KeyPressed { text: s.clone() });
@@ -334,15 +336,26 @@ fn the_font_picker_filters_picks_closes_and_keeps_the_app_usable() {
     assert_eq!(*clicked.borrow(), 1, "clicks reach the timeline again");
 }
 
+fn export_window() -> ExportWindow {
+    i_slint_backend_testing::init_no_event_loop();
+    let w = ExportWindow::new().unwrap();
+    slint::select_bundled_translation("en").unwrap();
+    w.window().set_size(slint::LogicalSize::new(520.0, 760.0));
+    w.show().unwrap();
+    w
+}
+
 #[test]
-fn the_export_dialog_discloses_advanced_and_gates_hdr() {
-    let w = window();
-    let s = w.global::<EditorState>();
+fn the_export_window_discloses_advanced_and_gates_hdr() {
+    let w = export_window();
+    let s = w.global::<ExportState>();
     let refreshes = Rc::new(RefCell::new(0));
     let r = refreshes.clone();
     s.on_export_refresh(move || *r.borrow_mut() += 1);
+    let fits = Rc::new(RefCell::new(0));
+    let f = fits.clone();
+    s.on_layout_changed(move || *f.borrow_mut() += 1);
     s.set_export_hdr_availability(1);
-    s.set_export_open(true);
 
     // Collapsed: no codec picker yet.
     assert!(
@@ -350,13 +363,13 @@ fn the_export_dialog_discloses_advanced_and_gates_hdr() {
             .next()
             .is_none()
     );
-    assert!(*refreshes.borrow() >= 1, "opening refreshes the summary");
     let advanced = only(
         ElementHandle::find_by_accessible_label(&w, "Advanced"),
         "Advanced disclosure",
     );
     advanced.mock_single_click(PointerEventButton::Left);
     assert!(s.get_export_advanced_open());
+    assert_eq!(*fits.borrow(), 1, "the window refits to the content");
     only(
         ElementHandle::find_by_accessible_label(&w, "Codec"),
         "codec picker",
@@ -372,27 +385,52 @@ fn the_export_dialog_discloses_advanced_and_gates_hdr() {
     s.set_export_hdr_availability(0);
     hdr.mock_single_click(PointerEventButton::Left);
     assert!(s.get_export_hdr());
+    assert!(
+        *refreshes.borrow() >= 1,
+        "changing an option refreshes the summary"
+    );
+}
 
-    // A running export: Esc closes the dialog but does not cancel.
+#[test]
+fn closing_the_export_window_never_cancels_and_enter_after_success_closes() {
+    let w = export_window();
+    let s = w.global::<ExportState>();
+    let closes = Rc::new(RefCell::new(0));
+    let c = closes.clone();
+    s.on_close(move || *c.borrow_mut() += 1);
     let cancelled = Rc::new(RefCell::new(false));
-    let c = cancelled.clone();
-    s.on_export_cancel(move || *c.borrow_mut() = true);
-    s.set_export_status(1);
-    press_key(&w, Key::Escape);
-    assert!(!s.get_export_open());
-    assert!(!*cancelled.borrow());
-
-    // Right after success, Enter closes instead of exporting again.
+    let cc = cancelled.clone();
+    s.on_export_cancel(move || *cc.borrow_mut() = true);
     let started = Rc::new(RefCell::new(false));
     let st = started.clone();
     s.on_export_start(move || *st.borrow_mut() = true);
+
+    // Running: Esc closes the window, the export keeps going.
+    s.set_export_status(1);
+    press_key(&w, Key::Escape);
+    assert_eq!(*closes.borrow(), 1);
+    assert!(!*cancelled.borrow());
+
+    // Right after success, Enter closes instead of exporting again.
     s.set_export_status(2);
-    s.set_export_open(true);
-    only(
-        ElementHandle::find_by_accessible_label(&w, "Advanced"),
-        "dialog open",
-    );
     press_key(&w, Key::Return);
-    assert!(!s.get_export_open(), "Enter closes");
+    assert_eq!(*closes.borrow(), 2);
     assert!(!*started.borrow(), "no second export");
+}
+
+#[test]
+fn the_toolbar_status_button_brings_the_export_window_back() {
+    let w = window();
+    let s = w.global::<EditorState>();
+    let opened = Rc::new(RefCell::new(0));
+    let o = opened.clone();
+    s.on_open_export(move || *o.borrow_mut() += 1);
+    s.set_export_status(1);
+    s.set_export_progress(0.42);
+    only(
+        ElementHandle::find_by_accessible_label(&w, "Exporting… 42%"),
+        "status button",
+    )
+    .mock_single_click(PointerEventButton::Left);
+    assert_eq!(*opened.borrow(), 1);
 }

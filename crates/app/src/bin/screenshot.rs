@@ -5,8 +5,9 @@
 //! cargo run -p clipforge-app --bin screenshot -- [scene ...] [--out DIR]
 //! ```
 //!
-//! Scenes: `empty`, `populated`, `export` (Advanced open), `export-running`,
-//! `export-done`, `export-background` (toolbar progress), `settings`, `narrow` (900 × 560)
+//! Scenes: `empty`, `populated`, the export window (`export` with Advanced
+//! open, `export-running`, `export-done`, `export-small` scrolling),
+//! `export-background` (toolbar progress), `settings`, `narrow` (900 × 560)
 //! and `gallery` (every component in every state, at 2× scale). Default is
 //! all of them, written to `target/screenshots/<scene>.png`.
 
@@ -45,8 +46,9 @@ use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
 
 use ui::{
-    EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell,
-    PreviewText, Shell, SongBlockView, SongItem, Strings, TextBlockView, TimelineClip,
+    EditorState, ExportState, ExportWindow, GalleryWindow, GridRow, InspectorInfo, LibraryState,
+    MainWindow, MediaCell, PreviewText, Shell, SongBlockView, SongItem, Strings, TextBlockView,
+    TimelineClip,
 };
 
 const SCENES: &[&str] = &[
@@ -58,7 +60,7 @@ const SCENES: &[&str] = &[
     "export-background",
     "settings",
     "narrow",
-    "narrow-export",
+    "export-small",
     "music",
     "title",
     "text",
@@ -118,6 +120,27 @@ fn main() -> Result<()> {
             window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
             continue;
         }
+        if EXPORT_SCENES.contains(&scene.as_str()) {
+            // The export window on its own, sized to its content as the
+            // app does (320..760 px); `export-small` shows the scrolling.
+            let export = ExportWindow::new()?;
+            populate_export(&export, &scene);
+            export.show()?;
+            let w = 520;
+            window.set_size(PhysicalSize::new(w, 760));
+            render(&window, w, 760, &path)?;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let content = export.get_content_height().clamp(320.0, 760.0) as u32;
+            let h = if scene == "export-small" {
+                420
+            } else {
+                content
+            };
+            window.set_size(PhysicalSize::new(w, h));
+            render(&window, w, h, &path)?;
+            export.hide()?;
+            continue;
+        }
         let (w, h) = if scene.starts_with("narrow") {
             (900, 560)
         } else {
@@ -135,6 +158,31 @@ fn main() -> Result<()> {
 
 /// Draws a few frames (layout first, then bindings that depend on layout
 /// such as grid width and strip geometry) and writes the PNG.
+const EXPORT_SCENES: &[&str] = &["export", "export-running", "export-done", "export-small"];
+
+fn populate_export(export: &ExportWindow, scene: &str) {
+    export.global::<Shell>().set_macos(false);
+    let s = export.global::<ExportState>();
+    s.set_export_size_text("153 MB".into());
+    s.set_export_codec_name("HEVC".into());
+    s.set_export_video_mbps(8.0);
+    s.set_export_auto_video_mbps(8.0);
+    s.set_export_hdr_availability(0);
+    s.set_export_hdr(true);
+    match scene {
+        "export" | "export-small" => s.set_export_advanced_open(true),
+        "export-running" => {
+            s.set_export_status(1);
+            s.set_export_progress(0.42);
+            s.set_export_minutes_left(3);
+        }
+        _ => {
+            s.set_export_status(2);
+            s.set_export_output_name("Summer in Italy.mp4".into());
+        }
+    }
+}
+
 fn render(window: &Rc<MinimalSoftwareWindow>, w: u32, h: u32, path: &Path) -> Result<()> {
     let mut pixels = vec![Rgb8Pixel::default(); (w * h) as usize];
     for _ in 0..3 {
@@ -388,26 +436,11 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     editor.set_dirty(true);
 
     match scene {
-        "export" | "export-running" | "export-done" | "export-background" | "narrow-export" => {
-            editor.set_export_open(scene != "export-background");
-            editor.set_export_size_text("153 MB".into());
-            editor.set_export_codec_name("HEVC".into());
-            editor.set_export_video_mbps(8.0);
-            editor.set_export_auto_video_mbps(8.0);
-            editor.set_export_hdr_availability(0);
-            editor.set_export_hdr(true);
-            match scene {
-                "export" | "narrow-export" => editor.set_export_advanced_open(true),
-                "export-running" | "export-background" => {
-                    editor.set_export_status(1);
-                    editor.set_export_progress(0.42);
-                    editor.set_export_minutes_left(3);
-                }
-                _ => {
-                    editor.set_export_status(2);
-                    editor.set_export_output_name("Summer in Italy.mp4".into());
-                }
-            }
+        // Export running in the background: the toolbar status button.
+        "export-background" => {
+            editor.set_export_status(1);
+            editor.set_export_progress(0.42);
+            editor.set_export_minutes_left(3);
         }
         "settings" => app.global::<Shell>().set_settings_open(true),
         "text" | "text-edit" => {

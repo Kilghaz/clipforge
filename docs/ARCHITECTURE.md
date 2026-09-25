@@ -161,6 +161,7 @@ GpuCompositor::render_hlg ─► Frame16 ─► Yuv420::from_frame16 (10-bit BT.
 - After encoding, `export::verify` probes the file and compares codec, size,
   duration, colour tags and audio with the plan; differences are shown as a
   warning, the file is kept.
-- The app copies the project at export start; the dialog can be closed
-  ("Keep editing") and a toolbar status button shows progress and the
-  result. Time left is approximate (`export_view::minutes_left`).
+- The app copies the project at export start. Export has its own
+  non-modal window (`ExportWindow`, state in the `ExportState` global, as
+  Slint globals are per window); closing it never cancels, and a toolbar
+  status button in the main window shows progress and the result. Time left is approximate (`export_view::minutes_left`).

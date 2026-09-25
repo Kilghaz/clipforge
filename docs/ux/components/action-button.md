@@ -71,7 +71,7 @@ Std source read for the 🔒 rows: `i-slint-compiler-1.18.1/widgets/fluent/butto
 | disabled is not focusable | Fluent | std `FocusScope.enabled <=> root.enabled` | ✅ | |
 | one primary per view | Primer: "Only use one primary Button on a page, whenever possible" | library bar "Add to timeline" (primary) and editor toolbar "Export…" (primary) are both visible in the main window | ❌ | populated scene |
 | primary at the end of a group | Primer: "place primary buttons at the end of a ButtonGroup"; Fluent: "OK/[Do it]/Yes" first | `DialogButtons` follows the platform: Windows primary first, macOS primary last (`DESIGN.md` §1: Fluent owns platform behaviour) | ➖ | gallery "DialogButtons Windows / macOS" |
-| one or two buttons per decision | Fluent: "Expose only one or two buttons to the user at a time" | dialogs: primary + Cancel; inspector sections: one or two | ✅ | export dialog |
+| one or two buttons per decision | Fluent: "Expose only one or two buttons to the user at a time" | dialogs: primary + Cancel; inspector sections: one or two | ✅ | export window |
 | single button alignment | Fluent: right-align in dialogs and containers, left-align on pages | `DialogButtons` `alignment: end`; inspector buttons left in `Section` | ✅ | gallery "Section + ValueSlider" |
 | verb describes the action, not "OK" | Fluent; `DESIGN.md` §3 | "Export…", "Add to timeline", "Remove from library" | ✅ | |
 | button used for navigation | Fluent: use HyperlinkButton for navigation | no `ActionButton` navigates | ✅ | |

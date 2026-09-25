@@ -29,7 +29,7 @@ use crate::export_view;
 use crate::format;
 use crate::player::Player;
 use crate::preview_worker::PreviewWorker;
-use crate::ui::{EditorState, MainWindow, TimelineClip};
+use crate::ui::{EditorState, ExportState, ExportWindow, MainWindow, TimelineClip};
 
 mod music_titles;
 mod texts;
@@ -161,6 +161,9 @@ struct Inner {
     export: Option<ExportRun>,
     /// The last finished export, for "Show in Finder".
     last_export: Option<PathBuf>,
+    /// The separate export window, created hidden at start.
+    export_window: Option<ExportWindow>,
+    export_window_visible: bool,
     /// The music lane is selected (the inspector shows the music).
     music_selected: bool,
     pending_songs: music_titles::PendingSongs,
@@ -212,6 +215,13 @@ impl EditorController {
             videos: Mutex::new(HashMap::new()),
             backends: backends.clone(),
         });
+        let export_window = ExportWindow::new()
+            .inspect_err(|e| warn!(error = %e, "cannot create the export window"))
+            .ok();
+        if let Some(ew) = &export_window {
+            ew.global::<crate::ui::Shell>()
+                .set_macos(cfg!(target_os = "macos"));
+        }
         let inner = Rc::new(RefCell::new(Inner {
             window: window.as_weak(),
             library,
@@ -243,6 +253,8 @@ impl EditorController {
             trim: None,
             export: None,
             last_export: None,
+            export_window,
+            export_window_visible: false,
             music_selected: false,
             pending_songs: music_titles::PendingSongs::default(),
             text_selection: Vec::new(),
@@ -309,10 +321,45 @@ impl EditorController {
         on!(on_save_project_as, |i| {
             i.save_project(true);
         });
-        on!(on_export_start, |i| i.export_start());
-        on!(on_export_cancel, |i| i.export_cancel());
-        on!(on_export_refresh, |i| i.export_refresh());
-        on!(on_export_reveal, |i| i.export_reveal());
+        on!(on_open_export, |i| i.open_export());
+        if let Some(ew) = inner.borrow().export_window.as_ref() {
+            let es = ew.global::<ExportState>();
+            macro_rules! on_export {
+                ($setter:ident, |$i:ident| $body:expr) => {{
+                    let inner = Rc::clone(&inner);
+                    es.$setter(move || {
+                        #[allow(unused_mut)]
+                        let mut $i = inner.borrow_mut();
+                        $body
+                    });
+                }};
+            }
+            on_export!(on_export_start, |i| i.export_start());
+            on_export!(on_export_cancel, |i| i.export_cancel());
+            on_export!(on_export_refresh, |i| i.export_refresh());
+            on_export!(on_export_reveal, |i| i.export_reveal());
+            on_export!(on_close, |i| i.close_export());
+            on_export!(on_layout_changed, |i| i.fit_export_window());
+            // The title-bar close button hides; a running export keeps going.
+            let closing = Rc::clone(&inner);
+            ew.window().on_close_requested(move || {
+                if let Ok(mut i) = closing.try_borrow_mut() {
+                    i.export_window_visible = false;
+                }
+                slint::CloseRequestResponse::HideWindow
+            });
+        }
+        // Closing the main window closes the export window too, so the
+        // event loop (which runs until the last window closes) ends.
+        {
+            let closing = Rc::clone(&inner);
+            window.window().on_close_requested(move || {
+                if let Ok(mut i) = closing.try_borrow_mut() {
+                    i.close_export();
+                }
+                slint::CloseRequestResponse::HideWindow
+            });
+        }
         on!(on_add_text, |i| i.add_text());
         on!(on_text_lane_focus_entered, |i| i.text_lane_focus_entered());
         on!(on_text_lane_navigate, |i, forward| i
@@ -1541,8 +1588,84 @@ impl Inner {
 
     // ----- export -----------------------------------------------------------
 
-    /// The dialog's options as `ExportOptions`.
-    fn export_options(s: &EditorState<'_>) -> ExportOptions {
+    /// The export window's state, if the window exists.
+    fn export_state(&self) -> Option<ExportState<'_>> {
+        self.export_window
+            .as_ref()
+            .map(|w| w.global::<ExportState>())
+    }
+
+    /// Opens the export window, or brings it back.
+    fn open_export(&mut self) {
+        if self.project.clips.is_empty() && self.export.is_none() {
+            return;
+        }
+        self.set_export_unseen(false);
+        self.export_refresh();
+        let first = !self.export_window_visible;
+        if let Some(ew) = &self.export_window {
+            if let Err(e) = ew.show() {
+                warn!(error = %e, "cannot show the export window");
+                return;
+            }
+            self.export_window_visible = true;
+        }
+        if first {
+            self.fit_export_window();
+        }
+    }
+
+    fn close_export(&mut self) {
+        if let Some(ew) = &self.export_window {
+            let _ = ew.hide();
+        }
+        self.export_window_visible = false;
+    }
+
+    /// Fits the window height to its content (Advanced open or closed),
+    /// within 320..760 px; the content scrolls beyond that.
+    fn fit_export_window(&self) {
+        let Some(ew) = &self.export_window else {
+            return;
+        };
+        let height = ew.get_content_height().clamp(320.0, 760.0);
+        let scale = ew.window().scale_factor();
+        #[allow(clippy::cast_precision_loss)]
+        let width = (ew.window().size().width as f32 / scale).max(520.0);
+        ew.window().set_size(slint::LogicalSize::new(width, height));
+    }
+
+    // Status, progress, time left and "unseen" live in both windows: the
+    // export window shows them in full, the toolbar button in brief.
+    fn set_export_status(&self, status: i32) {
+        if let Some(es) = self.export_state() {
+            es.set_export_status(status);
+        }
+        if let Some(w) = self.state() {
+            w.global::<EditorState>().set_export_status(status);
+        }
+    }
+
+    fn set_export_progress(&self, progress: f32, minutes_left: i32) {
+        if let Some(es) = self.export_state() {
+            es.set_export_progress(progress);
+            es.set_export_minutes_left(minutes_left);
+        }
+        if let Some(w) = self.state() {
+            let s = w.global::<EditorState>();
+            s.set_export_progress(progress);
+            s.set_export_minutes_left(minutes_left);
+        }
+    }
+
+    fn set_export_unseen(&self, unseen: bool) {
+        if let Some(w) = self.state() {
+            w.global::<EditorState>().set_export_unseen(unseen);
+        }
+    }
+
+    /// The window's options as `ExportOptions`.
+    fn export_options(s: &ExportState<'_>) -> ExportOptions {
         let index = |i: i32| usize::try_from(i).unwrap_or(0);
         export_view::options(&export_view::DialogState {
             resolution: index(s.get_export_resolution_index()),
@@ -1559,8 +1682,7 @@ impl Inner {
 
     /// Recomputes the HDR availability and the summary line.
     fn export_refresh(&self) {
-        let Some(w) = self.state() else { return };
-        let s = w.global::<EditorState>();
+        let Some(s) = self.export_state() else { return };
         let hdr = export_view::hdr_availability(&self.project, self.worker.hdr_capable());
         s.set_export_hdr_availability(hdr.code());
         let summary = export_view::summary(&Self::export_options(&s), &self.project);
@@ -1588,7 +1710,15 @@ impl Inner {
             return;
         }
         let Some(w) = self.state() else { return };
-        let s = w.global::<EditorState>();
+        // A handle of our own: the global borrows it, not `self`.
+        let Some(ew) = self
+            .export_window
+            .as_ref()
+            .map(ComponentHandle::clone_strong)
+        else {
+            return;
+        };
+        let s = ew.global::<ExportState>();
         let options = Self::export_options(&s);
         let extension = EncodePlan::build(
             &options,
@@ -1614,8 +1744,8 @@ impl Inner {
             return;
         };
         let Some(location) = FfmpegLocation::discover() else {
-            s.set_export_status(3);
             s.set_export_message(w.global::<crate::ui::Strings>().get_ffmpeg_missing());
+            self.set_export_status(3);
             return;
         };
         let plan = EncodePlan::build(
@@ -1704,11 +1834,10 @@ impl Inner {
             events: rx,
             started: std::time::Instant::now(),
         });
-        s.set_export_status(1);
-        s.set_export_progress(0.0);
-        s.set_export_minutes_left(-1);
-        s.set_export_unseen(false);
         s.set_export_message(SharedString::default());
+        self.set_export_status(1);
+        self.set_export_progress(0.0, -1);
+        self.set_export_unseen(false);
     }
 
     fn export_cancel(&mut self) {
@@ -1724,19 +1853,29 @@ impl Inner {
         if events.is_empty() {
             return;
         }
-        let Some(w) = self.state() else { return };
-        let s = w.global::<EditorState>();
+        // A handle of our own: the global borrows it, not `self`.
+        let Some(ew) = self
+            .export_window
+            .as_ref()
+            .map(ComponentHandle::clone_strong)
+        else {
+            return;
+        };
+        let s = ew.global::<ExportState>();
+        let hidden = !self.export_window_visible;
         for ev in events {
             match ev {
                 ExportEvent::Progress(f) => {
-                    s.set_export_progress(f);
                     let left = export_view::minutes_left(started.elapsed(), f);
-                    s.set_export_minutes_left(left.map_or(-1, |m| i32::try_from(m).unwrap_or(-1)));
+                    self.set_export_progress(
+                        f,
+                        left.map_or(-1, |m| i32::try_from(m).unwrap_or(-1)),
+                    );
                 }
                 ExportEvent::Finished(Ok((report, problems))) => {
                     info!(?report, ?problems, "export finished");
-                    s.set_export_status(if problems.is_empty() { 2 } else { 4 });
-                    s.set_export_progress(1.0);
+                    self.set_export_status(if problems.is_empty() { 2 } else { 4 });
+                    self.set_export_progress(1.0, -1);
                     s.set_export_output_name(
                         report
                             .output
@@ -1747,15 +1886,15 @@ impl Inner {
                     );
                     s.set_export_size_text(format::bytes(report.bytes).into());
                     s.set_export_message(problems.join("; ").into());
-                    s.set_export_unseen(!s.get_export_open());
+                    self.set_export_unseen(hidden);
                     self.last_export = Some(report.output);
                     self.export = None;
                 }
                 ExportEvent::Finished(Err(e)) => {
                     warn!(error = %e, "export failed");
-                    s.set_export_status(3);
                     s.set_export_message(e.into());
-                    s.set_export_unseen(!s.get_export_open());
+                    self.set_export_status(3);
+                    self.set_export_unseen(hidden);
                     self.export = None;
                 }
             }

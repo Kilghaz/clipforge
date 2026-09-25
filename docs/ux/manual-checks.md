@@ -99,7 +99,7 @@ Things CI cannot verify. Run before tagging a milestone.
       glyphs remain anywhere.
 - [ ] Empty library and empty timeline show the empty-state text with a
       working primary action.
-- [ ] Settings and Export dialogs: Escape closes them (a running export keeps going);
+- [ ] Settings dialog and export window: Escape closes them (a running export keeps going);
       button order is `[Primary] [Cancel]` on Windows and reversed on macOS.
 - [ ] Library cells and timeline clips: hover tint, accent selection ring;
       video trim handles brighten on hover.
@@ -231,11 +231,15 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Advanced: codec, frame rate, bitrates and file format change the
       summary; HDR locks the codec, YouTube locks MP4; a MOV export opens in
       QuickTime.
-- [ ] During an export: "Keep editing" closes the dialog, the toolbar shows
-      the percentage; editing and playback keep working; clicking the
-      toolbar button reopens the dialog with progress and time left.
+- [ ] Export opens its own window (title "Export video"); the editor stays
+      usable next to it; Export… again brings the same window to the front.
+- [ ] During an export: closing the window (Close, Esc, Cmd/Ctrl+W, title
+      bar) keeps the export going; the toolbar shows the percentage; editing
+      and playback keep working; clicking the toolbar button brings the
+      window back with progress and time left.
+- [ ] Quitting via the main window also closes the export window.
 - [ ] After the export: toolbar shows "Exported"; the dialog says where the
       file is and "Show in Finder / Explorer" selects it.
 - [ ] Cancel export removes the partial file.
-- [ ] At 900 × 560 the export dialog with Advanced open scrolls; the
-      buttons stay visible.
+- [ ] Making the export window small scrolls its content; the buttons stay
+      visible; toggling Advanced resizes the window to fit.

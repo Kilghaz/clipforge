@@ -87,3 +87,22 @@ settings forms with several values.
   `plan::tests::hdr_and_youtube_win_over_conflicting_advanced_choices`;
   the dialog shows them as disabled pickers
 - `ui_interaction::the_export_dialog_discloses_advanced_and_gates_hdr`
+
+## Revision 2026-09-25: a separate export window
+
+On request the export dialog became its own non-modal top-level window
+(`ExportWindow`, `ui/export_window.slint`, card `components/export-window.md`).
+
+- The editor stays usable with the window open, so "Keep editing" is gone:
+  while exporting the buttons are "Close" (hides the window, the export
+  continues) and "Cancel export".
+- Esc, Cmd/Ctrl+W and the title-bar close button hide the window; none of
+  them cancels an export. Closing the main window closes it too.
+- One instance: Export…, the File menu and the toolbar status button show
+  the same window again. Settings is no longer blocked by it.
+- The window is fitted to its content when it opens and when Advanced
+  toggles (320..760 px); smaller windows scroll with the buttons fixed.
+- Slint globals are per window: the window's state is `ExportState`; Rust
+  mirrors status, progress and time left into `EditorState` for the toolbar.
+- Scenes: `export`, `export-running`, `export-done`, `export-small` render
+  the window alone; `export-background` shows the toolbar.

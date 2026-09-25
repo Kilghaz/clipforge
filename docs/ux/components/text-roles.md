@@ -67,7 +67,7 @@ Text roles and dividers are static; only colour states apply.
 | Line length | Fluent: 50–60 characters per line | not constrained; see empty-state card | ➖ per screen |
 | Truncation | Fluent: ellipsis, wrap when multi-line | `Caption`, `BodyText`: `overflow: elide`; `SectionLabel`: default (clip) | ❌ (SectionLabel) |
 | Label → control gap | Fluent: 8 epx between control and header | `Section.spacing` 8 | ✅ |
-| Side label → control gap | Fluent: 12 epx between control and label | `ExportDialog` rows: spacing 12 | ✅ |
+| Side label → control gap | Fluent: 12 epx between control and label | `ExportWindow` Advanced rows: spacing 12 | ✅ |
 | Section → section gap | Fluent: 12 epx between content areas; DESIGN.md (Spectrum): 24 | 24 in inspector and gallery | ✅ (Spectrum owns the spacing scale per DESIGN.md §1) |
 | Divider thickness | Spectrum: S/M/L | 1 px | ✅ |
 | Divider colour | Fluent/Spectrum: border colour | `Theme.border` (= `Palette.border`) | ✅ |
