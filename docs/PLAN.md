@@ -524,6 +524,14 @@ Kept short; the ADRs hold the reasoning.
   bundled OFL fonts (Inter, Montserrat, Playfair Display, Bebas Neue,
   Dancing Script, Caveat) that look the same everywhere; a family missing on
   another machine falls back to Inter.
+- **M6, colour pipeline:** SDR stays 8-bit sRGB end to end; HDR video is
+  decoded 16-bit and tone mapped on decode for SDR output, and HDR export is
+  a separate 16-bit HLG GPU path (ADR-0011, supersedes ADR-0005). No HDR
+  export without a GPU.
+- **M6, deferred:** Apple gain-map HDR photos via ImageIO (shown as their
+  SDR base image; needs macOS bindings and a fixture), OS notifications when
+  an export finishes (the toolbar status button and the dialog show the
+  result instead), HDR preview on HDR displays.
 - **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
   replaces the CPU compositor for preview and export; the CPU compositor is
   the fallback without a GPU and the reference in tests. Frames are still

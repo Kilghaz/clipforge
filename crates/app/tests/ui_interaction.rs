@@ -333,3 +333,52 @@ fn the_font_picker_filters_picks_closes_and_keeps_the_app_usable() {
     .mock_single_click(PointerEventButton::Left);
     assert_eq!(*clicked.borrow(), 1, "clicks reach the timeline again");
 }
+
+#[test]
+fn the_export_dialog_discloses_advanced_and_gates_hdr() {
+    let w = window();
+    let s = w.global::<EditorState>();
+    let refreshes = Rc::new(RefCell::new(0));
+    let r = refreshes.clone();
+    s.on_export_refresh(move || *r.borrow_mut() += 1);
+    s.set_export_hdr_availability(1);
+    s.set_export_open(true);
+
+    // Collapsed: no codec picker yet.
+    assert!(
+        ElementHandle::find_by_accessible_label(&w, "Codec")
+            .next()
+            .is_none()
+    );
+    assert!(*refreshes.borrow() >= 1, "opening refreshes the summary");
+    let advanced = only(
+        ElementHandle::find_by_accessible_label(&w, "Advanced"),
+        "Advanced disclosure",
+    );
+    advanced.mock_single_click(PointerEventButton::Left);
+    assert!(s.get_export_advanced_open());
+    only(
+        ElementHandle::find_by_accessible_label(&w, "Codec"),
+        "codec picker",
+    );
+
+    // No HDR sources: clicking the switch does nothing.
+    let hdr = only(
+        ElementHandle::find_by_accessible_label(&w, "HDR (for iPhone and YouTube HDR)"),
+        "HDR switch",
+    );
+    hdr.mock_single_click(PointerEventButton::Left);
+    assert!(!s.get_export_hdr());
+    s.set_export_hdr_availability(0);
+    hdr.mock_single_click(PointerEventButton::Left);
+    assert!(s.get_export_hdr());
+
+    // A running export: Esc closes the dialog but does not cancel.
+    let cancelled = Rc::new(RefCell::new(false));
+    let c = cancelled.clone();
+    s.on_export_cancel(move || *c.borrow_mut() = true);
+    s.set_export_status(1);
+    press_key(&w, Key::Escape);
+    assert!(!s.get_export_open());
+    assert!(!*cancelled.borrow());
+}

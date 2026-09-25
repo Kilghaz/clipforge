@@ -31,6 +31,8 @@ pub enum ExportError {
     Empty,
     #[error("export cancelled")]
     Cancelled,
+    #[error("HDR frames need the GPU renderer, which is not available")]
+    HdrUnavailable,
     #[error("output file was not written")]
     NoOutput,
     #[error("frame {index} is {got_w}x{got_h} but the plan is {want_w}x{want_h}")]
@@ -172,23 +174,31 @@ impl Exporter {
                 cancelled = true;
                 break;
             }
-            match frames.frame(i) {
+            let fresh = match frames.frame(i) {
                 FrameRef::New(frame) => {
-                    if (frame.width, frame.height) != (plan.width, plan.height) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        let _ = std::fs::remove_file(output);
-                        return Err(ExportError::FrameSize {
-                            index: i,
-                            got_w: frame.width,
-                            got_h: frame.height,
-                            want_w: plan.width,
-                            want_h: plan.height,
-                        });
-                    }
-                    current = Some(Yuv420::from_frame(&frame));
+                    Some(((frame.width, frame.height), Yuv420::from_frame(&frame)))
                 }
-                FrameRef::SameAsPrevious => {}
+                FrameRef::Hdr(frame) => {
+                    Some(((frame.width, frame.height), Yuv420::from_frame16(&frame)))
+                }
+                FrameRef::Unavailable => {
+                    abandon(&mut child, output);
+                    return Err(ExportError::HdrUnavailable);
+                }
+                FrameRef::SameAsPrevious => None,
+            };
+            if let Some(((got_w, got_h), yuv)) = fresh {
+                if (got_w, got_h) != (plan.width, plan.height) {
+                    abandon(&mut child, output);
+                    return Err(ExportError::FrameSize {
+                        index: i,
+                        got_w,
+                        got_h,
+                        want_w: plan.width,
+                        want_h: plan.height,
+                    });
+                }
+                current = Some(yuv);
             }
             let Some(buf) = &current else {
                 write_result = Err(std::io::Error::other(
@@ -262,12 +272,19 @@ impl Exporter {
     }
 }
 
+/// Stops ffmpeg and removes the partial file.
+fn abandon(child: &mut std::process::Child, output: &Path) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(output);
+}
+
 #[cfg(test)]
 #[allow(clippy::print_stderr)]
 mod tests {
     use super::*;
     use crate::options::ExportOptions;
-    use clipforge_core::{Aspect, FrameRate};
+    use clipforge_core::{Aspect, FrameRate, Ticks};
     use clipforge_media::FfmpegLocation;
     use clipforge_render::Frame;
 
@@ -442,6 +459,81 @@ mod tests {
             "{err}"
         );
         assert!(!out.exists());
+    }
+
+    /// HLG frames: the left half reference white (signal 0.75), the right
+    /// half a bright highlight (signal 0.95).
+    struct Hlg {
+        n: u64,
+    }
+
+    impl FrameSource for Hlg {
+        fn len(&self) -> u64 {
+            self.n
+        }
+        fn frame(&mut self, index: u64) -> FrameRef {
+            if index > 0 {
+                return FrameRef::SameAsPrevious;
+            }
+            let (w, h) = (320usize, 180usize);
+            let mut rgba16 = Vec::with_capacity(w * h * 4);
+            for _ in 0..h {
+                for x in 0..w {
+                    let v = if x < w / 2 { 49_151 } else { 62_258 };
+                    rgba16.extend_from_slice(&[v, v, v, u16::MAX]);
+                }
+            }
+            FrameRef::Hdr(clipforge_render::Frame16 {
+                width: 320,
+                height: 180,
+                rgba16,
+            })
+        }
+    }
+
+    #[test]
+    fn hdr_export_writes_10_bit_hlg_hevc() {
+        let Some(loc) = ffmpeg() else { return };
+        let mut exporter = Exporter::new(loc.ffmpeg.clone()).unwrap();
+        exporter.prefer_hardware = false;
+        let mut plan = EncodePlan::build(
+            &ExportOptions {
+                hdr: true,
+                ..ExportOptions::default()
+            },
+            Aspect::Landscape16x9,
+            FrameRate::FPS_30,
+        );
+        (plan.width, plan.height, plan.video_bitrate_kbps) = (320, 180, 2_000);
+        if exporter.encoder_for(&plan).is_none() {
+            eprintln!("no HEVC encoder; skipping");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("hdr.mp4");
+        exporter
+            .run(
+                &plan,
+                &mut Hlg { n: 15 },
+                None,
+                &out,
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .unwrap();
+        let cli = clipforge_media::FfmpegCli::new(loc);
+        let info = clipforge_media::Prober::probe(&cli, &out).unwrap();
+        assert_eq!(info.codec, "hevc");
+        assert_eq!(info.transfer, clipforge_media::ColorTransfer::Hlg);
+        // Decoded back, the levels survive the 10-bit round trip.
+        let mut reader =
+            clipforge_media::VideoReader::open(&cli, &out, &info, Ticks::ZERO, 320).unwrap();
+        let Some(clipforge_media::VideoFrame::Hdr(img)) = reader.next_frame().unwrap() else {
+            panic!("HLG output decodes as HDR");
+        };
+        let at = |x: usize| f32::from(img.rgb48[(90 * 320 + x) * 3 + 1]) / 65_535.0;
+        assert!((at(80) - 0.75).abs() < 0.01, "white {}", at(80));
+        assert!((at(240) - 0.95).abs() < 0.01, "highlight {}", at(240));
     }
 
     #[test]

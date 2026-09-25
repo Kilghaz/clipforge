@@ -60,6 +60,7 @@ fn media(id: MediaId, kind: RefKind) -> MediaRef {
         pixel_size: None,
         duration: (kind == RefKind::Video).then(|| Ticks::from_seconds(10)),
         captured_at_ms: None,
+        hdr: false,
         name: "m".into(),
     }
 }

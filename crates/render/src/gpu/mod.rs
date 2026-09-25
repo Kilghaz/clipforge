@@ -1257,6 +1257,10 @@ impl FrameRenderer for GpuCompositor {
         })
     }
 
+    fn supports_hlg(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         "gpu"
     }

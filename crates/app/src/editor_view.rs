@@ -287,6 +287,12 @@ pub(crate) fn media_ref_for(record: &MediaRecord) -> Option<MediaRef> {
             info.duration
         },
         captured_at_ms: info.captured_at_ms,
+        // HLG / PQ video. Gain-map photos show as SDR for now.
+        hdr: kind == RefKind::Video
+            && matches!(
+                info.transfer,
+                clipforge_media::ColorTransfer::Hlg | clipforge_media::ColorTransfer::Pq
+            ),
         name: record.file_name(),
     })
 }
@@ -486,6 +492,41 @@ mod tests {
             .collect()
     }
 
+    fn record(kind: MediaKind, transfer: clipforge_media::ColorTransfer) -> MediaRecord {
+        MediaRecord {
+            id: MediaId::new(),
+            path: "/m/clip.mov".into(),
+            fingerprint: clipforge_library::Fingerprint { size: 1, hash: 2 },
+            mtime_ms: 0,
+            kind,
+            cloud_state: clipforge_library::CloudState::Local,
+            probe: ProbeState::Done,
+            info: Some(clipforge_media::MediaInfo {
+                kind,
+                width: Some(1920),
+                height: Some(1080),
+                rotation: clipforge_media::Rotation::None,
+                duration: (kind != MediaKind::Photo).then_some(Ticks::SECOND),
+                frame_rate: None,
+                has_audio: false,
+                transfer,
+                captured_at_ms: None,
+                codec: "hevc".into(),
+            }),
+            added_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn hlg_and_pq_videos_are_marked_hdr() {
+        use clipforge_media::ColorTransfer as T;
+        let hdr = |kind, t| media_ref_for(&record(kind, t)).unwrap().hdr;
+        assert!(hdr(MediaKind::Video, T::Hlg));
+        assert!(hdr(MediaKind::Video, T::Pq));
+        assert!(!hdr(MediaKind::Video, T::Sdr));
+        assert!(!hdr(MediaKind::Photo, T::GainMap));
+    }
+
     #[test]
     fn layout_is_proportional_with_minimum_width() {
         let clips = photos(&[4, 1, 10]);
@@ -593,6 +634,7 @@ mod tests {
             pixel_size: Some((10, 10)),
             duration: None,
             captured_at_ms: None,
+            hdr: false,
             name: "a".into(),
         };
         p.settings.default_motion = clipforge_core::Motion::ZoomOut;
@@ -630,6 +672,7 @@ mod tests {
             pixel_size: Some((10, 10)),
             duration: None,
             captured_at_ms: None,
+            hdr: false,
             name: "p".into(),
         };
         let video = MediaRef {
@@ -875,6 +918,7 @@ mod tests {
             pixel_size: None,
             duration: Some(Ticks::from_seconds(secs)),
             captured_at_ms: None,
+            hdr: false,
             name: name.into(),
         }
     }
@@ -886,6 +930,7 @@ mod tests {
             duration: None,
             name: "IMG_1.jpg".into(),
             captured_at_ms: Some(1_720_000_000_000),
+            hdr: false,
             ..audio(0, "")
         };
         Command::InsertClips {

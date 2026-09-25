@@ -11,6 +11,7 @@
 mod drop;
 mod editor_ui;
 mod editor_view;
+mod export_view;
 mod format;
 mod language;
 mod library_ui;

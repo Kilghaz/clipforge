@@ -499,50 +499,6 @@ export component EmptyState inherits VerticalLayout {
 /// places its content as children; buttons are rendered by the caller inside
 /// `DialogButtons` so their order follows the platform (Windows: primary
 /// first, macOS: primary last).
-export component DialogFrame inherits Rectangle {
-    in property <string> title;
-    in property <length> dialog-width: 480px;
-    /// 0 = size to content.
-    in property <length> dialog-height: 0;
-    callback dismissed();
-    /// Enter: activate the dialog's default action (Fluent DefaultButton).
-    callback accepted();
-    background: Theme.scrim;
-    // Swallow clicks on the scrim (do not close: accidental loss of input).
-    TouchArea { }
-    FocusScope {
-        init => { self.focus(); }
-        key-pressed(event) => {
-            if event.text == Key.Escape { root.dismissed(); return accept; }
-            if event.text == Key.Return { root.accepted(); return accept; }
-            return reject;
-        }
-        Rectangle {
-            width: root.dialog-width;
-            height: root.dialog-height > 0 ? root.dialog-height : content.preferred-height;
-            border-radius: Theme.radius-l;
-            border-width: 1px;
-            border-color: Theme.border;
-            background: Theme.surface-pane;
-            clip: true;
-            TouchArea { }
-            content := VerticalLayout {
-                padding: Theme.space-xl;
-                spacing: Theme.space-l;
-                Text {
-                    text: root.title;
-                    color: Theme.text;
-                    font-size: Theme.font-dialog;
-                    font-weight: Theme.weight-semibold;
-                }
-                @children
-            }
-        }
-    }
-}
-
-/// Button row for dialogs: primary on the left on Windows, on the right on
-/// macOS (Fluent "Dialog", Apple HIG "Alerts").
 export component DialogButtons inherits HorizontalLayout {
     in property <bool> macos;
     in property <string> primary-text;
@@ -557,6 +513,89 @@ export component DialogButtons inherits HorizontalLayout {
     if root.primary-visible : ActionButton { text: root.primary-text; min-width: 120px; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
     if !root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; min-width: 120px; clicked => { root.secondary(); } }
 }
+
+export component DialogFrame inherits Rectangle {
+    in property <string> title;
+    in property <length> dialog-width: 480px;
+    /// 0 = size to content.
+    in property <length> dialog-height: 0;
+    /// Button row, fixed at the bottom while the content scrolls (Fluent).
+    in property <bool> macos;
+    in property <string> primary-text;
+    in property <bool> primary-enabled: true;
+    in property <bool> primary-visible: true;
+    in property <string> secondary-text;
+    callback primary();
+    callback secondary();
+    callback dismissed();
+    /// Enter: activate the dialog's default action (Fluent DefaultButton).
+    callback accepted();
+    background: Theme.scrim;
+    // Swallow clicks on the scrim (do not close: accidental loss of input).
+    TouchArea { }
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.dismissed(); return accept; }
+            if event.text == Key.Return { root.accepted(); return accept; }
+            return reject;
+        }
+        Rectangle {
+            // Never taller than the window: the content scrolls, the title
+            // and buttons stay (900 × 560 minimum window).
+            property <length> chrome: title.preferred-height + footer.preferred-height + 2 * Theme.space-xl + 2 * Theme.space-l;
+            property <length> wanted: root.dialog-height > 0 ? root.dialog-height : self.chrome + body.preferred-height;
+            width: root.dialog-width;
+            height: min(self.wanted, root.height - 2 * Theme.space-l);
+            border-radius: Theme.radius-l;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: Theme.surface-pane;
+            clip: true;
+            TouchArea { }
+            VerticalLayout {
+                padding: Theme.space-xl;
+                spacing: Theme.space-l;
+                title := Text {
+                    text: root.title;
+                    color: Theme.text;
+                    font-size: Theme.font-dialog;
+                    font-weight: Theme.weight-semibold;
+                }
+                flick := Flickable {
+                    vertical-stretch: 1;
+                    content-width: self.width;
+                    content-height: max(self.height, body.preferred-height);
+                    interactive: body.preferred-height > self.height;
+                    body := VerticalLayout {
+                        width: flick.content-width;
+                        spacing: Theme.space-l;
+                        alignment: start;
+                        @children
+                    }
+                }
+                footer := DialogButtons {
+                    macos: root.macos;
+                    primary-text: root.primary-text;
+                    primary-enabled: root.primary-enabled;
+                    primary-visible: root.primary-visible && root.primary-text != "";
+                    secondary-text: root.secondary-text;
+                    primary => { root.primary(); }
+                    secondary => { root.secondary(); }
+                }
+            }
+            // More content below: a hairline above the buttons.
+            if flick.content-y + body.preferred-height > flick.height + 1px : Rectangle {
+                x: 0;
+                y: flick.y + flick.height + Theme.space-l / 2;
+                width: parent.width;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+    }
+}
+
 
 /// Single choice from a small fixed palette (Spectrum "ColorSwatchPicker").
 /// One tab stop; arrow keys move the selection; each swatch names its colour
@@ -868,4 +907,135 @@ export component FontPicker inherits Rectangle {
         }
     }
     }
+}
+
+/// Progressive disclosure trigger (Primer): chevron plus label, toggles a
+/// section below. Down when collapsed, up when expanded.
+export component Disclosure inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> expanded;
+    callback toggled(bool);
+    height: Theme.control-height;
+    border-radius: Theme.radius-s;
+    background: touch.has-hover ? Theme.control-hover : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-expandable: true;
+    accessible-expanded: root.expanded;
+    accessible-action-default => { root.toggle(); }
+    accessible-action-expand => { root.toggle(); }
+    forward-focus: focus;
+    function toggle() {
+        root.expanded = !root.expanded;
+        root.toggled(root.expanded);
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space { root.toggle(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea { clicked => { root.toggle(); focus.focus(); } }
+    HorizontalLayout {
+        padding-left: Theme.space-xs;
+        padding-right: Theme.space-s;
+        spacing: Theme.space-s;
+        alignment: start;
+        Icon {
+            source: root.expanded ? Icons.chevron-up : Icons.chevron-down;
+            size: Theme.icon-s;
+            color: Theme.text-secondary;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            font-weight: Theme.weight-semibold;
+            vertical-alignment: center;
+        }
+    }
+    if focus.has-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-s + 2px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
+}
+
+/// Toolbar stand-in for the Export button while an export runs in the
+/// background or finished unseen: progress (percent and a thin bar), or
+/// the result icon. Clicking reopens the export dialog.
+export component ExportStatusButton inherits Rectangle {
+    /// 1 running, 2 done, 3 failed, 4 done with a warning.
+    in property <int> status: 1;
+    in property <float> progress;
+    in property <string> text;
+    in property <string> tooltip;
+    callback clicked;
+    height: Theme.control-height;
+    min-width: 96px;
+    border-radius: Theme.radius-s;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: touch.pressed ? Theme.control-pressed : touch.has-hover ? Theme.control-hover : Theme.surface-card;
+    accessible-role: button;
+    accessible-label: root.tooltip;
+    accessible-value: root.text;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-m;
+        spacing: Theme.space-s;
+        alignment: center;
+        if root.status != 1 : Icon {
+            source: root.status == 2 ? Icons.checkmark-circle : root.status == 4 ? Icons.warning : Icons.error-circle;
+            color: root.status == 2 ? Theme.success : root.status == 4 ? Theme.warning : Theme.danger;
+            size: Theme.icon-m;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+        }
+    }
+    // Thin progress bar along the bottom edge while running.
+    if root.status == 1 : Rectangle {
+        x: Theme.space-xs;
+        y: parent.height - 5px;
+        width: parent.width - 2 * Theme.space-xs;
+        height: 2px;
+        border-radius: self.height / 2;
+        background: Theme.border;
+        Rectangle {
+            x: 0;
+            width: parent.width * clamp(root.progress, 0, 1);
+            height: parent.height;
+            border-radius: self.height / 2;
+            background: Theme.accent;
+        }
+    }
+    if focus.has-focus : Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: Theme.radius-s + 2px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
+    Tooltip { text: @markdown("\{root.tooltip}"); }
 }

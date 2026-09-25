@@ -1,7 +1,7 @@
 # ADR-0005: Linear Rec.2020 working space with opt-in HLG export
 
 Date: 2026-09-22
-Status: Accepted
+Status: Superseded by ADR-0011
 
 ## Context
 

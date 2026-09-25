@@ -5,7 +5,8 @@
 //! cargo run -p clipforge-app --bin screenshot -- [scene ...] [--out DIR]
 //! ```
 //!
-//! Scenes: `empty`, `populated`, `export`, `settings`, `narrow` (900 × 560)
+//! Scenes: `empty`, `populated`, `export` (Advanced open), `export-running`,
+//! `export-done`, `export-background` (toolbar progress), `settings`, `narrow` (900 × 560)
 //! and `gallery` (every component in every state, at 2× scale). Default is
 //! all of them, written to `target/screenshots/<scene>.png`.
 
@@ -52,8 +53,12 @@ const SCENES: &[&str] = &[
     "empty",
     "populated",
     "export",
+    "export-running",
+    "export-done",
+    "export-background",
     "settings",
     "narrow",
+    "narrow-export",
     "music",
     "title",
     "text",
@@ -113,7 +118,7 @@ fn main() -> Result<()> {
             window.dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.0 });
             continue;
         }
-        let (w, h) = if scene == "narrow" {
+        let (w, h) = if scene.starts_with("narrow") {
             (900, 560)
         } else {
             (1400, 860)
@@ -383,10 +388,26 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     editor.set_dirty(true);
 
     match scene {
-        "export" => {
-            editor.set_export_open(true);
-            editor.set_export_status(1);
-            editor.set_export_progress(0.42);
+        "export" | "export-running" | "export-done" | "export-background" | "narrow-export" => {
+            editor.set_export_open(scene != "export-background");
+            editor.set_export_size_text("153 MB".into());
+            editor.set_export_codec_name("HEVC".into());
+            editor.set_export_video_mbps(8.0);
+            editor.set_export_auto_video_mbps(8.0);
+            editor.set_export_hdr_availability(0);
+            editor.set_export_hdr(true);
+            match scene {
+                "export" | "narrow-export" => editor.set_export_advanced_open(true),
+                "export-running" | "export-background" => {
+                    editor.set_export_status(1);
+                    editor.set_export_progress(0.42);
+                    editor.set_export_minutes_left(3);
+                }
+                _ => {
+                    editor.set_export_status(2);
+                    editor.set_export_output_name("Summer in Italy.mp4".into());
+                }
+            }
         }
         "settings" => app.global::<Shell>().set_settings_open(true),
         "text" | "text-edit" => {
@@ -474,6 +495,7 @@ fn render_preview(fixtures: &Path, hide_first: bool) -> Result<(slint::Image, Ve
         pixel_size: Some((w, h)),
         duration: None,
         captured_at_ms: None,
+        hdr: false,
         name: "photo_landscape.jpg".into(),
     };
     Command::InsertClips {

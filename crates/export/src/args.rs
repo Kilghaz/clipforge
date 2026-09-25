@@ -31,7 +31,7 @@ pub fn build(
         "-f".into(),
         "rawvideo".into(),
         "-pix_fmt".into(),
-        "yuv420p".into(),
+        pix_fmt(plan.pixel_format).into(),
         "-s".into(),
         format!("{}x{}", plan.width, plan.height),
         "-r".into(),
@@ -70,10 +70,7 @@ pub fn build(
         "-c:v".into(),
         encoder.name.into(),
         "-pix_fmt".into(),
-        match plan.pixel_format {
-            PixelFormat::Yuv420p => "yuv420p".into(),
-            PixelFormat::Yuv420p10le => "yuv420p10le".into(),
-        },
+        pix_fmt(plan.pixel_format).into(),
         "-b:v".into(),
         format!("{}k", plan.video_bitrate_kbps),
         "-maxrate".into(),
@@ -94,6 +91,16 @@ pub fn build(
         plan.color.transfer.into(),
     ]);
     a.extend(encoder_specific(plan, encoder));
+    if plan.closed_gop {
+        // At most two consecutive B-frames, closed GOPs (YouTube).
+        a.extend(["-bf".into(), "2".into(), "-flags".into(), "+cgop".into()]);
+        if encoder.name == "libx265" {
+            // x265 ignores +cgop; its own switch.
+            if let Some(i) = a.iter().position(|s| s == "-x265-params") {
+                a[i + 1].push_str(":open-gop=0");
+            }
+        }
+    }
     if plan.faststart {
         a.extend(["-movflags".into(), "+faststart".into()]);
     }
@@ -104,6 +111,15 @@ pub fn build(
     a.extend(["-progress".into(), "pipe:1".into()]);
     a.push(output.to_string_lossy().into_owned());
     a
+}
+
+/// The frames on stdin are converted by [`crate::yuv::Yuv420`] in the
+/// plan's own format, so input and output formats match.
+fn pix_fmt(format: PixelFormat) -> &'static str {
+    match format {
+        PixelFormat::Yuv420p => "yuv420p",
+        PixelFormat::Yuv420p10le => "yuv420p10le",
+    }
 }
 
 fn gop_frames(plan: &EncodePlan) -> u32 {
@@ -183,6 +199,7 @@ mod tests {
         assert!(has_pair(&a, "-s", "1920x1080"));
         assert!(has_pair(&a, "-r", "30/1"));
         assert!(has_pair(&a, "-i", "pipe:0"));
+        assert!(has_pair(&a, "-pix_fmt", "yuv420p"));
         assert!(has_pair(&a, "-c:v", "libx264"));
         assert!(has_pair(&a, "-g", "60"));
         assert!(has_pair(&a, "-color_trc", "bt709"));
@@ -206,9 +223,53 @@ mod tests {
         );
         assert!(has_pair(&a, "-c:v", "hevc_videotoolbox"));
         assert!(has_pair(&a, "-pix_fmt", "yuv420p10le"));
+        // The piped input is 10-bit as well.
+        let input = a.iter().position(|s| s == "pipe:0").unwrap();
+        assert!(has_pair(&a[..input], "-pix_fmt", "yuv420p10le"));
         assert!(has_pair(&a, "-profile:v", "main10"));
         assert!(has_pair(&a, "-color_trc", "arib-std-b67"));
         assert!(has_pair(&a, "-tag:v", "hvc1"));
+    }
+
+    #[test]
+    fn youtube_closes_gops_on_every_encoder() {
+        let mut p = plan(false);
+        p.closed_gop = true;
+        for name in ["libx264", "h264_videotoolbox", "libx265"] {
+            let a = build(
+                &p,
+                &Encoder {
+                    name,
+                    hardware: false,
+                },
+                Path::new("o.mp4"),
+                None,
+            );
+            assert!(has_pair(&a, "-flags", "+cgop"), "{name}");
+            assert!(has_pair(&a, "-bf", "2"), "{name}");
+        }
+        let a = build(
+            &p,
+            &Encoder {
+                name: "libx265",
+                hardware: false,
+            },
+            Path::new("o.mp4"),
+            None,
+        );
+        assert!(has_pair(&a, "-x265-params", "log-level=error:open-gop=0"));
+        assert!(
+            !build(
+                &plan(false),
+                &Encoder {
+                    name: "libx264",
+                    hardware: false
+                },
+                Path::new("o.mp4"),
+                None
+            )
+            .contains(&"+cgop".to_owned())
+        );
     }
 
     #[test]

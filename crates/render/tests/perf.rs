@@ -49,6 +49,7 @@ pub fn scene(edge: u32) -> (Project, MapProvider) {
             pixel_size: Some((w, h)),
             duration: None,
             captured_at_ms: None,
+            hdr: false,
             name: "p".into(),
         });
         let mut c = Clip::photo(id, Ticks::from_seconds(4));

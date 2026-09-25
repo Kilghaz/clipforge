@@ -387,6 +387,7 @@ mod tests {
                 pixel_size: Some((16, 9)),
                 duration: Some(Ticks::from_seconds(*s)),
                 captured_at_ms: None,
+                hdr: false,
                 name: "v".into(),
             });
             let mut c = Clip::video(id, Ticks::from_seconds(*s));
@@ -498,6 +499,7 @@ mod tests {
             pixel_size: None,
             duration: Some(Ticks::from_seconds(secs)),
             captured_at_ms: None,
+            hdr: false,
             name: "a".into(),
         }
     }

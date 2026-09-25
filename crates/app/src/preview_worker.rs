@@ -12,6 +12,8 @@ struct Shared {
     request: Mutex<Option<(Arc<Project>, Ticks)>>,
     result: Mutex<Option<Frame>>,
     stop: AtomicBool,
+    /// The worker's renderer can make HDR frames (a GPU was found).
+    hlg: AtomicBool,
     cv: Condvar,
 }
 
@@ -27,6 +29,7 @@ impl PreviewWorker {
             request: Mutex::new(None),
             result: Mutex::new(None),
             stop: AtomicBool::new(false),
+            hlg: AtomicBool::new(false),
             cv: Condvar::new(),
         });
         let worker = Arc::clone(&shared);
@@ -36,6 +39,9 @@ impl PreviewWorker {
                 // GPU when available (created on this thread, once), else CPU.
                 let compositor = clipforge_render::best_renderer();
                 tracing::info!(renderer = compositor.name(), "preview renderer");
+                worker
+                    .hlg
+                    .store(compositor.supports_hlg(), Ordering::SeqCst);
                 loop {
                     let (project, t) = {
                         let Ok(mut guard) = worker.request.lock() else {
@@ -72,6 +78,12 @@ impl PreviewWorker {
     }
 
     /// The most recently rendered frame, if a new one is ready.
+    /// Whether this machine can render HDR (the preview found a GPU; the
+    /// export creates its own device the same way).
+    pub(crate) fn hdr_capable(&self) -> bool {
+        self.shared.hlg.load(Ordering::SeqCst)
+    }
+
     pub(crate) fn take_frame(&self) -> Option<Frame> {
         self.shared.result.lock().ok().and_then(|mut r| r.take())
     }

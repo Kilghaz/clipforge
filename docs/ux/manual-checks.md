@@ -99,7 +99,7 @@ Things CI cannot verify. Run before tagging a milestone.
       glyphs remain anywhere.
 - [ ] Empty library and empty timeline show the empty-state text with a
       working primary action.
-- [ ] Settings and Export dialogs: Escape closes them (not during an export);
+- [ ] Settings and Export dialogs: Escape closes them (a running export keeps going);
       button order is `[Primary] [Cancel]` on Windows and reversed on macOS.
 - [ ] Library cells and timeline clips: hover tint, accent selection ring;
       video trim handles brighten on hover.
@@ -217,3 +217,25 @@ Things CI cannot verify. Run before tagging a milestone.
       Colour cards take a background colour and hide framing and motion.
 - [ ] German: every new string translated; song counts say "Musikstücke";
       nothing is cut off in the inspector at 900 px.
+
+## Milestone 6 — HDR and export
+
+- [ ] With an iPhone HLG video on the timeline the preview looks natural
+      (not flat, not clipped); highlights roll off softly.
+- [ ] Export dialog: the HDR switch is off and disabled without HDR videos
+      (caption says why); with one it can be turned on; the summary line
+      switches to HEVC and the size changes with quality and resolution.
+- [ ] HDR export plays in HDR on an iPhone / Mac (QuickTime shows "HDR"),
+      photos and texts look like in the SDR export, not glaring.
+- [ ] SDR export of the same timeline: HLG video looks like the preview.
+- [ ] Advanced: codec, frame rate, bitrates and file format change the
+      summary; HDR locks the codec, YouTube locks MP4; a MOV export opens in
+      QuickTime.
+- [ ] During an export: "Keep editing" closes the dialog, the toolbar shows
+      the percentage; editing and playback keep working; clicking the
+      toolbar button reopens the dialog with progress and time left.
+- [ ] After the export: toolbar shows "Exported"; the dialog says where the
+      file is and "Show in Finder / Explorer" selects it.
+- [ ] Cancel export removes the partial file.
+- [ ] At 900 × 560 the export dialog with Advanced open scrolls; the
+      buttons stay visible.

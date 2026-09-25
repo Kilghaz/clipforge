@@ -70,6 +70,11 @@ pub trait FrameRenderer: Send + Sync {
         None
     }
 
+    /// Whether [`FrameRenderer::render_hlg`] produces frames (HDR export).
+    fn supports_hlg(&self) -> bool {
+        false
+    }
+
     /// Short name for logs ("cpu", "gpu").
     fn name(&self) -> &str;
 }

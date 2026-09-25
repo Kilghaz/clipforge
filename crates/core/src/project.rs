@@ -78,6 +78,9 @@ pub struct MediaRef {
     /// Capture time in Unix milliseconds, for sorting by date.
     #[serde(default)]
     pub captured_at_ms: Option<i64>,
+    /// HLG or PQ video: enables the HDR export option.
+    #[serde(default)]
+    pub hdr: bool,
     /// Display name (file name at link time).
     #[serde(default)]
     pub name: String,
@@ -569,6 +572,15 @@ impl Project {
         self.clips.iter().position(|c| c.id == id)
     }
 
+    /// Whether a clip on the timeline is HLG or PQ video: the HDR export
+    /// option is offered only then.
+    #[must_use]
+    pub fn has_hdr_sources(&self) -> bool {
+        self.clips
+            .iter()
+            .any(|c| self.media.get(&c.media).is_some_and(|m| m.hdr))
+    }
+
     /// Drops media references no clip or song uses any more.
     pub fn prune_media(&mut self) {
         let used: std::collections::BTreeSet<MediaId> = self
@@ -668,6 +680,36 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hdr_sources_count_only_when_on_the_timeline() {
+        let mut p = Project::new();
+        let id = MediaId::new();
+        p.media.insert(
+            id,
+            MediaRef {
+                id,
+                kind: RefKind::Video,
+                path: "/v.mov".into(),
+                fingerprint_hash: 1,
+                size: 1,
+                pixel_size: None,
+                duration: Some(Ticks::SECOND),
+                captured_at_ms: None,
+                hdr: true,
+                name: "v".into(),
+            },
+        );
+        assert!(!p.has_hdr_sources(), "linked but not placed");
+        p.clips.push(Clip::video(id, Ticks::SECOND));
+        assert!(p.has_hdr_sources());
+        // Old project files without the flag load as SDR.
+        let json = serde_json::to_value(&p.media[&id]).unwrap();
+        let mut obj = json.as_object().unwrap().clone();
+        obj.remove("hdr");
+        let back: MediaRef = serde_json::from_value(obj.into()).unwrap();
+        assert!(!back.hdr);
+    }
 
     #[test]
     fn transition_catalogue_is_complete_and_indexable() {

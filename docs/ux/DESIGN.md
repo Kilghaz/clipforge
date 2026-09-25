@@ -169,7 +169,7 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `Divider`, `VDivider` | Fluent separators | 1 px `Palette.border`. |
 | `Badge` | Spectrum "Badge" | Icon or short-text status over thumbnails/clips, tinted by semantic colour, always with a tooltip naming its meaning. |
 | `EmptyState` | Primer "Empty states", Spectrum "Illustrated message" | Icon, title, description, primary + secondary action. |
-| `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`. |
+| `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`; the button row is part of the frame and stays fixed while taller content scrolls. |
 | Library grid cell (`library.slint`) | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, hover tint, accent selection ring, drag source. Geometry mirrored in `library_view.rs`. |
 | Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, thumbnail, solid label footer, transition overlay with a high-contrast end edge, mute / motion badge at the left after the overlay, trim handles shown on hover. |
 | Timeline ruler (`editor.slint`) | Premiere / Spectrum "Slider" ticks | One tick per second, labels thinned by zoom level, playhead with grab head. |
@@ -182,6 +182,8 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `MusicLane` (`editor.slint`) | Premiere / Clipchamp audio track, NN/G direct manipulation | 40 px lane under the clips: song blocks on the strip's time scale, looped repeats dimmed, fade-out ramp, empty state with "Add music…"; click / Enter selects the music. |
 | `SongRow` | Fluent list view item | Song name and length with quiet move up / down / remove buttons (Music inspector). |
 | `SwatchGroup` | Spectrum "ColorSwatchPicker" | Single choice from named colour swatches; one tab stop, arrow keys, names as tooltips. Title card backgrounds. |
+| `Disclosure` | Primer "Progressive disclosure" | Chevron + label that shows or hides a section (export dialog "Advanced"); expanded state for screen readers. |
+| `ExportStatusButton` | NN/G visibility of system status, Spectrum "Progress bar" | Takes the Export button's place while an export runs in the background or finished unseen: percentage with a thin bar, or the result icon; click reopens the dialog. |
 | Drop overlay / drag ghost | Fluent drag-and-drop visuals | Tinted zone + border while hovering; ghost shows icon and count, accent when droppable. |
 
 (Add a row whenever a custom component lands.)

@@ -20,6 +20,7 @@ fn media(kind: RefKind, duration: Option<Ticks>) -> MediaRef {
         pixel_size: Some((1600, 900)),
         duration,
         captured_at_ms: None,
+        hdr: false,
         name: "m".into(),
     }
 }

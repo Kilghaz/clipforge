@@ -4,7 +4,7 @@ Status: audited 2026-09-24
 Implementation: `crates/app/ui/components.slint` → `DialogFrame`, `DialogButtons`
 Usages: Settings (`crates/app/ui/main.slint`, content in `settings.slint`),
 `ExportDialog` (`crates/app/ui/editor.slint`)
-Gallery rows: "DialogFrame (scaled preview, 480 × 200) with DialogButtons"
+Gallery rows: "DialogFrame (scaled preview, 480 × 200) with its fixed button row; …"
 and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 
 ## References (read, not remembered)
@@ -23,7 +23,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | Scrim / underlay | Fluent: dialog blocks the window; Spectrum: underlay | full-window `Rectangle` `Theme.scrim` (black 65 %) with a swallowing `TouchArea` | ✅ | gallery "DialogFrame" |
 | Surface | Fluent ContentDialog; DESIGN.md: radius 8, dialog padding 24 | `surface-pane`, 1 px `border`, `radius-l`, padding 24, spacing 16 | ✅ | gallery "DialogFrame" |
 | Title (Heading) | Fluent: optional, short, relates to the buttons; Spectrum: Heading required, labels the dialog | `title` 20 px semibold (`font-dialog`) | ✅ | gallery "DialogFrame" |
-| Header / Divider / Footer | Spectrum: optional | — no dialog needs them yet | ➖ | |
+| Header / Divider / Footer | Spectrum: optional | footer: the button row is built into `DialogFrame` and stays fixed; a hairline appears above it when content scrolls | ✅ | gallery "DialogFrame …" (second frame) |
 | Content | Fluent: required; Spectrum: Content required | `@children` in the padded column | ✅ | Settings, Export |
 | Button group | Fluent: CloseButton required + up to two "do it"; Spectrum: ButtonGroup | `DialogButtons`: one primary + optional secondary | ✅ | gallery "DialogButtons Windows / macOS" |
 | Third button | Fluent: SecondaryButton optional, "used sparingly" | — none needed | ➖ | |
@@ -38,8 +38,8 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 |---|---|---|---|---|
 | open | Fluent: modal, blocks window | conditional `if Shell.settings-open` / `if EditorState.export-open` | ✅ | manual-checks "Design guide pass" |
 | appearing / dismissing motion | DESIGN.md §2: 200–250 ms for panels appearing | none; pops in and out | ❌ | |
-| busy (export running) | Primer saving/loading; NN/G status | `ProgressIndicator` + "Exporting… {}%"; controls disabled; primary hidden; secondary becomes "Cancel" | ✅ | none in gallery |
-| success / failure result | Primer: say what happened | icon + "Saved to {}" / "Export failed: {}" | ✅ | none in gallery |
+| busy (export running) | Primer saving/loading; NN/G status | `ProgressIndicator` + "Exporting… 42 % · about 3 min left"; controls disabled; primary becomes "Keep editing" (closes, export continues), secondary "Cancel export" | ✅ | scene `export-running` |
+| success / failure result | Primer: say what happened | icon + "Saved movie.mp4 (153 MB)" + "Show in Finder / Explorer"; warning when verification finds a difference; "Export failed: …" | ✅ | scene `export-done` |
 | single-button (informational) | Fluent: one safe button; Apple: "Done", not "Cancel" | Settings: "Close" as accent primary only | ✅ | none in gallery |
 | primary disabled | Fluent | `primary-enabled` prop, unused by callers | ✅ prop, no gallery row | |
 | focus (keyboard) | Fluent: default button focused unless content is focusable | `FocusScope.init => focus()` puts focus on the invisible scope, no control shows a ring | ❌ | |
@@ -50,7 +50,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | Property | Reference | Ours | Status |
 |---|---|---|---|
 | width | Spectrum: sizes S / M / L (values not on the fetched page); Fluent: not stated on the fetched page | fixed `dialog-width` 480 (Export) / 520 (Settings) | ✅ within a 900 px minimum window |
-| height | Spectrum/Fluent: sized by content | fixed `dialog-height` 380 / 320; content that grows (German status line, wrapped error) has no room | ❌ |
+| height | Spectrum/Fluent: sized by content | sized by content, capped at the window height minus 32; the body scrolls, title and buttons stay | ✅ |
 | padding | DESIGN.md: dialog padding 24 | 24 | ✅ |
 | title size | Fluent Subtitle 20/28 semibold | 20 semibold | ✅ |
 | content spacing | DESIGN.md groups 16 | 16 | ✅ |
@@ -68,7 +68,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | Order switched per platform | DESIGN.md §3 | `macos: Shell.macos` passed by both callers; default `false` if a caller forgets | ✅ (fragile, see gaps) | `main.slint`, `editor.slint` |
 | Safe, non-destructive button always present | Fluent: "All dialogs should contain at least one safe action button" | Settings "Close"; Export "Close" / "Cancel" (during export) | ✅ | |
 | Escape = safe action | Fluent: Esc triggers CloseButton; Apple: Esc cancels | `Key.Escape` → `dismissed()`; Settings closes; Export closes unless exporting | ✅ | keyboard.md "Esc"; manual-checks |
-| Escape while exporting | Fluent: Esc == CloseButton, whose text is "Cancel" at that moment | ignored (`export-status != 1` guard) although the visible safe button says "Cancel" | ➖ deliberate: avoids cancelling a long export by a stray Esc (keyboard.md documents it) | keyboard.md |
+| Escape while exporting | Fluent: Esc == CloseButton | closes the dialog, the export keeps going in the background (never cancels by a stray Esc) | ✅ | `ui_interaction::the_export_dialog_discloses_advanced_and_gates_hdr`, keyboard.md |
 | Enter = default button | Fluent: DefaultButton "will respond to the ENTER key automatically"; Apple: Return activates default | no Enter handling anywhere; the accent button is default only visually | ❌ | — |
 | Initial focus | Fluent: default button receives focus unless the content has focusable UI; Spectrum: `autoFocus` | focus goes to the wrapper `FocusScope`; no control is focused | ❌ | — |
 | Focus stays inside (trap) | modal semantics (Fluent blocks the window) | Tab can move past the last dialog control into the page beneath (Slint has no focus trap; the scrim only blocks the pointer) | ❌ | — |

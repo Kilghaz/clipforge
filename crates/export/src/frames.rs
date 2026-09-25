@@ -4,13 +4,17 @@ use clipforge_core::timeline::frame_at;
 use clipforge_core::{Project, Ticks};
 #[cfg(test)]
 use clipforge_render::Compositor;
-use clipforge_render::{Frame, FrameRenderer, RenderQuality, SourceProvider};
+use clipforge_render::{Frame, Frame16, FrameRenderer, RenderQuality, SourceProvider};
 
 /// What the exporter gets for frame `i`.
 #[derive(Debug)]
 pub enum FrameRef {
     /// A newly rendered frame.
     New(Frame),
+    /// A newly rendered 16-bit HLG frame (HDR export).
+    Hdr(Frame16),
+    /// The renderer could not produce the frame (HDR without a GPU).
+    Unavailable,
     /// Pixel-identical to the previous frame (a still with no transition);
     /// the exporter re-sends the cached buffer without converting again.
     SameAsPrevious,
@@ -35,6 +39,8 @@ pub struct TimelineFrames<'a> {
     compositor: &'a dyn FrameRenderer,
     sources: &'a dyn SourceProvider,
     quality: RenderQuality,
+    hdr: bool,
+    frame_rate: clipforge_core::FrameRate,
     len: u64,
     last_key: Option<(usize, Ticks)>,
 }
@@ -55,24 +61,47 @@ impl<'a> TimelineFrames<'a> {
         sources: &'a dyn SourceProvider,
         quality: RenderQuality,
     ) -> Self {
-        let total = clipforge_core::timeline::total_duration(&project.clips);
-        let fd = project.settings.frame_rate.frame_duration();
-        #[allow(clippy::cast_sign_loss)]
-        let len = ((total.flicks() + fd.flicks() - 1) / fd.flicks()).max(0) as u64;
+        let frame_rate = project.settings.frame_rate;
         TimelineFrames {
             project,
             compositor,
             sources,
             quality,
-            len,
+            hdr: false,
+            frame_rate,
+            len: frame_count(project, frame_rate),
             last_key: None,
         }
     }
 
+    /// Exports at `frame_rate` instead of the project's (Advanced option).
+    #[must_use]
+    pub fn frame_rate(mut self, frame_rate: clipforge_core::FrameRate) -> Self {
+        self.frame_rate = frame_rate;
+        self.len = frame_count(self.project, frame_rate);
+        self
+    }
+
+    /// Renders 16-bit HLG frames ([`FrameRef::Hdr`]) for an HDR export.
+    #[must_use]
+    pub fn hdr(mut self, hdr: bool) -> Self {
+        self.hdr = hdr;
+        self
+    }
+
     fn time_of(&self, index: u64) -> Ticks {
         #[allow(clippy::cast_possible_wrap)]
-        Ticks::from_frames(index as i64, self.project.settings.frame_rate)
+        Ticks::from_frames(index as i64, self.frame_rate)
     }
+}
+
+/// Frames needed to cover the timeline, rounded up.
+fn frame_count(project: &Project, frame_rate: clipforge_core::FrameRate) -> u64 {
+    let total = clipforge_core::timeline::total_duration(&project.clips);
+    let fd = frame_rate.frame_duration();
+    #[allow(clippy::cast_sign_loss)]
+    let len = ((total.flicks() + fd.flicks() - 1) / fd.flicks()).max(0) as u64;
+    len
 }
 
 impl FrameSource for TimelineFrames<'_> {
@@ -98,6 +127,12 @@ impl FrameSource for TimelineFrames<'_> {
             return FrameRef::SameAsPrevious;
         }
         self.last_key = key;
+        if self.hdr {
+            return self
+                .compositor
+                .render_hlg(self.project, t, self.quality, self.sources)
+                .map_or(FrameRef::Unavailable, FrameRef::Hdr);
+        }
         FrameRef::New(
             self.compositor
                 .render(self.project, t, self.quality, self.sources),
@@ -131,6 +166,7 @@ mod tests {
                 pixel_size: None,
                 duration: None,
                 captured_at_ms: None,
+                hdr: false,
                 name: "p".into(),
             });
             let mut clip = Clip::photo(id, Ticks::from_seconds(*s));
@@ -213,6 +249,24 @@ mod tests {
             .filter(|i| matches!(frames.frame(*i), FrameRef::New(_)))
             .count();
         assert_eq!(new, 31, "30 opening frames plus one still for the rest");
+    }
+
+    #[test]
+    fn frame_rate_override_changes_the_count() {
+        let (p, provider) = project(&[2, 1], false);
+        let c = Compositor::new();
+        let frames = TimelineFrames::new(&p, &c, &provider, RenderQuality::Preview)
+            .frame_rate(clipforge_core::FrameRate::FPS_60);
+        assert_eq!(frames.len(), 180);
+    }
+
+    #[test]
+    fn hdr_frames_need_a_renderer_that_can_make_them() {
+        // The CPU compositor has no HLG output.
+        let (p, provider) = project(&[1], false);
+        let c = Compositor::new();
+        let mut frames = TimelineFrames::new(&p, &c, &provider, RenderQuality::Preview).hdr(true);
+        assert!(matches!(frames.frame(0), FrameRef::Unavailable));
     }
 
     #[test]

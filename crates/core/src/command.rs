@@ -595,6 +595,7 @@ mod tests {
             pixel_size: Some((100, 50)),
             duration,
             captured_at_ms: None,
+            hdr: false,
             name: "p".into(),
         }
     }

@@ -3,7 +3,7 @@
 use clipforge_core::{Aspect, FrameRate, Resolution};
 use serde::{Deserialize, Serialize};
 
-use crate::options::{ExportOptions, Quality};
+use crate::options::{Container, ExportOptions, Quality};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,18 +44,25 @@ pub struct EncodePlan {
     pub faststart: bool,
     /// Keyframe interval in seconds.
     pub gop_seconds: u32,
+    /// Every GOP decodable on its own (YouTube's recommendation).
+    pub closed_gop: bool,
     pub container_extension: &'static str,
 }
 
 impl EncodePlan {
-    /// Builds the plan for `options` on a project with `aspect` and `fps`.
+    /// Builds the plan for `options` on a project with `aspect` and `fps`
+    /// (the project's frame rate; Advanced may override it).
     #[must_use]
     pub fn build(options: &ExportOptions, aspect: Aspect, fps: FrameRate) -> EncodePlan {
+        let advanced = &options.advanced;
         let (width, height) = options.resolution.dimensions(aspect);
+        let fps = advanced.frame_rate.unwrap_or(fps);
+        // HDR is HEVC Main10 whatever Advanced says; YouTube SDR is H.264
+        // High unless Advanced picks HEVC explicitly.
         let codec = if options.hdr {
             Codec::Hevc
         } else {
-            Codec::H264
+            advanced.codec.unwrap_or(Codec::H264)
         };
         let pixel_format = if options.hdr {
             PixelFormat::Yuv420p10le
@@ -76,7 +83,10 @@ impl EncodePlan {
             }
         };
         let high_fps = fps.as_f64() > 40.0;
-        let video_bitrate_kbps = bitrate_kbps(options.resolution, options.quality, codec, high_fps);
+        let video_bitrate_kbps = advanced
+            .video_bitrate_kbps
+            .unwrap_or_else(|| bitrate_kbps(options.resolution, options.quality, codec, high_fps));
+        let youtube = options.optimize_for_youtube;
         EncodePlan {
             width,
             height,
@@ -85,14 +95,19 @@ impl EncodePlan {
             pixel_format,
             color,
             video_bitrate_kbps,
-            audio_bitrate_kbps: if options.optimize_for_youtube {
+            audio_bitrate_kbps: advanced.audio_bitrate_kbps.unwrap_or(if youtube {
                 384
             } else {
                 256
-            },
+            }),
             faststart: true,
             gop_seconds: 2,
-            container_extension: "mp4",
+            closed_gop: youtube,
+            container_extension: if youtube {
+                Container::Mp4.extension()
+            } else {
+                advanced.container.extension()
+            },
         }
     }
 }
@@ -118,6 +133,7 @@ fn bitrate_kbps(resolution: Resolution, quality: Quality, codec: Codec, high_fps
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::options::Advanced;
 
     fn opts(hdr: bool, youtube: bool) -> ExportOptions {
         ExportOptions {
@@ -125,7 +141,65 @@ mod tests {
             quality: Quality::Better,
             hdr,
             optimize_for_youtube: youtube,
+            advanced: Advanced::default(),
         }
+    }
+
+    fn build(o: &ExportOptions) -> EncodePlan {
+        EncodePlan::build(o, Aspect::Landscape16x9, FrameRate::FPS_30)
+    }
+
+    #[test]
+    fn youtube_is_h264_high_mp4_with_closed_two_second_gops() {
+        let plan = build(&opts(false, true));
+        assert_eq!(plan.codec, Codec::H264);
+        assert!(plan.closed_gop && plan.faststart);
+        assert_eq!(plan.gop_seconds, 2);
+        assert_eq!(plan.container_extension, "mp4");
+        assert!(!build(&opts(false, false)).closed_gop);
+        // YouTube HDR stays HEVC HLG.
+        let hdr = build(&opts(true, true));
+        assert_eq!(hdr.codec, Codec::Hevc);
+        assert_eq!(hdr.color.transfer, "arib-std-b67");
+    }
+
+    #[test]
+    fn advanced_overrides_codec_frame_rate_bitrates_and_container() {
+        let mut o = opts(false, false);
+        o.advanced = Advanced {
+            codec: Some(Codec::Hevc),
+            frame_rate: Some(FrameRate::FPS_60),
+            video_bitrate_kbps: Some(7_000),
+            audio_bitrate_kbps: Some(160),
+            container: Container::Mov,
+        };
+        let plan = build(&o);
+        assert_eq!(plan.codec, Codec::Hevc);
+        // SDR HEVC stays 8-bit BT.709.
+        assert_eq!(plan.pixel_format, PixelFormat::Yuv420p);
+        assert_eq!(plan.color.transfer, "bt709");
+        assert_eq!(plan.frame_rate, FrameRate::FPS_60);
+        assert_eq!(plan.video_bitrate_kbps, 7_000);
+        assert_eq!(plan.audio_bitrate_kbps, 160);
+        assert_eq!(plan.container_extension, "mov");
+    }
+
+    #[test]
+    fn hdr_and_youtube_win_over_conflicting_advanced_choices() {
+        let mut o = opts(true, true);
+        o.advanced.codec = Some(Codec::H264);
+        o.advanced.container = Container::Mov;
+        let plan = build(&o);
+        assert_eq!(plan.codec, Codec::Hevc);
+        assert_eq!(plan.container_extension, "mp4");
+    }
+
+    #[test]
+    fn advanced_frame_rate_drives_the_high_fps_ladder() {
+        let mut o = opts(false, false);
+        let base = build(&o).video_bitrate_kbps;
+        o.advanced.frame_rate = Some(FrameRate::FPS_50);
+        assert!(build(&o).video_bitrate_kbps > base);
     }
 
     #[test]

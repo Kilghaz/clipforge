@@ -10,7 +10,7 @@ import "../../../assets/fonts/Caveat.ttf";
 import { Shell } from "shell.slint";
 import { LibraryState } from "library.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow, FontPicker, IconChoiceGroup } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, Disclosure, ExportStatusButton, SwatchGroup, SongRow, FontPicker, IconChoiceGroup } from "components.slint";
 
 /// Where the timeline strip is on screen, for cross-panel drops.
 export struct StripRect {
@@ -192,10 +192,34 @@ export global EditorState {
     in-out property <int> export-resolution-index;
     in-out property <int> export-quality-index: 1;
     in-out property <bool> export-youtube: true;
-    // 0 idle, 1 running, 2 done, 3 failed
+    in-out property <bool> export-hdr;
+    // 0 available, 1 no HDR videos on the timeline, 2 no GPU
+    in-out property <int> export-hdr-availability: 1;
+    in-out property <bool> export-advanced-open;
+    // Advanced: index 0 is "Automatic" / "Project".
+    in-out property <int> export-codec-index;
+    in-out property <int> export-frame-rate-index;
+    in-out property <int> export-video-bitrate-index;
+    in-out property <int> export-audio-bitrate-index;
+    in-out property <int> export-container-index;
+    // Summary line, from Rust.
+    in-out property <string> export-size-text;
+    in-out property <string> export-codec-name: "H.264";
+    in-out property <float> export-video-mbps: 12;
+    in-out property <int> export-audio-kbps: 256;
+    in-out property <float> export-auto-video-mbps: 12;
+    in-out property <int> export-auto-audio-kbps: 256;
+    in-out property <float> export-project-fps: 30;
+    in-out property <string> export-extension: "mp4";
+    // 0 idle, 1 running, 2 done, 3 failed, 4 done but the file differs from the plan
     in-out property <int> export-status: 0;
     in-out property <float> export-progress;
+    // -1 unknown, 0 less than a minute, else minutes
+    in-out property <int> export-minutes-left: -1;
+    in-out property <string> export-output-name;
     in-out property <string> export-message;
+    // Finished while the dialog was closed: the toolbar button shows it.
+    in-out property <bool> export-unseen;
 
     callback clip-pressed(int, bool, bool);
     callback clip-dragged(float);
@@ -248,6 +272,9 @@ export global EditorState {
     callback save-project-as();
     callback export-start();
     callback export-cancel();
+    // Options changed or the dialog opened: recompute summary and HDR state.
+    callback export-refresh();
+    callback export-reveal();
     // Texts.
     callback add-text();
     /// Keyboard on the text lane: Tab entered, ←/→, Enter / Space.
@@ -1572,17 +1599,27 @@ component Inspector inherits Rectangle {
 }
 
 component ExportDialog inherits DialogFrame {
+    property <bool> running: EditorState.export-status == 1;
+    property <bool> hdr-on: EditorState.export-hdr && EditorState.export-hdr-availability == 0;
     title: @tr("Export video");
-    dialog-width: 480px;
-    dismissed => { if EditorState.export-status != 1 { EditorState.export-open = false; } }
-    accepted => { if EditorState.export-status != 1 { EditorState.export-start(); } }
+    dialog-width: 520px;
+    macos: Shell.macos;
+    primary-text: root.running ? @tr("Keep editing") : @tr("Export…");
+    secondary-text: root.running ? @tr("Cancel export") : @tr("Close");
+    primary => { if root.running { EditorState.export-open = false; } else { EditorState.export-start(); } }
+    secondary => { if root.running { EditorState.export-cancel(); } else { EditorState.export-open = false; } }
+    init => { EditorState.export-refresh(); }
+    // Esc closes; a running export keeps going (see m6-export.md).
+    dismissed => { EditorState.export-open = false; }
+    accepted => { if !root.running { EditorState.export-start(); } }
     Section {
         title: @tr("Resolution");
         ChoiceGroup {
             label: @tr("Resolution");
             options: [@tr("Full HD (1080p)"), @tr("4K (2160p)")];
-            enabled: EditorState.export-status != 1;
+            enabled: !root.running;
             selected-index <=> EditorState.export-resolution-index;
+            changed => { EditorState.export-refresh(); }
         }
     }
     Section {
@@ -1590,36 +1627,128 @@ component ExportDialog inherits DialogFrame {
         ChoiceGroup {
             label: @tr("Quality");
             options: [@tr("Good"), @tr("Better"), @tr("Best")];
-            enabled: EditorState.export-status != 1;
+            enabled: !root.running;
             selected-index <=> EditorState.export-quality-index;
+            changed => { EditorState.export-refresh(); }
+        }
+        Caption {
+            text: @tr("About {0} · {1} · {2} Mbit/s · {3}", EditorState.export-size-text, EditorState.export-codec-name, round(EditorState.export-video-mbps * 10) / 10, EditorState.export-extension == "mov" ? "MOV" : "MP4");
+            wrap: word-wrap;
         }
     }
-    Switch { text: @tr("Optimize for YouTube"); checked <=> EditorState.export-youtube; enabled: EditorState.export-status != 1; }
-    Caption { text: @tr("HDR export becomes available once HDR sources are supported."); wrap: word-wrap; overflow: clip; }
-    if EditorState.export-status == 1 : ProgressIndicator { progress: EditorState.export-progress; }
-    if EditorState.export-status != 0 : HorizontalLayout {
+    VerticalLayout {
         spacing: Theme.space-s;
-        if EditorState.export-status != 1 : Icon {
-            source: EditorState.export-status == 2 ? Icons.checkmark-circle : Icons.error-circle;
-            color: EditorState.export-status == 2 ? Theme.success : Theme.danger;
+        Switch {
+            text: @tr("Optimize for YouTube");
+            checked <=> EditorState.export-youtube;
+            enabled: !root.running;
+            toggled => { EditorState.export-refresh(); }
+        }
+        Switch {
+            text: @tr("HDR (for iPhone and YouTube HDR)");
+            checked <=> EditorState.export-hdr;
+            enabled: !root.running && EditorState.export-hdr-availability == 0;
+            toggled => { EditorState.export-refresh(); }
+        }
+        Caption {
+            text: EditorState.export-hdr-availability == 1 ? @tr("Available when an HDR video is on the timeline.")
+                : EditorState.export-hdr-availability == 2 ? @tr("HDR export needs a graphics card this computer does not offer.")
+                : @tr("HEVC 10-bit HLG. Plays in HDR on iPhone, Mac and YouTube; photos and texts keep their look.");
+            wrap: word-wrap;
+        }
+    }
+    VerticalLayout {
+        spacing: Theme.space-s;
+        Disclosure {
+            text: @tr("Advanced");
+            expanded <=> EditorState.export-advanced-open;
+        }
+        if EditorState.export-advanced-open : GridLayout {
+            spacing-horizontal: Theme.space-m;
+            spacing-vertical: Theme.space-s;
+            Row {
+                SecondaryText { text: @tr("Codec"); vertical-alignment: center; }
+                ComboBox {
+                    model: root.hdr-on ? [@tr("HEVC (always for HDR)")] : [@tr("Automatic"), "H.264", "HEVC"];
+                    current-index: root.hdr-on ? 0 : EditorState.export-codec-index;
+                    enabled: !root.running && !root.hdr-on;
+                    selected => { EditorState.export-codec-index = self.current-index; EditorState.export-refresh(); }
+                    accessible-label: @tr("Codec");
+                    horizontal-stretch: 1;
+                }
+            }
+            Row {
+                SecondaryText { text: @tr("Frame rate"); vertical-alignment: center; }
+                ComboBox {
+                    model: [@tr("Project ({0} fps)", round(EditorState.export-project-fps * 100) / 100), "24 fps", "25 fps", "30 fps", "50 fps", "60 fps"];
+                    current-index <=> EditorState.export-frame-rate-index;
+                    enabled: !root.running;
+                    selected => { EditorState.export-refresh(); }
+                    accessible-label: @tr("Frame rate");
+                }
+            }
+            Row {
+                SecondaryText { text: @tr("Video bitrate"); vertical-alignment: center; }
+                ComboBox {
+                    model: [@tr("Automatic ({0} Mbit/s)", round(EditorState.export-auto-video-mbps * 10) / 10), "8 Mbit/s", "12 Mbit/s", "16 Mbit/s", "20 Mbit/s", "35 Mbit/s", "50 Mbit/s", "80 Mbit/s"];
+                    current-index <=> EditorState.export-video-bitrate-index;
+                    enabled: !root.running;
+                    selected => { EditorState.export-refresh(); }
+                    accessible-label: @tr("Video bitrate");
+                }
+            }
+            Row {
+                SecondaryText { text: @tr("Audio bitrate"); vertical-alignment: center; }
+                ComboBox {
+                    model: [@tr("Automatic ({0} kbit/s)", EditorState.export-auto-audio-kbps), "128 kbit/s", "192 kbit/s", "256 kbit/s", "320 kbit/s", "384 kbit/s"];
+                    current-index <=> EditorState.export-audio-bitrate-index;
+                    enabled: !root.running;
+                    selected => { EditorState.export-refresh(); }
+                    accessible-label: @tr("Audio bitrate");
+                }
+            }
+            Row {
+                SecondaryText { text: @tr("File format"); vertical-alignment: center; }
+                ComboBox {
+                    model: EditorState.export-youtube ? [@tr("MP4 (always for YouTube)")] : ["MP4", "MOV"];
+                    current-index: EditorState.export-youtube ? 0 : EditorState.export-container-index;
+                    enabled: !root.running && !EditorState.export-youtube;
+                    selected => { EditorState.export-container-index = self.current-index; EditorState.export-refresh(); }
+                    accessible-label: @tr("File format");
+                }
+            }
+        }
+    }
+    if root.running : VerticalLayout {
+        spacing: Theme.space-s;
+        ProgressIndicator { progress: EditorState.export-progress; }
+        SecondaryText {
+            text: EditorState.export-minutes-left < 0 ? @tr("Exporting… {0}%", round(EditorState.export-progress * 100))
+                : EditorState.export-minutes-left == 0 ? @tr("Exporting… {0}% · less than a minute left", round(EditorState.export-progress * 100))
+                : @tr("Exporting… {0}% · about {1} min left", round(EditorState.export-progress * 100), EditorState.export-minutes-left);
+            color: Theme.text;
+        }
+        Caption { text: @tr("You can keep editing. Changes you make now are not part of this export."); wrap: word-wrap; }
+    }
+    if EditorState.export-status >= 2 : HorizontalLayout {
+        spacing: Theme.space-s;
+        Icon {
+            source: EditorState.export-status == 2 ? Icons.checkmark-circle : EditorState.export-status == 4 ? Icons.warning : Icons.error-circle;
+            color: EditorState.export-status == 2 ? Theme.success : EditorState.export-status == 4 ? Theme.warning : Theme.danger;
         }
         SecondaryText {
-            text: EditorState.export-status == 1 ? @tr("Exporting… {}%", round(EditorState.export-progress * 100))
-                : EditorState.export-status == 2 ? @tr("Saved to {}", EditorState.export-message)
-                : @tr("Export failed: {}", EditorState.export-message);
+            text: EditorState.export-status == 2 ? @tr("Saved {0} ({1})", EditorState.export-output-name, EditorState.export-size-text)
+                : EditorState.export-status == 4 ? @tr("Saved {0}, but the file differs from the plan: {1}", EditorState.export-output-name, EditorState.export-message)
+                : @tr("Export failed: {0}", EditorState.export-message);
             color: Theme.text;
             wrap: word-wrap;
             overflow: clip;
             horizontal-stretch: 1;
         }
-    }
-    DialogButtons {
-        macos: Shell.macos;
-        primary-text: @tr("Export…");
-        primary-visible: EditorState.export-status != 1;
-        secondary-text: EditorState.export-status == 1 ? @tr("Cancel") : @tr("Close");
-        primary => { EditorState.export-start(); }
-        secondary => { if EditorState.export-status == 1 { EditorState.export-cancel(); } else { EditorState.export-open = false; } }
+        if EditorState.export-status != 3 : ActionButton {
+            text: Shell.macos ? @tr("Show in Finder") : @tr("Show in Explorer");
+            clicked => { EditorState.export-reveal(); }
+        }
     }
 }
 
@@ -1691,8 +1820,17 @@ export component EditorPage inherits Rectangle {
                             accessible-label: @tr("Project title");
                         }
                         // Narrow editor (900 px windows): the export button keeps its icon only.
-                        if root.editor-width >= 520px : ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
-                        if root.editor-width < 520px : IconButton { icon: Icons.share; primary: true; tooltip: @tr("Export…"); enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        // A background export (or its unseen result) takes the Export button's place.
+                        if EditorState.export-status == 1 || EditorState.export-unseen : ExportStatusButton {
+                            status: EditorState.export-status;
+                            progress: EditorState.export-progress;
+                            text: EditorState.export-status == 1 ? @tr("{0}%", round(EditorState.export-progress * 100))
+                                : EditorState.export-status == 3 ? @tr("Failed") : @tr("Exported");
+                            tooltip: @tr("Show export");
+                            clicked => { EditorState.export-unseen = false; EditorState.export-open = true; }
+                        }
+                        if !(EditorState.export-status == 1 || EditorState.export-unseen) && root.editor-width >= 520px : ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        if !(EditorState.export-status == 1 || EditorState.export-unseen) && root.editor-width < 520px : IconButton { icon: Icons.share; primary: true; tooltip: @tr("Export…"); enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
                         IconButton { icon: Icons.settings; tooltip: @tr("Settings"); enabled: !EditorState.export-open; clicked => { Shell.settings-open = true; } }
                 }
                 Divider { }

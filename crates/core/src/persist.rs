@@ -170,6 +170,7 @@ mod tests {
             pixel_size: Some((4032, 3024)),
             duration: None,
             captured_at_ms: Some(1_700_000_000_000),
+            hdr: false,
             name: "a.jpg".into(),
         };
         let unused = MediaRef {

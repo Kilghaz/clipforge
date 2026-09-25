@@ -17,13 +17,15 @@ pub mod options;
 pub mod plan;
 pub mod progress;
 pub mod sources;
+pub mod verify;
 pub mod yuv;
 
 pub use audio::{AudioSourceFactory, AudioStream};
 pub use encoders::{Encoder, EncoderCatalog};
 pub use exporter::{ExportError, ExportReport, Exporter};
 pub use frames::{FrameRef, FrameSource, TimelineFrames};
-pub use options::{ExportOptions, Quality};
+pub use options::{Advanced, Container, ExportOptions, Quality};
 pub use plan::{Codec, EncodePlan, PixelFormat};
 pub use progress::ProgressLine;
 pub use sources::{FileSources, sdr_frame};
+pub use verify::{Mismatch, verify};

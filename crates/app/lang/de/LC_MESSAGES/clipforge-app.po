@@ -246,11 +246,7 @@ msgstr "Am besten"
 msgid "Optimize for YouTube"
 msgstr "Für YouTube optimieren"
 
-msgid "Exporting… {}%"
-msgstr "Exportiere… {}%"
 
-msgid "Export failed: {}"
-msgstr "Export fehlgeschlagen: {}"
 
 msgid "Cancel"
 msgstr "Abbrechen"
@@ -345,8 +341,6 @@ msgstr "Rückgängig (⌘Z)"
 msgid "Remove {} from timeline"
 msgstr "{} entfernen"
 
-msgid "Saved to {}"
-msgstr "Gespeichert unter {}"
 
 msgid "Search the library"
 msgstr "Mediathek durchsuchen"
@@ -438,8 +432,6 @@ msgstr "Einpassen"
 msgid "Fit inside, with bars"
 msgstr "Einpassen, mit Balken"
 
-msgid "HDR export becomes available once HDR sources are supported."
-msgstr "HDR-Export wird verfügbar, sobald HDR-Quellen unterstützt werden."
 
 msgid "High dynamic range"
 msgstr "Hoher Dynamikumfang (HDR)"
@@ -824,3 +816,99 @@ msgstr "Textgröße ändern"
 
 msgid "Change text width"
 msgstr "Textbreite ändern"
+
+msgid "Keep editing"
+msgstr "Weiter bearbeiten"
+
+msgid "Cancel export"
+msgstr "Export abbrechen"
+
+msgid "About {0} · {1} · {2} Mbit/s · {3}"
+msgstr "Etwa {0} · {1} · {2} Mbit/s · {3}"
+
+msgid "HDR (for iPhone and YouTube HDR)"
+msgstr "HDR (für iPhone und YouTube HDR)"
+
+msgid "Available when an HDR video is on the timeline."
+msgstr "Verfügbar, sobald ein HDR-Video in der Zeitleiste liegt."
+
+msgid "HDR export needs a graphics card this computer does not offer."
+msgstr "HDR-Export braucht eine Grafikkarte, die dieser Computer nicht bietet."
+
+msgid "HEVC 10-bit HLG. Plays in HDR on iPhone, Mac and YouTube; photos and texts keep their look."
+msgstr "HEVC 10 Bit HLG. Läuft in HDR auf iPhone, Mac und YouTube; Fotos und Texte behalten ihr Aussehen."
+
+msgid "Advanced"
+msgstr "Erweitert"
+
+msgid "Codec"
+msgstr "Codec"
+
+msgid "HEVC (always for HDR)"
+msgstr "HEVC (bei HDR immer)"
+
+msgid "Automatic"
+msgstr "Automatisch"
+
+msgid "Frame rate"
+msgstr "Bildrate"
+
+msgid "Project ({0} fps)"
+msgstr "Projekt ({0} fps)"
+
+msgid "Video bitrate"
+msgstr "Videobitrate"
+
+msgid "Automatic ({0} Mbit/s)"
+msgstr "Automatisch ({0} Mbit/s)"
+
+msgid "Audio bitrate"
+msgstr "Audiobitrate"
+
+msgid "Automatic ({0} kbit/s)"
+msgstr "Automatisch ({0} kbit/s)"
+
+msgid "File format"
+msgstr "Dateiformat"
+
+msgid "MP4 (always for YouTube)"
+msgstr "MP4 (für YouTube immer)"
+
+msgid "Exporting… {0}%"
+msgstr "Exportiere… {0} %"
+
+msgid "Exporting… {0}% · less than a minute left"
+msgstr "Exportiere… {0} % · weniger als eine Minute"
+
+msgid "Exporting… {0}% · about {1} min left"
+msgstr "Exportiere… {0} % · noch etwa {1} Min."
+
+msgid "You can keep editing. Changes you make now are not part of this export."
+msgstr "Sie können weiter bearbeiten. Änderungen ab jetzt sind nicht Teil dieses Exports."
+
+msgid "Saved {0} ({1})"
+msgstr "{0} gespeichert ({1})"
+
+msgid "Saved {0}, but the file differs from the plan: {1}"
+msgstr "{0} gespeichert, aber die Datei weicht vom Plan ab: {1}"
+
+msgid "Export failed: {0}"
+msgstr "Export fehlgeschlagen: {0}"
+
+msgid "Show in Finder"
+msgstr "Im Finder zeigen"
+
+msgid "Show in Explorer"
+msgstr "Im Explorer zeigen"
+
+msgid "{0}%"
+msgstr "{0} %"
+
+msgid "Failed"
+msgstr "Fehlgeschlagen"
+
+msgid "Exported"
+msgstr "Exportiert"
+
+msgid "Show export"
+msgstr "Export anzeigen"

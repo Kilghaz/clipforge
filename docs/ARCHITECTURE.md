@@ -1,6 +1,6 @@
 # Architecture (living document)
 
-Redrawn from the code after each milestone. Last update: Milestone 5 (music and titles).
+Redrawn from the code after each milestone. Last update: Milestone 6 (HDR and export polish).
 
 ## Crates
 
@@ -9,8 +9,8 @@ Redrawn from the code after each milestone. Last update: Milestone 5 (music and 
 | `clipforge-core` | Model, commands, undo, time | `Project`, `Clip` (photo / video / colour card), `TextItem` (text track), `TransitionKind`, `Motion`, `Music` (`Song`, `song_spans`, `MusicEnvelope`), `Command`, `History` (with merge groups), `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
 | `clipforge-media` | Probing, stills, streaming decode | `MediaInfo`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli` (+`frame_at`), `VideoReader`, `AudioReader`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
-| `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010), caption text | `FrameRenderer`, `best_renderer`, `GpuCompositor`, `Compositor`, `text::TextRenderer`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
-| `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `audio::{Mixer, mix, write_mix}`, `EncoderCatalog`, `Yuv420` |
+| `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010), caption text | `FrameRenderer` (`render`, `render_hlg`), `best_renderer`, `GpuCompositor`, `colour` (transfer functions, tone map), `Frame16`, `Compositor`, `text::TextRenderer`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
+| `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `ExportOptions` (+`Advanced`), `EncodePlan`, `Exporter`, `TimelineFrames` (SDR / HDR), `FileSources`, `sdr_frame`, `verify`, `audio::{Mixer, mix, write_mix}`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
@@ -139,3 +139,28 @@ in one step), `SetTitleBackground`; colour cards are clips inserted with
 `InsertClips` and count as stills for `SetPhotoDuration`. Typing a text uses
 `History::apply_merging`, so a typing session is one undo step. Projects
 saved with the earlier per-clip captions are converted to texts on load.
+
+## HDR and export (Milestone 6, ADR-0011)
+
+```
+HLG/PQ video ─► VideoReader (rgb48le, BT.2020, own transfer) ─► VideoFrame::Hdr
+   SDR output: export::sdr_frame ─► colour tone map (bands, all cores) ─► 8-bit texture
+   HDR output: hlg_source ─► Rgba16 texture (HLG kept; PQ converted)
+SDR photos / text / colour cards ─► shader flag: sRGB → HLG at 203 cd/m² (HDR only)
+GpuCompositor::render_hlg ─► Frame16 ─► Yuv420::from_frame16 (10-bit BT.2020 NCL)
+   ─► ffmpeg HEVC Main10, arib-std-b67 ─► verify (ffprobe vs plan)
+```
+
+- `MediaRef.hdr` is set from the library's probe; `Project::has_hdr_sources`
+  gates the dialog's HDR switch, together with the preview worker's
+  `supports_hlg` (a GPU renderer exists).
+- `ExportOptions` = resolution, quality, HDR, YouTube, `Advanced` (codec,
+  frame rate, video / audio bitrate, container; `None` = automatic).
+  `EncodePlan::build` resolves conflicts: HDR is always HEVC, YouTube is
+  always MP4 with closed 2 s GOPs and AAC 384 kbit/s.
+- After encoding, `export::verify` probes the file and compares codec, size,
+  duration, colour tags and audio with the plan; differences are shown as a
+  warning, the file is kept.
+- The app copies the project at export start; the dialog can be closed
+  ("Keep editing") and a toolbar status button shows progress and the
+  result. Time left is approximate (`export_view::minutes_left`).

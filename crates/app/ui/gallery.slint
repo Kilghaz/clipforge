@@ -4,7 +4,7 @@
 // Not part of the app; nothing here is translated (labels are for us).
 import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow, FontPicker, IconChoiceGroup } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow, FontPicker, IconChoiceGroup, Disclosure, ExportStatusButton } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
 import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState, MusicLane, TextLane, TextOverlay } from "editor.slint";
 
@@ -131,7 +131,7 @@ export component GalleryWindow inherits Window {
             Rectangle { width: Theme.control-height; height: Theme.control-height; VDivider { x: parent.width / 2; height: parent.height; } }
         }
         Row {
-            title: "DialogFrame (scaled preview, 480 × 200) with DialogButtons";
+            title: "DialogFrame (scaled preview, 480 × 200) with its fixed button row; content taller than the window scrolls under a hairline, buttons stay";
             Rectangle {
                 width: 560px;
                 height: 240px;
@@ -142,9 +142,26 @@ export component GalleryWindow inherits Window {
                     title: "Export video";
                     dialog-width: 480px;
                     dialog-height: 200px;
+                    primary-text: "Export…";
+                    secondary-text: "Cancel";
                     BodyText { text: "Dialog body content"; }
-                    Rectangle { vertical-stretch: 1; }
-                    DialogButtons { macos: false; primary-text: "Export…"; secondary-text: "Cancel"; }
+                }
+            }
+            Rectangle {
+                width: 560px;
+                height: 240px;
+                clip: true;
+                DialogFrame {
+                    width: parent.width;
+                    height: parent.height;
+                    title: "Export video";
+                    dialog-width: 480px;
+                    primary-text: "Export…";
+                    secondary-text: "Close";
+                    BodyText { text: "First line of a long form"; }
+                    BodyText { text: "Second line"; }
+                    BodyText { text: "Third line"; }
+                    BodyText { text: "Fourth line"; }
                 }
             }
         }
@@ -207,6 +224,32 @@ export component GalleryWindow inherits Window {
                         spacing: Theme.space-m;
                         IconChoiceGroup { label: "Alignment"; icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right]; labels: ["Align left", "Centre", "Align right"]; selected-index: 1; }
                         IconChoiceGroup { label: "Alignment"; enabled: false; icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right]; labels: ["Align left", "Centre", "Align right"]; selected-index: 0; }
+                    }
+                }
+            }
+        }
+        Row {
+            title: "Disclosure collapsed / expanded; ExportStatusButton running 42 %, done, done with warning, failed";
+            Rectangle {
+                width: 560px;
+                height: 96px;
+                background: Theme.surface-pane;
+                VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    HorizontalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
+                        Disclosure { text: "Advanced"; width: 160px; }
+                        Disclosure { text: "Advanced"; expanded: true; width: 160px; }
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.space-s;
+                        alignment: start;
+                        ExportStatusButton { status: 1; progress: 0.42; text: "42%"; tooltip: "Show export"; }
+                        ExportStatusButton { status: 2; text: "Exported"; tooltip: "Show export"; }
+                        ExportStatusButton { status: 4; text: "Exported"; tooltip: "Show export"; }
+                        ExportStatusButton { status: 3; text: "Failed"; tooltip: "Show export"; }
                     }
                 }
             }

@@ -12,10 +12,8 @@ use std::time::{Duration, Instant};
 
 use clipforge_core::project::{Transition, TransitionKind};
 use clipforge_core::timeline::total_duration;
-use clipforge_core::{
-    Aspect, Command, Fit, History, MediaId, Project, ProjectSettings, Resolution, Ticks,
-};
-use clipforge_export::{EncodePlan, ExportOptions, Exporter, FileSources, Quality, TimelineFrames};
+use clipforge_core::{Aspect, Command, Fit, History, MediaId, Project, ProjectSettings, Ticks};
+use clipforge_export::{EncodePlan, ExportOptions, Exporter, FileSources, TimelineFrames};
 use clipforge_jobs::{CancellationToken, JobError, Priority, Scheduler};
 use clipforge_library::{Library, ThumbLevel};
 use clipforge_media::{Backends, FfmpegCli, FfmpegLocation, MediaInfo, Prober};
@@ -27,6 +25,7 @@ use tracing::{info, warn};
 use crate::editor_view::{
     self, Nudge, Selection, clip_nav, clips_for, layout, media_ref_for, nudge_target,
 };
+use crate::export_view;
 use crate::format;
 use crate::player::Player;
 use crate::preview_worker::PreviewWorker;
@@ -113,12 +112,14 @@ struct TrimState {
 
 enum ExportEvent {
     Progress(f32),
-    Finished(Result<clipforge_export::ExportReport, String>),
+    /// The report and what ffprobe found wrong with the file (empty: fine).
+    Finished(Result<(clipforge_export::ExportReport, Vec<String>), String>),
 }
 
 struct ExportRun {
     token: CancellationToken,
     events: crossbeam_channel::Receiver<ExportEvent>,
+    started: std::time::Instant,
 }
 
 struct Inner {
@@ -158,6 +159,8 @@ struct Inner {
     /// Trim gesture in progress: shown live, committed on release.
     trim: Option<TrimState>,
     export: Option<ExportRun>,
+    /// The last finished export, for "Show in Finder".
+    last_export: Option<PathBuf>,
     /// The music lane is selected (the inspector shows the music).
     music_selected: bool,
     pending_songs: music_titles::PendingSongs,
@@ -239,6 +242,7 @@ impl EditorController {
             drag: None,
             trim: None,
             export: None,
+            last_export: None,
             music_selected: false,
             pending_songs: music_titles::PendingSongs::default(),
             text_selection: Vec::new(),
@@ -307,6 +311,8 @@ impl EditorController {
         });
         on!(on_export_start, |i| i.export_start());
         on!(on_export_cancel, |i| i.export_cancel());
+        on!(on_export_refresh, |i| i.export_refresh());
+        on!(on_export_reveal, |i| i.export_reveal());
         on!(on_add_text, |i| i.add_text());
         on!(on_text_lane_focus_entered, |i| i.text_lane_focus_entered());
         on!(on_text_lane_navigate, |i, forward| i
@@ -1430,6 +1436,7 @@ impl Inner {
         s.set_dirty(self.history.is_dirty());
         s.set_can_undo(self.history.can_undo());
         s.set_can_redo(self.history.can_redo());
+        self.export_refresh();
     }
 
     // ----- files ------------------------------------------------------------
@@ -1534,28 +1541,63 @@ impl Inner {
 
     // ----- export -----------------------------------------------------------
 
+    /// The dialog's options as `ExportOptions`.
+    fn export_options(s: &EditorState<'_>) -> ExportOptions {
+        let index = |i: i32| usize::try_from(i).unwrap_or(0);
+        export_view::options(&export_view::DialogState {
+            resolution: index(s.get_export_resolution_index()),
+            quality: index(s.get_export_quality_index()),
+            youtube: s.get_export_youtube(),
+            hdr: s.get_export_hdr() && s.get_export_hdr_availability() == 0,
+            codec: index(s.get_export_codec_index()),
+            frame_rate: index(s.get_export_frame_rate_index()),
+            video_bitrate: index(s.get_export_video_bitrate_index()),
+            audio_bitrate: index(s.get_export_audio_bitrate_index()),
+            container: index(s.get_export_container_index()),
+        })
+    }
+
+    /// Recomputes the HDR availability and the summary line.
+    fn export_refresh(&self) {
+        let Some(w) = self.state() else { return };
+        let s = w.global::<EditorState>();
+        let hdr = export_view::hdr_availability(&self.project, self.worker.hdr_capable());
+        s.set_export_hdr_availability(hdr.code());
+        let summary = export_view::summary(&Self::export_options(&s), &self.project);
+        s.set_export_size_text(format::bytes(summary.bytes).into());
+        s.set_export_codec_name(summary.codec.into());
+        s.set_export_video_mbps(summary.video_mbps);
+        s.set_export_audio_kbps(i32::try_from(summary.audio_kbps).unwrap_or(0));
+        s.set_export_auto_video_mbps(summary.auto_video_mbps);
+        s.set_export_auto_audio_kbps(i32::try_from(summary.auto_audio_kbps).unwrap_or(0));
+        #[allow(clippy::cast_possible_truncation)]
+        s.set_export_project_fps(self.project.settings.frame_rate.as_f64() as f32);
+        s.set_export_extension(summary.extension.into());
+    }
+
+    fn export_reveal(&self) {
+        if let Some(path) = &self.last_export
+            && let Err(e) = clipforge_platform::reveal_in_file_manager(path)
+        {
+            warn!(error = %e, "reveal failed");
+        }
+    }
+
     fn export_start(&mut self) {
         if self.export.is_some() || self.project.clips.is_empty() {
             return;
         }
         let Some(w) = self.state() else { return };
         let s = w.global::<EditorState>();
-        let options = ExportOptions {
-            resolution: if s.get_export_resolution_index() == 1 {
-                Resolution::Uhd4k
-            } else {
-                Resolution::FullHd
-            },
-            quality: match s.get_export_quality_index() {
-                0 => Quality::Good,
-                2 => Quality::Best,
-                _ => Quality::Better,
-            },
-            hdr: false,
-            optimize_for_youtube: s.get_export_youtube(),
-        };
+        let options = Self::export_options(&s);
+        let extension = EncodePlan::build(
+            &options,
+            self.project.settings.aspect,
+            self.project.settings.frame_rate,
+        )
+        .container_extension;
         let suggested = format!(
-            "{}.mp4",
+            "{}.{extension}",
             self.project_path
                 .as_ref()
                 .and_then(|p| p.file_stem())
@@ -1565,7 +1607,7 @@ impl Inner {
                 )
         );
         let Some(output) = rfd::FileDialog::new()
-            .add_filter("MP4 video", &["mp4"])
+            .add_filter(extension.to_uppercase(), &[extension])
             .set_file_name(&suggested)
             .save_file()
         else {
@@ -1582,12 +1624,15 @@ impl Inner {
             self.project.settings.frame_rate,
         );
         let project = self.project.clone();
+        let hdr = options.hdr;
+        let frame_rate = plan.frame_rate;
         let sources = FileSources::for_project(&project, self.backends.clone());
         let quality = RenderQuality::Full(options.resolution);
         let (tx, rx) = crossbeam_channel::unbounded();
         let handle = self
             .scheduler
             .submit(Priority::Interactive, "export", move |ctx| {
+                let probe_cli = clipforge_media::FfmpegCli::new(location.clone());
                 let exporter = match Exporter::new(location.ffmpeg) {
                     Ok(e) => e,
                     Err(e) => {
@@ -1619,7 +1664,9 @@ impl Inner {
                     None
                 };
                 let mut frames =
-                    TimelineFrames::new(&project, compositor.as_ref(), &sources, quality);
+                    TimelineFrames::new(&project, compositor.as_ref(), &sources, quality)
+                        .frame_rate(frame_rate)
+                        .hdr(hdr);
                 let progress_tx = tx.clone();
                 let result = exporter.run(
                     &plan,
@@ -1638,15 +1685,29 @@ impl Inner {
                     },
                 );
                 let _ = std::fs::remove_file(&wav_path);
+                // Check the file against the plan before calling it done.
+                let result = result.map(|report| {
+                    let problems = clipforge_export::verify(
+                        &probe_cli,
+                        &plan,
+                        report.frames,
+                        audio.is_some(),
+                        &report.output,
+                    );
+                    (report, problems.iter().map(ToString::to_string).collect())
+                });
                 let _ = tx.send(ExportEvent::Finished(result.map_err(|e| e.to_string())));
                 Ok(())
             });
         self.export = Some(ExportRun {
             token: handle.token,
             events: rx,
+            started: std::time::Instant::now(),
         });
         s.set_export_status(1);
         s.set_export_progress(0.0);
+        s.set_export_minutes_left(-1);
+        s.set_export_unseen(false);
         s.set_export_message(SharedString::default());
     }
 
@@ -1659,6 +1720,7 @@ impl Inner {
     fn poll_export(&mut self) {
         let Some(run) = &self.export else { return };
         let events: Vec<ExportEvent> = run.events.try_iter().collect();
+        let started = run.started;
         if events.is_empty() {
             return;
         }
@@ -1666,26 +1728,34 @@ impl Inner {
         let s = w.global::<EditorState>();
         for ev in events {
             match ev {
-                ExportEvent::Progress(f) => s.set_export_progress(f),
-                ExportEvent::Finished(Ok(report)) => {
-                    info!(?report, "export finished");
-                    s.set_export_status(2);
+                ExportEvent::Progress(f) => {
+                    s.set_export_progress(f);
+                    let left = export_view::minutes_left(started.elapsed(), f);
+                    s.set_export_minutes_left(left.map_or(-1, |m| i32::try_from(m).unwrap_or(-1)));
+                }
+                ExportEvent::Finished(Ok((report, problems))) => {
+                    info!(?report, ?problems, "export finished");
+                    s.set_export_status(if problems.is_empty() { 2 } else { 4 });
                     s.set_export_progress(1.0);
-                    s.set_export_message(
-                        format!(
-                            "{} ({}, {})",
-                            report.output.display(),
-                            format::bytes(report.bytes),
-                            report.encoder
-                        )
-                        .into(),
+                    s.set_export_output_name(
+                        report
+                            .output
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                            .into(),
                     );
+                    s.set_export_size_text(format::bytes(report.bytes).into());
+                    s.set_export_message(problems.join("; ").into());
+                    s.set_export_unseen(!s.get_export_open());
+                    self.last_export = Some(report.output);
                     self.export = None;
                 }
                 ExportEvent::Finished(Err(e)) => {
                     warn!(error = %e, "export failed");
                     s.set_export_status(3);
                     s.set_export_message(e.into());
+                    s.set_export_unseen(!s.get_export_open());
                     self.export = None;
                 }
             }

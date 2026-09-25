@@ -159,6 +159,9 @@ export component MainWindow inherits Window {
     if Shell.settings-open : DialogFrame {
         title: @tr("Settings");
         dialog-width: 520px;
+        macos: Shell.macos;
+        primary-text: @tr("Close");
+        primary => { Shell.settings-open = false; }
         dismissed => { Shell.settings-open = false; }
         accepted => { Shell.settings-open = false; }
         SettingsPage {
@@ -166,11 +169,6 @@ export component MainWindow inherits Window {
             language-options: root.language-options;
             app-version: root.app-version;
             language-selected(i) => { root.language-selected(i); }
-        }
-        DialogButtons {
-            macos: Shell.macos;
-            primary-text: @tr("Close");
-            primary => { Shell.settings-open = false; }
         }
     }
 }

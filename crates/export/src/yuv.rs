@@ -1,8 +1,9 @@
-//! RGBA → planar YUV 4:2:0, BT.709, limited range. This is what we pipe to
-//! ffmpeg: a quarter of the bytes of RGBA at 4K, and no colour conversion
-//! left to the encoder's defaults.
+//! RGBA → planar YUV 4:2:0, limited range: 8-bit BT.709 for SDR, 10-bit
+//! BT.2020 non-constant luminance for HLG. This is what we pipe to ffmpeg:
+//! half the bytes of RGBA, and no colour conversion left to the encoder's
+//! defaults.
 
-use clipforge_render::Frame;
+use clipforge_render::{Frame, Frame16};
 
 /// Planar I420 buffer for a `width × height` frame (both even).
 #[derive(Clone, PartialEq, Eq)]
@@ -76,6 +77,72 @@ impl Yuv420 {
     }
 }
 
+impl Yuv420 {
+    /// Size in bytes of a 10-bit (`yuv420p10le`) frame: two bytes per sample.
+    #[must_use]
+    pub fn byte_len_10bit(width: u32, height: u32) -> usize {
+        Yuv420::byte_len(width, height) * 2
+    }
+
+    /// Converts a 16-bit HLG RGBA frame (BT.2020 R'G'B') to 10-bit
+    /// BT.2020 NCL limited range, little endian (`yuv420p10le`).
+    #[must_use]
+    pub fn from_frame16(frame: &Frame16) -> Yuv420 {
+        let (w, h) = (frame.width as usize, frame.height as usize);
+        let cw = w.div_ceil(2);
+        let ch = h.div_ceil(2);
+        let mut samples = vec![0u16; w * h + 2 * cw * ch];
+        let (y_plane, uv) = samples.split_at_mut(w * h);
+        let (u_plane, v_plane) = uv.split_at_mut(cw * ch);
+        // BT.2020: Kr 0.2627, Kb 0.0593. Inputs 0..65535; Y' scaled to
+        // 876 steps from 64, chroma 896 steps around 512; 16.16 fixed point.
+        let luma = |r: i64, g: i64, b: i64| {
+            ((15_081_485 * r + 38_923_665 * g + 3_404_385 * b) / 65_535 + 32_768) >> 16
+        };
+        for (i, px) in frame.rgba16.as_chunks::<4>().0.iter().enumerate() {
+            let (r, g, b) = (i64::from(px[0]), i64::from(px[1]), i64::from(px[2]));
+            y_plane[i] = clamp10(luma(r, g, b) + 64);
+        }
+        for cy in 0..ch {
+            for cx in 0..cw {
+                let (mut sr, mut sg, mut sb, mut n) = (0i64, 0i64, 0i64, 0i64);
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let x = (cx * 2 + dx).min(w - 1);
+                        let y = (cy * 2 + dy).min(h - 1);
+                        let o = (y * w + x) * 4;
+                        sr += i64::from(frame.rgba16[o]);
+                        sg += i64::from(frame.rgba16[o + 1]);
+                        sb += i64::from(frame.rgba16[o + 2]);
+                        n += 1;
+                    }
+                }
+                let (r, g, b) = (sr / n, sg / n, sb / n);
+                // Cb = (B' - Y') / 1.8814, Cr = (R' - Y') / 1.4746, × 896.
+                let u =
+                    ((-8_199_113 * r - 21_161_015 * g + 29_360_128 * b) / 65_535 + 32_768) >> 16;
+                let v = ((29_360_128 * r - 26_998_734 * g - 2_361_394 * b) / 65_535 + 32_768) >> 16;
+                u_plane[cy * cw + cx] = clamp10(u + 512);
+                v_plane[cy * cw + cx] = clamp10(v + 512);
+            }
+        }
+        let mut data = Vec::with_capacity(samples.len() * 2);
+        for s in samples {
+            data.extend_from_slice(&s.to_le_bytes());
+        }
+        Yuv420 {
+            width: frame.width,
+            height: frame.height,
+            data,
+        }
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn clamp10(v: i64) -> u16 {
+    v.clamp(0, 1023) as u16
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn clamp8(v: i32) -> u8 {
     v.clamp(0, 255) as u8
@@ -118,6 +185,42 @@ mod tests {
         // Odd sizes do not panic.
         let odd = Yuv420::from_frame(&Frame::solid(3, 3, [0, 0, 0]));
         assert_eq!(odd.data.len(), 9 + 2 * 4);
+    }
+
+    fn yuv10_of(rgb: [u16; 3]) -> (u16, u16, u16) {
+        let f = Frame16 {
+            width: 2,
+            height: 2,
+            rgba16: [rgb[0], rgb[1], rgb[2], u16::MAX].repeat(4),
+        };
+        let y = Yuv420::from_frame16(&f);
+        assert_eq!(y.data.len(), Yuv420::byte_len_10bit(2, 2));
+        let s = |i: usize| u16::from_le_bytes([y.data[i * 2], y.data[i * 2 + 1]]);
+        (s(0), s(4), s(5))
+    }
+
+    #[test]
+    fn ten_bit_bt2020_limited_range() {
+        assert_eq!(yuv10_of([0, 0, 0]), (64, 512, 512));
+        assert_eq!(yuv10_of([65_535; 3]), (940, 512, 512));
+        // HLG reference white (signal 0.75).
+        let (y, u, v) = yuv10_of([49_151; 3]);
+        assert!(
+            (720..=722).contains(&y) && u == 512 && v == 512,
+            "{y} {u} {v}"
+        );
+        // Pure BT.2020 red: Y' = 0.2627, Cr = +0.5.
+        let (y, u, v) = yuv10_of([65_535, 0, 0]);
+        assert!(
+            (293..=295).contains(&y) && (386..=388).contains(&u) && (959..=961).contains(&v),
+            "{y} {u} {v}"
+        );
+        // Pure blue: Cb = +0.5.
+        let (y, u, _) = yuv10_of([0, 0, 65_535]);
+        assert!(
+            (115..=117).contains(&y) && (959..=961).contains(&u),
+            "{y} {u}"
+        );
     }
 
     #[test]

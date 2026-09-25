@@ -334,6 +334,7 @@ mod tests {
             pixel_size: None,
             duration: None,
             captured_at_ms: None,
+            hdr: false,
             name: "p".into(),
         }
     }

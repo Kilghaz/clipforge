@@ -343,6 +343,7 @@ mod tests {
             pixel_size: None,
             duration: secs.map(Ticks::from_seconds),
             captured_at_ms: None,
+            hdr: false,
             name: "m".into(),
         }
     }
