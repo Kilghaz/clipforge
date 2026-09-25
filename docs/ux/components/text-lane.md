@@ -39,6 +39,7 @@ Gallery rows: "TextLane (28 px rows): texts, a selected one, overlaps stacked in
 | double-click empty space adds a 4 s text there | efficiency | `text-lane-double-clicked` | ✅ | manual-checks M5 |
 | double-click a block edits it in place | | `preview-text-double-clicked` | ✅ | |
 | Delete removes, Escape cancels a drag | Fluent | `delete_selected`, `cancel_text_drag` | ✅ | keyboard.md |
+| Tab reaches the lane; ←/→ move the focus between texts in time order (playhead follows); Enter / Space selects, Enter again edits in place | DESIGN §3 (everything by keyboard), Fluent list keyboard | `text-focus` FocusScope, `text_nav`, `text_lane_activate`; 2 px `focus-ring` on the focused block | ✅ | `keyboard_moves_between_texts_in_time_order`, gallery focus row |
 
 ## Accessibility
 
@@ -49,5 +50,4 @@ Gallery rows: "TextLane (28 px rows): texts, a selected one, overlaps stacked in
 
 ## Gaps
 
-1. **nice** — blocks are not keyboard-focusable one by one (selection by
-   keyboard goes through the preview and the inspector).
+None open (keyboard access added 2026-09-25).

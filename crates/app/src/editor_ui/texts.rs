@@ -253,22 +253,45 @@ impl Inner {
         let DragKind::Preview(gesture) = drag.kind else {
             return;
         };
-        let mut guides = text_view::Guides::default();
         drag.current = drag
             .originals
             .iter()
             .map(|(i, t)| {
-                let (moved, g) = text_view::apply_gesture(t, gesture, drag.start, (nx, ny), aspect);
-                guides.vertical |= g.vertical;
-                guides.horizontal |= g.horizontal;
+                let moved = text_view::apply_gesture(t, gesture, drag.start, (nx, ny), aspect).0;
                 (*i, moved)
             })
             .collect();
-        if let Some(w) = self.state() {
-            let s = w.global::<EditorState>();
-            s.set_guide_vertical(guides.vertical);
-            s.set_guide_horizontal(guides.horizontal);
+        // Moving snaps the first dragged text (centre to the frame centre or
+        // another text, edges to the safe margin); the others keep formation.
+        let mut guides = text_view::Guides::default();
+        if gesture == TextGesture::Move
+            && let Some((_, primary)) = drag.current.first()
+        {
+            let frame =
+                clipforge_render::RenderQuality::Preview.frame_size(self.project.settings.aspect);
+            let b = self.text_measure.hit_box(primary, frame);
+            #[allow(clippy::cast_possible_truncation)]
+            let half = (
+                (b.width / 2.0 / f64::from(frame.0) * f64::from(FRAME_UNITS)) as i32,
+                (b.height / 2.0 / f64::from(frame.1) * f64::from(FRAME_UNITS)) as i32,
+            );
+            let dragged: Vec<usize> = drag.current.iter().map(|(i, _)| *i).collect();
+            let others: Vec<(i32, i32)> = self
+                .project
+                .texts
+                .iter()
+                .enumerate()
+                .filter(|(i, t)| !dragged.contains(i) && t.visible_at(self.playhead))
+                .map(|(_, t)| (t.x, t.y))
+                .collect();
+            let (dx, dy, g) = text_view::snap(primary, half, &others);
+            for (_, t) in &mut drag.current {
+                t.x += dx;
+                t.y += dy;
+            }
+            guides = g;
         }
+        self.show_guides(guides);
         self.preview_dirty = true;
         self.refresh_texts();
     }
@@ -278,11 +301,7 @@ impl Inner {
         let Some(drag) = self.text_drag.take() else {
             return;
         };
-        if let Some(w) = self.state() {
-            let s = w.global::<EditorState>();
-            s.set_guide_vertical(false);
-            s.set_guide_horizontal(false);
-        }
+        self.show_guides(text_view::Guides::default());
         let changed: Vec<(usize, TextItem)> = drag
             .current
             .into_iter()
@@ -298,11 +317,71 @@ impl Inner {
         self.preview_dirty = true;
     }
 
+    #[allow(clippy::cast_precision_loss)]
+    fn show_guides(&self, g: text_view::Guides) {
+        if let Some(w) = self.state() {
+            let s = w.global::<EditorState>();
+            let frac = |v: Option<i32>| v.map_or(-1.0, |v| v as f32 / FRAME_UNITS as f32);
+            s.set_guide_x(frac(g.x));
+            s.set_guide_y(frac(g.y));
+        }
+    }
+
+    // ----- keyboard on the text lane ---------------------------------------
+
+    /// Tab reached the text lane: focus the first selected text, else the
+    /// first one in time.
+    pub(super) fn text_lane_focus_entered(&mut self) {
+        let texts = &self.project.texts;
+        let from_selection = self.selected_text_indices().first().copied();
+        let focus = from_selection.or_else(|| text_view::text_nav(texts, None, true));
+        self.text_focus = focus.map(|i| texts[i].id);
+        self.sync_texts();
+    }
+
+    /// ←/→ on the focused lane: the previous / next text; the playhead
+    /// follows so it shows on the preview.
+    pub(super) fn text_lane_navigate(&mut self, forward: bool) {
+        let focus = self.text_focus.and_then(|id| self.project.text_index(id));
+        let Some(next) = text_view::text_nav(&self.project.texts, focus, forward) else {
+            return;
+        };
+        let t = &self.project.texts[next];
+        self.text_focus = Some(t.id);
+        if !t.visible_at(self.playhead) {
+            self.playhead = t.start;
+            self.preview_dirty = true;
+        }
+        self.sync_all();
+    }
+
+    /// Enter / Space on the focused lane: select the focused text; Enter on
+    /// a text that is already the only selection edits it in place.
+    pub(super) fn text_lane_activate(&mut self) {
+        let Some(index) = self.text_focus.and_then(|id| self.project.text_index(id)) else {
+            return;
+        };
+        if self.selected_text_indices() == [index] {
+            self.begin_inline_edit(i32::try_from(index).unwrap_or(-1));
+            return;
+        }
+        self.select_text(index, false, false);
+        if let Some(t) = self.project.texts.get(index)
+            && !t.visible_at(self.playhead)
+        {
+            self.playhead = t.start;
+            self.preview_dirty = true;
+        }
+        self.sync_all();
+    }
+
     /// Escape during a drag: back to where it started.
     pub(super) fn cancel_text_drag(&mut self) -> bool {
         if self.text_drag.take().is_none() {
             return false;
         }
+        self.show_guides(text_view::Guides::default());
+
         self.preview_dirty = true;
         self.refresh_texts();
         true
@@ -573,6 +652,9 @@ impl Inner {
                 row: i32::try_from(b.row).unwrap_or(0),
                 title: SharedString::from(b.title.as_str()),
                 selected: selected(b.index),
+                focused: texts
+                    .get(b.index)
+                    .is_some_and(|t| self.text_focus == Some(t.id)),
             })
             .collect();
         s.set_text_blocks(ModelRc::new(VecModel::from(lane)));
@@ -617,6 +699,12 @@ impl Inner {
             s.set_editing_bold(t.style.bold);
             s.set_editing_italic(t.style.italic);
             s.set_editing_align(i32::try_from(t.style.align.index()).unwrap_or(1));
+            // The inline editor imitates the shadow and the box.
+            s.set_editing_shadow(t.style.shadow);
+            s.set_editing_box(t.style.background.is_some());
+            if let Some([r, g, b, a]) = t.style.background {
+                s.set_editing_box_color(Color::from_argb_u8(a, r, g, b));
+            }
         }
 
         // Inspector: the first selected text's values.
@@ -665,6 +753,9 @@ impl Inner {
         self.text_selection.retain(|id| ids.contains(id));
         if self.editing_text.is_some_and(|id| !ids.contains(&id)) {
             self.editing_text = None;
+        }
+        if self.text_focus.is_some_and(|id| !ids.contains(&id)) {
+            self.text_focus = None;
         }
     }
 }

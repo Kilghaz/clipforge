@@ -36,6 +36,7 @@ Gallery rows: "SongRow: …; SwatchGroup default / keyboard focus / disabled; �
 | Property | Reference | Ours | Status |
 |---|---|---|---|
 | cell | M size ≈ 32 px | 32 px (`control-height`) | ✅ |
+| compact cell (text colours) | S size ≈ 24–28 px, density compact | `compact`: 28 px cells (20 px tiles), 4 px gaps, so eight swatches fit the 264 px inspector column | ✅ |
 | spacing | density regular | 8 px | ✅ |
 | rounding | "none" default, "full" only on one row | `radius-s` (DESIGN radius scale) | ✅ |
 

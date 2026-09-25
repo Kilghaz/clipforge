@@ -363,6 +363,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             row: 0,
             title: "Summer in Italy".into(),
             selected: text_selected,
+            focused: false,
         },
         TextBlockView {
             index: 1,
@@ -371,6 +372,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             row: 0,
             title: "Rome, the Colosseum".into(),
             selected: false,
+            focused: false,
         },
     ])));
     editor.set_text_rows(1);
@@ -398,7 +400,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_text_enter_seconds(0.8);
             editor.set_text_exit_index(1);
             editor.set_text_exit_seconds(0.5);
-            editor.set_guide_vertical(scene == "text");
+            editor.set_guide_x(if scene == "text" { 0.5 } else { -1.0 });
             if editing {
                 editor.set_editing_index(0);
                 editor.set_editing_text("Summer in Italy".into());
@@ -447,10 +449,7 @@ type BoxFrac = (f32, f32, f32, f32);
 /// Renders the preview frame of a small project (the landscape fixture with
 /// two texts) and returns it with the texts' boxes as picture fractions.
 /// `hide_first` leaves the first text out, as while it is edited in place.
-fn render_preview(
-    fixtures: &Path,
-    hide_first: bool,
-) -> Result<(slint::Image, Vec<BoxFrac>)> {
+fn render_preview(fixtures: &Path, hide_first: bool) -> Result<(slint::Image, Vec<BoxFrac>)> {
     use clipforge_core::{
         Clip, Command, Font, MediaId, MediaRef, Project, RefKind, TextItem, Ticks,
     };

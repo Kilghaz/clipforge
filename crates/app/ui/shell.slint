@@ -7,6 +7,9 @@ export global Shell {
     /// Upper bound for the library pane so the editor keeps ~640 px; set from
     /// the window's `changed width` (a binding on root.width would loop).
     in-out property <length> library-max-width: 10000px;
+    /// Window width, set from `changed width` like `library-max-width`, so
+    /// panes can adapt without a layout binding loop.
+    in-out property <length> window-width: 1400px;
     in-out property <bool> settings-open: false;
 
     /// Drag from the library towards the timeline (window coordinates).

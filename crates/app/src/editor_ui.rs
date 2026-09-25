@@ -163,6 +163,8 @@ struct Inner {
     text_drag: Option<texts::TextDrag>,
     /// The text being edited in place on the preview.
     editing_text: Option<clipforge_core::TextId>,
+    /// Keyboard focus on the text lane.
+    text_focus: Option<clipforge_core::TextId>,
     /// Lays texts out for hit boxes on the preview.
     text_measure: clipforge_render::text::TextRenderer,
 }
@@ -231,6 +233,7 @@ impl EditorController {
             text_selection: Vec::new(),
             text_drag: None,
             editing_text: None,
+            text_focus: None,
             text_measure: clipforge_render::text::TextRenderer::new(),
         }));
 
@@ -294,6 +297,10 @@ impl EditorController {
         on!(on_export_start, |i| i.export_start());
         on!(on_export_cancel, |i| i.export_cancel());
         on!(on_add_text, |i| i.add_text());
+        on!(on_text_lane_focus_entered, |i| i.text_lane_focus_entered());
+        on!(on_text_lane_navigate, |i, forward| i
+            .text_lane_navigate(forward));
+        on!(on_text_lane_activate, |i| i.text_lane_activate());
         on!(on_text_lane_pressed, |i, idx, shift, toggle, code, x| i
             .text_lane_pressed(idx, shift, toggle, code, x));
         on!(on_text_lane_dragged, |i, x| i.text_lane_dragged(x));

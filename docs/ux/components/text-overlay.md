@@ -21,8 +21,8 @@ Gallery rows: "TextOverlay over a 16:9 picture: …"; scenes `text.png`, `text-e
 | Selection box | outline | 1 px `selection` | ✅ | gallery, `text.png` |
 | Corner handles | resize | 10 px white squares, `selection` border; scale font size and width | ✅ | `corner_handle_scales_size_and_width` |
 | Side handles | resize one dimension | left / right change the wrap width around the centre | ✅ | `side_handle_changes_width_around_the_centre` |
-| Snap guides | alignment feedback | 1 px `Theme.guide` lines at the picture's centre while snapped | ✅ | `drag_moves_by_the_pointer_delta_and_snaps_to_centre`, gallery |
-| Inline editor | type in place | `TextInput` with the text's font (bundled fonts imported into Slint), size, weight, italic, colour and alignment; the rendered copy is hidden meanwhile | ✅ | `text-edit.png` |
+| Snap guides | alignment feedback | the first dragged text snaps its centre to the frame centre or another visible text's centre, and its box edges to the 5 % safe margin; 1 px `Theme.guide` lines show where | ✅ | `snapping_reaches_other_texts_and_the_safe_margin`, gallery |
+| Inline editor | type in place | `TextInput` with the text's font (bundled fonts imported into Slint), size, weight, italic, colour and alignment, over the text's box colour or an offset shadow copy; the rendered copy is hidden meanwhile | ✅ | `text-edit.png` |
 
 ## States
 
@@ -49,6 +49,6 @@ Gallery rows: "TextOverlay over a 16:9 picture: …"; scenes `text.png`, `text-e
 
 ## Gaps
 
-1. **nice** — the inline editor shows no drop shadow or box (the rendered
-   look returns when editing ends).
-2. **nice** — no snapping to the other texts or to the safe area yet.
+None open (shadow / box while editing and snapping to texts and the safe
+margin added 2026-09-25; the editing shadow is a sharp offset copy, the
+rendered one is soft).

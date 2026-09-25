@@ -40,8 +40,8 @@ export component MainWindow inherits Window {
     icon: @image-url("../../../assets/icons/256x256.png");
     background: Theme.surface-window;
     // Dark only (ADR-0009); the style's palette follows.
-    init => { Palette.color-scheme = ColorScheme.dark; Shell.library-max-width = self.width - 640px; }
-    changed width => { Shell.library-max-width = self.width - 640px; }
+    init => { Palette.color-scheme = ColorScheme.dark; Shell.library-max-width = self.width - 640px; Shell.window-width = self.width; }
+    changed width => { Shell.library-max-width = self.width - 640px; Shell.window-width = self.width; }
 
     // Settings state, owned by Rust.
     in-out property <int> language-index: 0;

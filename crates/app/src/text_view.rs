@@ -8,8 +8,10 @@ use crate::editor_view::{ClipBox, x_at_time};
 
 /// Rows the text lane shows at most; further overlaps share the last row.
 pub(crate) const MAX_TEXT_ROWS: usize = 3;
-/// Snap distance to the frame centre lines, in frame units.
+/// Snap distance, in frame units.
 pub(crate) const SNAP_UNITS: i32 = 120;
+/// Safe margin from the frame edges (5 %), in frame units.
+pub(crate) const SAFE_MARGIN: i32 = 500;
 /// Length of a new text.
 pub(crate) const NEW_TEXT_DURATION: Ticks = Ticks::from_seconds(4);
 
@@ -102,12 +104,57 @@ impl TextGesture {
     }
 }
 
-/// Snap guides shown while moving.
+/// Snap guides shown while moving: where the vertical and horizontal
+/// guide lines are (frame units), if any.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Guides {
-    /// The text is on the vertical centre line (x = 50 %).
-    pub vertical: bool,
-    pub horizontal: bool,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+}
+
+/// Snapping for a moved text: its centre to the frame centre or another
+/// text's centre, its box edges to the 5 % safe margin. `half` is half the
+/// text box (frame units), `others` the centres of the other visible texts.
+/// Returns the correction to apply and the guides to show.
+#[must_use]
+pub(crate) fn snap(
+    moved: &TextItem,
+    half: (i32, i32),
+    others: &[(i32, i32)],
+) -> (i32, i32, Guides) {
+    let pick = |pos: i32, half: i32, others: &mut dyn Iterator<Item = i32>| -> (i32, Option<i32>) {
+        // (centre to snap to, where the guide line goes)
+        let mut candidates = vec![
+            (FRAME_UNITS / 2, FRAME_UNITS / 2),
+            (SAFE_MARGIN + half, SAFE_MARGIN),
+            (FRAME_UNITS - SAFE_MARGIN - half, FRAME_UNITS - SAFE_MARGIN),
+        ];
+        candidates.extend(others.map(|o| (o, o)));
+        candidates
+            .into_iter()
+            .map(|(c, g)| ((c - pos).abs(), c, g))
+            .filter(|(d, _, _)| *d <= SNAP_UNITS)
+            .min_by_key(|(d, _, _)| *d)
+            .map_or((0, None), |(_, c, g)| (c - pos, Some(g)))
+    };
+    let (dx, gx) = pick(moved.x, half.0, &mut others.iter().map(|o| o.0));
+    let (dy, gy) = pick(moved.y, half.1, &mut others.iter().map(|o| o.1));
+    (dx, dy, Guides { x: gx, y: gy })
+}
+
+/// Keyboard navigation on the text lane: the next / previous text in time
+/// order from `focus` (the first / last one without a focus).
+#[must_use]
+pub(crate) fn text_nav(texts: &[TextItem], focus: Option<usize>, forward: bool) -> Option<usize> {
+    let mut order: Vec<usize> = (0..texts.len()).collect();
+    order.sort_by_key(|&i| (texts[i].start, i));
+    let pos = focus.and_then(|f| order.iter().position(|&i| i == f));
+    match (pos, forward) {
+        (None, true) => order.first().copied(),
+        (None, false) => order.last().copied(),
+        (Some(p), true) => order.get(p + 1).or(order.get(p)).copied(),
+        (Some(p), false) => order.get(p.saturating_sub(1)).copied(),
+    }
 }
 
 /// Applies a preview drag from `start` to `now` (pointer positions as
@@ -124,20 +171,12 @@ pub(crate) fn apply_gesture(
 ) -> (TextItem, Guides) {
     let units = |f: f32| (f * FRAME_UNITS as f32).round() as i32;
     let mut t = orig.clone();
-    let mut guides = Guides::default();
+    let guides = Guides::default();
     match gesture {
         TextGesture::Move => {
+            // Snapping is applied afterwards, to the whole selection (`snap`).
             t.x = orig.x + units(now.0 - start.0);
             t.y = orig.y + units(now.1 - start.1);
-            let centre = FRAME_UNITS / 2;
-            if (t.x - centre).abs() <= SNAP_UNITS {
-                t.x = centre;
-                guides.vertical = true;
-            }
-            if (t.y - centre).abs() <= SNAP_UNITS {
-                t.y = centre;
-                guides.horizontal = true;
-            }
         }
         TextGesture::Width { left } => {
             let dx = units(now.0 - start.0);
@@ -281,19 +320,68 @@ mod tests {
         let mut t = text(0, 4);
         t.x = 2_000;
         t.y = 8_000;
-        let (m, g) = apply_gesture(&t, TextGesture::Move, (0.2, 0.8), (0.3, 0.7), 16.0 / 9.0);
+        let (m, _) = apply_gesture(&t, TextGesture::Move, (0.2, 0.8), (0.3, 0.7), 16.0 / 9.0);
         assert_eq!((m.x, m.y), (3_000, 7_000));
-        assert_eq!(g, Guides::default());
-        let (m, g) = apply_gesture(
+        assert_eq!(m.style, t.style, "moving changes nothing else");
+        assert_eq!(snap(&m, (1_000, 300), &[]), (0, 0, Guides::default()));
+        let (m, _) = apply_gesture(
             &t,
             TextGesture::Move,
             (0.2, 0.8),
             (0.495, 0.505),
             16.0 / 9.0,
         );
-        assert_eq!((m.x, m.y), (5_000, 5_000));
-        assert!(g.vertical && g.horizontal);
-        assert_eq!(m.style, t.style, "moving changes nothing else");
+        let (dx, dy, g) = snap(&m, (1_000, 300), &[]);
+        assert_eq!((m.x + dx, m.y + dy), (5_000, 5_000));
+        assert_eq!(
+            g,
+            Guides {
+                x: Some(5_000),
+                y: Some(5_000)
+            }
+        );
+    }
+
+    #[test]
+    fn snapping_reaches_other_texts_and_the_safe_margin() {
+        let mut t = text(0, 4);
+        // Left edge near the 5 % margin: box half width 1 000 → centre 1 500.
+        t.x = 1_560;
+        t.y = 3_000;
+        let (dx, _, g) = snap(&t, (1_000, 300), &[]);
+        assert_eq!((t.x + dx, g.x), (1_500, Some(SAFE_MARGIN)));
+        // Centre lines up with another text's centre.
+        t.x = 7_050;
+        t.y = 2_940;
+        let (dx, dy, g) = snap(&t, (1_000, 300), &[(7_000, 3_000)]);
+        assert_eq!((t.x + dx, t.y + dy), (7_000, 3_000));
+        assert_eq!(
+            g,
+            Guides {
+                x: Some(7_000),
+                y: Some(3_000)
+            }
+        );
+        // Bottom edge at the safe margin (half height 300 → centre 9 200).
+        t.y = 9_150;
+        let (_, dy, g) = snap(&t, (1_000, 300), &[]);
+        assert_eq!((t.y + dy, g.y), (9_200, Some(FRAME_UNITS - SAFE_MARGIN)));
+    }
+
+    #[test]
+    fn keyboard_moves_between_texts_in_time_order() {
+        let texts = vec![text(5, 1), text(0, 1), text(2, 1)];
+        assert_eq!(text_nav(&texts, None, true), Some(1));
+        assert_eq!(text_nav(&texts, None, false), Some(0));
+        assert_eq!(text_nav(&texts, Some(1), true), Some(2));
+        assert_eq!(text_nav(&texts, Some(2), true), Some(0));
+        assert_eq!(text_nav(&texts, Some(0), true), Some(0), "stays at the end");
+        assert_eq!(
+            text_nav(&texts, Some(1), false),
+            Some(1),
+            "stays at the start"
+        );
+        assert_eq!(text_nav(&[], None, true), None);
     }
 
     #[test]

@@ -55,6 +55,8 @@ export struct TextBlockView {
     row: int,
     title: string,
     selected: bool,
+    /// Keyboard focus on the lane.
+    focused: bool,
 }
 
 /// A text visible at the playhead: its box as fractions of the picture.
@@ -124,8 +126,9 @@ export global EditorState {
     /// Width / height of the video frame (for the preview overlay).
     in-out property <float> frame-aspect: 1.7778;
     in-out property <[PreviewText]> preview-texts;
-    in-out property <bool> guide-vertical;
-    in-out property <bool> guide-horizontal;
+    /// Snap guide lines as picture fractions (-1: none).
+    in-out property <float> guide-x: -1;
+    in-out property <float> guide-y: -1;
     /// Text being edited in place (-1: none) and how it looks.
     in-out property <int> editing-index: -1;
     in-out property <string> editing-text;
@@ -136,6 +139,9 @@ export global EditorState {
     in-out property <bool> editing-bold;
     in-out property <bool> editing-italic;
     in-out property <int> editing-align: 1;
+    in-out property <bool> editing-shadow;
+    in-out property <bool> editing-box;
+    in-out property <color> editing-box-color;
     // Text inspector (first selected text).
     in-out property <int> text-selected-count;
     in-out property <string> text-content;
@@ -241,6 +247,10 @@ export global EditorState {
     callback export-cancel();
     // Texts.
     callback add-text();
+    /// Keyboard on the text lane: Tab entered, ←/→, Enter / Space.
+    callback text-lane-focus-entered();
+    callback text-lane-navigate(bool);
+    callback text-lane-activate();
     /// Lane press: text index, shift, ctrl/cmd, part (0 body, 1 left edge, 2 right edge), strip x.
     callback text-lane-pressed(int, bool, bool, int, float);
     callback text-lane-dragged(float);
@@ -473,6 +483,8 @@ export component TextLane inherits Rectangle {
     in property <length> row-height: 28px;
     /// Visible width of the strip, so the empty hint stays in view.
     in property <length> viewport-width;
+    /// Draw the keyboard focus ring on the focused block.
+    in property <bool> show-focus;
     height: root.rows * root.row-height;
     background: Theme.surface-pane;
     border-radius: Theme.radius-m;
@@ -518,6 +530,15 @@ export component TextLane inherits Rectangle {
             spacing: Theme.space-xs;
             Icon { source: Icons.text-t; size: Theme.icon-s; color: Theme.text; y: (parent.height - self.height) / 2; }
             Text { text: b.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; min-width: 0; }
+        }
+        if root.show-focus && b.focused : Rectangle {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+            border-radius: Theme.radius-s;
+            border-width: 2px;
+            border-color: Theme.focus-ring;
         }
         body := TouchArea {
             double-clicked => { EditorState.preview-text-double-clicked(b.index); }
@@ -577,16 +598,16 @@ export component TextOverlay inherits Rectangle {
             }
         }
     }
-    if EditorState.guide-vertical : Rectangle {
-        x: root.pic-x + root.pic-w / 2;
+    if EditorState.guide-x >= 0 : Rectangle {
+        x: root.pic-x + root.pic-w * EditorState.guide-x;
         y: root.pic-y;
         width: 1px;
         height: root.pic-h;
         background: Theme.guide;
     }
-    if EditorState.guide-horizontal : Rectangle {
+    if EditorState.guide-y >= 0 : Rectangle {
         x: root.pic-x;
-        y: root.pic-y + root.pic-h / 2;
+        y: root.pic-y + root.pic-h * EditorState.guide-y;
         width: root.pic-w;
         height: 1px;
         background: Theme.guide;
@@ -643,6 +664,30 @@ export component TextOverlay inherits Rectangle {
             }
         }
         // Inline editor: same font, size, colour and alignment as the video.
+        // Behind the inline editor: the box and an approximated shadow, so the
+        // text looks like the rendered one while typing.
+        if editing && EditorState.editing-box : Rectangle {
+            x: -EditorState.editing-size * min(root.pic-w, root.pic-h) * 0.3;
+            y: -EditorState.editing-size * min(root.pic-w, root.pic-h) * 0.3;
+            width: parent.width + 2 * EditorState.editing-size * min(root.pic-w, root.pic-h) * 0.3;
+            height: parent.height + 2 * EditorState.editing-size * min(root.pic-w, root.pic-h) * 0.3;
+            background: EditorState.editing-box-color;
+        }
+        if editing && EditorState.editing-shadow && !EditorState.editing-box : Text {
+            x: 1px;
+            y: 2px;
+            width: parent.width;
+            height: parent.height;
+            text: EditorState.editing-text;
+            font-family: EditorState.editing-family;
+            font-size: EditorState.editing-size * min(root.pic-w, root.pic-h);
+            font-weight: EditorState.editing-bold ? 700 : 400;
+            font-italic: EditorState.editing-italic;
+            color: Theme.shadow;
+            horizontal-alignment: EditorState.editing-align == 0 ? TextHorizontalAlignment.left : (EditorState.editing-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
         if editing : editor := TextInput {
             width: parent.width;
             height: parent.height;
@@ -856,14 +901,38 @@ export component TimelineStrip inherits Rectangle {
                     font-size: Theme.font-caption;
                 }
             }
-            TextLane {
+            text-focus := FocusScope {
                 x: 0;
                 y: root.text-top;
                 width: max(EditorState.strip-width * 1px, flick.width - Theme.space-s);
-                rows: EditorState.text-rows;
-                row-height: root.text-row-height;
-                blocks: EditorState.text-blocks;
-                viewport-width: flick.width;
+                height: EditorState.text-rows * root.text-row-height;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        EditorState.focus-visible = true;
+                        EditorState.text-lane-focus-entered();
+                    }
+                }
+                key-pressed(event) => {
+                    if event.text == Key.LeftArrow || event.text == Key.RightArrow {
+                        EditorState.focus-visible = true;
+                        EditorState.text-lane-navigate(event.text == Key.RightArrow);
+                        return accept;
+                    }
+                    if event.text == Key.Return || event.text == Key.Space {
+                        EditorState.focus-visible = true;
+                        EditorState.text-lane-activate();
+                        return accept;
+                    }
+                    return reject;
+                }
+                TextLane {
+                    width: parent.width;
+                    rows: EditorState.text-rows;
+                    row-height: root.text-row-height;
+                    blocks: EditorState.text-blocks;
+                    viewport-width: flick.width;
+                    show-focus: text-focus.has-focus && EditorState.focus-visible;
+                }
             }
             for clip in EditorState.clips : ClipView {
                 item: clip;
@@ -1422,6 +1491,10 @@ component ExportDialog inherits DialogFrame {
 }
 
 export component EditorPage inherits Rectangle {
+    /// Width of the preview column (window minus the library pane and the
+    /// 296 px inspector), for the compact toolbar. From the window width: a
+    /// binding on this page's own width would loop through its layout.
+    property <length> editor-width: Shell.window-width - (Shell.library-visible ? max(280px, min(Shell.library-width, Shell.library-max-width)) + 8px : 0px) - 297px;
     background: Theme.surface-window;
     forward-focus: keys;
 
@@ -1484,7 +1557,9 @@ export component EditorPage inherits Rectangle {
                             min-width: 0;
                             accessible-label: @tr("Project title");
                         }
-                        ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        // Narrow editor (900 px windows): the export button keeps its icon only.
+                        if root.editor-width >= 520px : ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
+                        if root.editor-width < 520px : IconButton { icon: Icons.share; primary: true; tooltip: @tr("Export…"); enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
                         IconButton { icon: Icons.settings; tooltip: @tr("Settings"); enabled: !EditorState.export-open; clicked => { Shell.settings-open = true; } }
                 }
                 Divider { }
