@@ -789,8 +789,12 @@ export component EditorPage inherits Rectangle {
                         }
                         // Timeline zoom: icons at both ends label the slider.
                         Icon { source: Icons.zoom-out; size: Theme.icon-s; color: Theme.text-secondary; }
+                        // Shrinks before anything else in narrow windows, so the
+                        // transport never pushes the inspector out (900 px minimum).
                         Slider {
-                            width: 120px;
+                            preferred-width: 120px;
+                            min-width: 64px;
+                            horizontal-stretch: 0;
                             minimum: 10;
                             maximum: 200;
                             value <=> EditorState.pixels-per-second;

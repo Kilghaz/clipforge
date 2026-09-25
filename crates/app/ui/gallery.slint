@@ -32,6 +32,10 @@ component Guide inherits Rectangle {
 }
 
 export component GalleryWindow inherits Window {
+    // Body size for everything without an explicit size, so std widgets
+    // (Button behind ActionButton, ComboBox, Switch, LineEdit) match our
+    // own controls. Without it Slint falls back to 12 px (DESIGN.md §2).
+    default-font-size: Theme.font-body;
     in property <image> sample;
     background: Theme.surface-window;
     init => { Palette.color-scheme = ColorScheme.dark; }

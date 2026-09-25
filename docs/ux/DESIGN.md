@@ -63,8 +63,10 @@ not belong in a desktop app.
   everywhere; panes as narrow as 280 px cannot afford it).
 - **Corner radius:** 4 px for controls, 6 px for cards and clips, 8 px for
   dialogs and popovers.
-- **Typography:** the style's default font (`StyleMetrics.default-font-size`
-  ≈ 14 px is body). Scale: 11 (caption / timecode), 12 (secondary), 14
+- **Typography:** body is 14 px. Every window sets
+  `default-font-size: Theme.font-body`, so std widgets (Button behind
+  `ActionButton`, ComboBox, Switch, LineEdit) use the same size as our own
+  controls; without it Slint falls back to 12 px. Scale: 11 (caption / timecode), 12 (secondary), 14
   (body), 16 (section title), 20 (dialog title). No other sizes. Accepted
   deviation from Fluent (12 px minimum, 14 semibold section headers): the
   editor follows Spectrum's denser scale; captions are never the only
