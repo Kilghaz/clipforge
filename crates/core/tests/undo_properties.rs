@@ -6,6 +6,7 @@
 use clipforge_core::{
     Clip, Command, Fit, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
     Quarter, RefKind, Song, Ticks, Transition, TransitionKind,
+    project::{Caption, CaptionStyle, TitleBackground},
 };
 use proptest::prelude::*;
 
@@ -61,6 +62,9 @@ enum Op {
     ShuffleTransitions(Vec<u8>, u64),
     ShuffleMotion(Vec<u8>, u64),
     Music(u8, u8, bool, bool),
+    InsertTitle(u8, u8),
+    Captions(Vec<u8>, u8),
+    TitleBackground(u8),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -80,6 +84,9 @@ fn op() -> impl Strategy<Value = Op> {
         (idx, any::<u64>()).prop_map(|(i, s)| Op::ShuffleMotion(i, s)),
         (0u8..4, 0u8..=200, any::<bool>(), any::<bool>())
             .prop_map(|(n, v, l, d)| Op::Music(n, v, l, d)),
+        (0u8..8, 0u8..5).prop_map(|(i, b)| Op::InsertTitle(i, b)),
+        (proptest::collection::vec(0u8..8, 1..4), 0u8..6).prop_map(|(i, s)| Op::Captions(i, s)),
+        (0u8..5).prop_map(Op::TitleBackground),
     ]
 }
 
@@ -117,7 +124,7 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
         Op::Duration(i, d) => {
             let idx: Vec<usize> = pick(i, len)
                 .into_iter()
-                .filter(|&k| p.clips[k].is_photo())
+                .filter(|&k| p.clips[k].is_still())
                 .collect();
             if idx.is_empty() {
                 return None;
@@ -170,7 +177,7 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
                 return None;
             }
             let k = usize::from(*i) % len;
-            if p.clips[k].is_photo() {
+            if !p.clips[k].is_video() {
                 return None;
             }
             let in_point = Ticks::from_seconds(i64::from(*a));
@@ -231,6 +238,43 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
             },
             media: vec![],
         },
+        Op::InsertTitle(at, bg) => Command::InsertClips {
+            entries: vec![(
+                usize::from(*at) % (len + 1),
+                Clip::title(
+                    "Title",
+                    TitleBackground::from_index(usize::from(*bg)),
+                    Ticks::from_seconds(3),
+                ),
+            )],
+            media: vec![],
+        },
+        Op::Captions(i, style) => {
+            let idx = pick(i, len);
+            if idx.is_empty() {
+                return None;
+            }
+            // Style 5 removes the captions.
+            let caption = (*style < 4).then(|| {
+                Caption::new(
+                    format!("caption {style}"),
+                    CaptionStyle::from_index(usize::from(*style)),
+                )
+            });
+            Command::SetCaptions {
+                entries: idx.into_iter().map(|k| (k, caption.clone())).collect(),
+            }
+        }
+        Op::TitleBackground(bg) => {
+            let idx: Vec<usize> = (0..len).filter(|&k| p.clips[k].is_title()).collect();
+            if idx.is_empty() {
+                return None;
+            }
+            Command::SetTitleBackground {
+                indices: idx,
+                background: TitleBackground::from_index(usize::from(*bg)),
+            }
+        }
     })
 }
 

@@ -90,7 +90,8 @@ impl FrameSource for TimelineFrames<'_> {
             let clip = &self.project.clips[idx];
             let in_opening =
                 idx == 0 && local < clipforge_core::timeline::opening_overlap(&self.project.clips);
-            let still = clip.is_photo() && clip.motion == clipforge_core::Motion::None;
+            // Photos without movement and title cards look the same all through.
+            let still = clip.is_still() && clip.motion == clipforge_core::Motion::None;
             (still && at.outgoing.is_none() && !in_opening).then_some((idx, Ticks::ZERO))
         });
         if key.is_some() && key == self.last_key {

@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::music::Music;
 use crate::project::{
-    Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, Transition,
+    Caption, Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter,
+    TitleBackground, Transition,
 };
 use crate::time::Ticks;
 
@@ -46,6 +47,8 @@ pub enum CommandLabel {
     Mute,
     Motion,
     Music,
+    Caption,
+    Title,
     Settings,
 }
 
@@ -66,8 +69,8 @@ pub enum Command {
     Reorder {
         order: Vec<usize>,
     },
-    /// Sets the duration of photo clips. Video clips in the selection are
-    /// rejected.
+    /// Sets the duration of photo clips and title cards. Video clips in
+    /// the selection are rejected.
     SetPhotoDuration {
         indices: Vec<usize>,
         duration: Ticks,
@@ -115,6 +118,16 @@ pub enum Command {
     SetSettings {
         settings: ProjectSettings,
     },
+    /// Sets (or with `None` removes) the caption of each listed clip. One
+    /// undo step for typing, style changes, auto-fill and removal.
+    SetCaptions {
+        entries: Vec<(usize, Option<Caption>)>,
+    },
+    /// Sets the background of title cards.
+    SetTitleBackground {
+        indices: Vec<usize>,
+        background: TitleBackground,
+    },
     /// Replaces the music track (songs and their settings). `media` is
     /// merged into the project's media table first.
     SetMusic {
@@ -148,6 +161,8 @@ impl Command {
             Command::SetTransitionEach { .. } => CommandLabel::Transition,
             Command::SetSettings { .. } => CommandLabel::Settings,
             Command::SetMusic { .. } => CommandLabel::Music,
+            Command::SetCaptions { .. } => CommandLabel::Caption,
+            Command::SetTitleBackground { .. } => CommandLabel::Title,
             Command::Batch { commands } => commands
                 .first()
                 .map_or(CommandLabel::Settings, Command::label),
@@ -189,7 +204,7 @@ impl Command {
                     project.media.insert(m.id, m);
                 }
                 for (_, clip) in &sorted {
-                    if !project.media.contains_key(&clip.media) {
+                    if !clip.is_title() && !project.media.contains_key(&clip.media) {
                         return Err(CommandError::UnknownMedia);
                     }
                     check_clip(clip)?;
@@ -249,16 +264,22 @@ impl Command {
                 }
                 let indices = unique_sorted(&indices, project.clips.len())?;
                 for &i in &indices {
-                    if !project.clips[i].is_photo() {
+                    if !project.clips[i].is_still() {
                         return Err(CommandError::NotApplicable {
                             index: i,
-                            reason: "not a photo",
+                            reason: "not a photo or title",
                         });
                     }
                 }
                 let before = snapshot(project, &indices);
                 for &i in &indices {
-                    project.clips[i].source = ClipSource::Photo { duration };
+                    match &mut project.clips[i].source {
+                        ClipSource::Photo { duration: d }
+                        | ClipSource::Title { duration: d, .. } => {
+                            *d = duration;
+                        }
+                        ClipSource::Video { .. } => {}
+                    }
                 }
                 Ok(Command::RestoreClips { entries: before })
             }
@@ -275,7 +296,7 @@ impl Command {
                     return Err(CommandError::InvalidTrim);
                 }
                 let clip = &project.clips[index];
-                if clip.is_photo() {
+                if !clip.is_video() {
                     return Err(CommandError::NotApplicable {
                         index,
                         reason: "not a video",
@@ -333,6 +354,28 @@ impl Command {
                 let before = std::mem::replace(&mut project.settings, settings);
                 Ok(Command::SetSettings { settings: before })
             }
+            Command::SetCaptions { entries } => set_each(project, &entries, |c, caption| {
+                c.caption.clone_from(caption)
+            }),
+            Command::SetTitleBackground {
+                indices,
+                background,
+            } => {
+                let indices = unique_sorted(&indices, project.clips.len())?;
+                for &i in &indices {
+                    if !project.clips[i].is_title() {
+                        return Err(CommandError::NotApplicable {
+                            index: i,
+                            reason: "not a title card",
+                        });
+                    }
+                }
+                set_field(project, &indices, |c| {
+                    if let ClipSource::Title { background: b, .. } = &mut c.source {
+                        *b = background;
+                    }
+                })
+            }
             Command::SetMusic { music, media } => {
                 for m in media {
                     project.media.insert(m.id, m);
@@ -389,7 +432,9 @@ fn unreachable_clip() -> Clip {
 
 fn check_clip(clip: &Clip) -> Result<(), CommandError> {
     match clip.source {
-        ClipSource::Photo { duration } if duration <= Ticks::ZERO => {
+        ClipSource::Photo { duration } | ClipSource::Title { duration, .. }
+            if duration <= Ticks::ZERO =>
+        {
             Err(CommandError::NonPositiveDuration)
         }
         ClipSource::Video {
@@ -703,7 +748,7 @@ mod tests {
             .unwrap_err(),
             CommandError::NotApplicable {
                 index: 0,
-                reason: "not a photo"
+                reason: "not a photo or title"
             }
         );
     }
@@ -878,5 +923,139 @@ mod tests {
         .unwrap_err();
         assert!(matches!(err, CommandError::IndexOutOfRange { .. }));
         assert_eq!(p, before);
+    }
+
+    #[test]
+    fn title_cards_need_no_media_and_take_a_duration() {
+        use crate::project::{CaptionStyle, TitleBackground};
+        let mut p = project_with(2);
+        let title = Clip::title("Summer", TitleBackground::Blue, Ticks::from_seconds(3));
+        Command::InsertClips {
+            entries: vec![(0, title)],
+            media: vec![],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert!(p.validate().is_ok());
+        assert!(p.clips[0].is_title() && p.clips[0].is_still());
+        assert_eq!(
+            p.clips[0].caption.as_ref().map(|c| c.style),
+            Some(CaptionStyle::Headline)
+        );
+        Command::SetPhotoDuration {
+            indices: vec![0, 1],
+            duration: Ticks::from_seconds(5),
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(durations(&p), vec![5, 5, 2]);
+        assert!(matches!(
+            p.clips[0].source,
+            ClipSource::Title {
+                background: TitleBackground::Blue,
+                ..
+            }
+        ));
+        // Background: titles only, undoable.
+        let inv = Command::SetTitleBackground {
+            indices: vec![0],
+            background: TitleBackground::White,
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert!(matches!(
+            p.clips[0].source,
+            ClipSource::Title {
+                background: TitleBackground::White,
+                ..
+            }
+        ));
+        inv.apply(&mut p).unwrap();
+        assert!(matches!(
+            p.clips[0].source,
+            ClipSource::Title {
+                background: TitleBackground::Blue,
+                ..
+            }
+        ));
+        assert!(
+            Command::SetTitleBackground {
+                indices: vec![1],
+                background: TitleBackground::Red,
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+        // Motion stays photo-only.
+        assert!(
+            Command::SetMotion {
+                indices: vec![0],
+                motion: Motion::ZoomIn,
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn captions_are_set_per_clip_and_undo_in_one_step() {
+        use crate::project::{Caption, CaptionStyle};
+        let mut p = project_with(3);
+        let original = p.clone();
+        let inv = Command::SetCaptions {
+            entries: vec![
+                (0, Some(Caption::new("Rome", CaptionStyle::Classic))),
+                (2, Some(Caption::new("Paris", CaptionStyle::Banner))),
+            ],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        assert!(p.clips[1].caption.is_none());
+        assert_eq!(
+            p.clips[2].caption.as_ref().unwrap().style,
+            CaptionStyle::Banner
+        );
+        let remove = Command::SetCaptions {
+            entries: vec![(0, None)],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert!(p.clips[0].caption.is_none());
+        remove.apply(&mut p).unwrap();
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, original);
+        assert!(
+            Command::SetCaptions {
+                entries: vec![(9, None)]
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn titles_and_captions_survive_a_save() {
+        use crate::project::{Caption, CaptionStyle, TitleBackground};
+        let mut p = project_with(1);
+        Command::InsertClips {
+            entries: vec![(
+                1,
+                Clip::title("The end", TitleBackground::Red, Ticks::SECOND),
+            )],
+            media: vec![],
+        }
+        .apply(&mut p)
+        .unwrap();
+        Command::SetCaptions {
+            entries: vec![(
+                0,
+                Some(Caption::new("Line one\nLine two", CaptionStyle::Corner)),
+            )],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let back = Project::from_json(&p.to_json().unwrap()).unwrap();
+        assert_eq!(back, p);
     }
 }

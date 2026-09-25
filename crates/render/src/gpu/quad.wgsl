@@ -49,9 +49,10 @@ fn vs_main(@builtin(vertex_index) i: u32) -> VOut {
 
 @fragment
 fn fs_main(v: VOut) -> @location(0) vec4<f32> {
-    var rgb = textureSample(tex, samp, v.uv).rgb;
+    let texel = textureSample(tex, samp, v.uv);
     if (q.params.z > 0.5) {
-        rgb = q.colour.rgb;
+        return vec4<f32>(q.colour.rgb, q.params.y);
     }
-    return vec4<f32>(rgb, q.params.y);
+    // Pictures are opaque; captions carry straight alpha.
+    return vec4<f32>(texel.rgb, texel.a * q.params.y);
 }

@@ -346,3 +346,89 @@ fn video_frames_are_uploaded_per_frame() {
         );
     }
 }
+
+/// Writes a frame as a binary PPM (for looking at captions by hand).
+fn dump(name: &str, f: &Frame) {
+    let Ok(dir) = std::env::var("CLIPFORGE_DUMP") else {
+        return;
+    };
+    let mut out = format!("P6\n{} {}\n255\n", f.width, f.height).into_bytes();
+    for px in f.rgba.as_chunks::<4>().0 {
+        out.extend_from_slice(&px[..3]);
+    }
+    let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out);
+}
+
+#[test]
+fn titles_and_captions_match() {
+    use clipforge_core::project::{Caption, CaptionStyle, TitleBackground};
+    let (mut p, provider) = scene(TransitionKind::CrossDissolve);
+    Command::InsertClips {
+        entries: vec![(
+            0,
+            Clip::title(
+                "Summer in Italy\nJuly 2024",
+                TitleBackground::Blue,
+                Ticks::from_seconds(3),
+            ),
+        )],
+        media: vec![],
+    }
+    .apply(&mut p)
+    .unwrap();
+    let t_title = Ticks::SECOND;
+    let t_photo = Ticks::from_seconds(4);
+    for style in CaptionStyle::ALL {
+        Command::SetCaptions {
+            entries: vec![(1, Some(Caption::new("Rome, the Colosseum at dusk", style)))],
+        }
+        .apply(&mut p)
+        .unwrap();
+        for q in [
+            RenderQuality::Preview,
+            RenderQuality::Full(Resolution::FullHd),
+        ] {
+            assert_same(&format!("caption {style:?}"), &p, t_photo, q, &provider);
+        }
+        dump(
+            &format!("caption_{style:?}"),
+            &Compositor::new().render(&p, t_photo, RenderQuality::Preview, &provider),
+        );
+        if let Some(g) = gpu() {
+            dump(
+                &format!("caption_{style:?}_gpu"),
+                &g.render(&p, t_photo, RenderQuality::Preview, &provider),
+            );
+        }
+    }
+    assert_same("title", &p, t_title, RenderQuality::Preview, &provider);
+    // The caption travels with its clip through the transition into photo 2.
+    assert_same(
+        "caption in a dissolve",
+        &p,
+        Ticks::from_millis(6_500),
+        RenderQuality::Preview,
+        &provider,
+    );
+    dump(
+        "title",
+        &Compositor::new().render(&p, t_title, RenderQuality::Preview, &provider),
+    );
+    Command::SetTitleBackground {
+        indices: vec![0],
+        background: TitleBackground::White,
+    }
+    .apply(&mut p)
+    .unwrap();
+    assert_same(
+        "light title",
+        &p,
+        t_title,
+        RenderQuality::Preview,
+        &provider,
+    );
+    dump(
+        "title_white",
+        &Compositor::new().render(&p, t_title, RenderQuality::Preview, &provider),
+    );
+}

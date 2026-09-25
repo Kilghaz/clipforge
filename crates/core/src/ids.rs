@@ -13,6 +13,9 @@ use uuid::Uuid;
 pub struct MediaId(Uuid);
 
 impl MediaId {
+    /// Placeholder for clips that show no media (title cards).
+    pub const NONE: MediaId = MediaId(Uuid::nil());
+
     #[must_use]
     pub fn new() -> Self {
         MediaId(Uuid::new_v4())

@@ -12,6 +12,7 @@ use crate::frame::Frame;
 use crate::layout::place;
 use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
+use crate::text::{Area, TextRenderer, draw_caption};
 use crate::transition;
 
 use crate::PLACEHOLDER_RGB;
@@ -37,6 +38,7 @@ struct CacheKey {
 pub struct Compositor {
     cache: Mutex<HashMap<CacheKey, Arc<Frame>>>,
     order: Mutex<Vec<CacheKey>>,
+    text: TextRenderer,
 }
 
 impl std::fmt::Debug for Compositor {
@@ -116,8 +118,8 @@ impl Compositor {
         frame
     }
 
-    /// Renders a single clip's picture (no transitions) at `local` time
-    /// within the clip.
+    /// Renders a single clip (picture and caption, no transitions) at
+    /// `local` time within the clip.
     fn render_clip(
         &self,
         clip: &Clip,
@@ -127,6 +129,33 @@ impl Compositor {
         quality: RenderQuality,
         sources: &dyn SourceProvider,
     ) -> Frame {
+        let (mut frame, area) = match clip.source {
+            ClipSource::Title { background, .. } => (
+                Frame::solid(w, h, crate::title_rgb(background)),
+                Area::full(w, h),
+            ),
+            _ => self.render_picture(clip, local, w, h, quality, sources),
+        };
+        if let Some(caption) = &clip.caption
+            && let Some(image) =
+                self.text
+                    .caption(caption, (w, h), area, crate::caption_on_light(clip))
+        {
+            draw_caption(&mut frame, &image);
+        }
+        frame
+    }
+
+    /// Renders a photo or video clip's picture and where it is visible.
+    fn render_picture(
+        &self,
+        clip: &Clip,
+        local: Ticks,
+        w: u32,
+        h: u32,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> (Frame, Area) {
         let want_edge = quality
             .source_edge(clipforge_core::Aspect::Landscape16x9)
             .max(w.max(h));
@@ -148,10 +177,12 @@ impl Compositor {
                 let ms = t.flicks() / (clipforge_core::time::FLICKS_PER_SECOND / 1000);
                 (sources.video_frame(clip.media, t, want_edge), Some(ms))
             }
+            ClipSource::Title { .. } => (None, None),
         };
         let Some(src) = src else {
-            return Frame::solid(w, h, PLACEHOLDER_RGB);
+            return (Frame::solid(w, h, PLACEHOLDER_RGB), Area::full(w, h));
         };
+        let area = Area::of_picture((src.width, src.height), clip.rotate, (w, h), clip.fit);
         let filter = if quality.is_preview() {
             Filter::Fast
         } else {
@@ -166,7 +197,7 @@ impl Compositor {
             } else {
                 0.0
             };
-            return compose(
+            let frame = compose(
                 &rotated,
                 w,
                 h,
@@ -174,6 +205,7 @@ impl Compositor {
                 clip.motion.camera(progress),
                 filter,
             );
+            return (frame, area);
         }
         let key = CacheKey {
             media: clip.media,
@@ -184,11 +216,11 @@ impl Compositor {
             rotate: clip.rotate,
         };
         if let Some(hit) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
-            return (*hit).clone();
+            return ((*hit).clone(), area);
         }
         let frame = compose(&rotated, w, h, clip.fit, (1.0, 0.0, 0.0), filter);
         self.remember(key, &frame);
-        frame
+        (frame, area)
     }
 
     fn remember(&self, key: CacheKey, frame: &Frame) {

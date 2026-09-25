@@ -30,6 +30,7 @@ use crate::frame::Frame;
 use crate::layout::place;
 use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
+use crate::text::{Area, CaptionImage, TextRenderer};
 use crate::transition::{ease, opening_colour};
 use crate::{FrameRenderer, PLACEHOLDER_RGB};
 
@@ -77,7 +78,12 @@ struct CachedVideo {
     frame: Arc<Vec<u8>>,
 }
 
+/// Captions uploaded recently; the `Arc` identifies the rendered image
+/// (the text renderer hands out the same `Arc` for the same caption).
+const CAPTION_TEXTURES: usize = 8;
+
 struct State {
+    captions: Vec<(Arc<CaptionImage>, Sampled)>,
     stills: HashMap<(MediaId, u32, u32), CachedStill>,
     videos: HashMap<MediaId, CachedVideo>,
     still_bytes: u64,
@@ -97,6 +103,7 @@ pub struct GpuCompositor {
     uniforms: wgpu::Buffer,
     /// 1 × 1 white texture for solid draws (set right after construction).
     white: Option<Sampled>,
+    text: TextRenderer,
     state: Mutex<State>,
 }
 
@@ -240,6 +247,7 @@ impl GpuCompositor {
         });
         let mut gpu = GpuCompositor {
             white: None,
+            text: TextRenderer::new(),
             device,
             queue,
             adapter_name: format!("{} ({:?})", info.name, info.backend),
@@ -248,6 +256,7 @@ impl GpuCompositor {
             sampler,
             uniforms,
             state: Mutex::new(State {
+                captions: Vec::new(),
                 stills: HashMap::new(),
                 videos: HashMap::new(),
                 still_bytes: 0,
@@ -590,6 +599,7 @@ impl GpuCompositor {
                 entry.last_used = clock;
                 Some(&entry.sampled)
             }
+            ClipSource::Title { .. } => None,
             ClipSource::Video { in_point, .. } => {
                 let img = sources.video_frame(clip.media, in_point + local, want_edge)?;
                 let reuse = state
@@ -616,6 +626,31 @@ impl GpuCompositor {
                 state.videos.get(&clip.media).map(|v| &v.sampled)
             }
         }
+    }
+
+    /// Bind group of an uploaded caption, uploading it on first use.
+    fn caption_texture(&self, state: &mut State, img: &Arc<CaptionImage>) -> wgpu::BindGroup {
+        if let Some(pos) = state.captions.iter().position(|(i, _)| Arc::ptr_eq(i, img)) {
+            // Most recently used last.
+            let entry = state.captions.remove(pos);
+            let bg = entry.1.bind_group.clone();
+            state.captions.push(entry);
+            return bg;
+        }
+        let sampled = self.upload(
+            &SourceImage {
+                width: img.width,
+                height: img.height,
+                rgba: Arc::new(img.rgba.clone()),
+            },
+            false,
+        );
+        let bg = sampled.bind_group.clone();
+        if state.captions.len() >= CAPTION_TEXTURES {
+            state.captions.remove(0);
+        }
+        state.captions.push((Arc::clone(img), sampled));
+        bg
     }
 
     fn read_back(
@@ -842,25 +877,57 @@ impl FrameRenderer for GpuCompositor {
             let source = self
                 .source(state, clip, local, want_edge, sources)
                 .map(|s| (s.size, s.bind_group.clone()));
+            let area = source.as_ref().map_or(Area::full(w, h), |(size, _)| {
+                Area::of_picture(*size, clip.rotate, (w, h), clip.fit)
+            });
+            let caption = clip
+                .caption
+                .as_ref()
+                .and_then(|c| {
+                    self.text
+                        .caption(c, (w, h), area, crate::caption_on_light(clip))
+                })
+                .map(|img| {
+                    let bg = self.caption_texture(state, &img);
+                    (img, bg)
+                });
             let Some((_, targets)) = state.targets.as_ref() else {
                 return;
             };
             let view = &targets[idx].view;
-            match source.and_then(|(size, bg)| {
+            let picture = source.and_then(|(size, bg)| {
                 clip_rect(size, clip.rotate, w, h, clip.fit, camera).map(|r| (r, bg))
-            }) {
-                Some((dst, bg)) => {
-                    let paint = Paint::Texture {
-                        bind_group: &bg,
-                        dst,
-                        rotate: clip.rotate,
-                        alpha: 1.0,
-                        scissor: None,
-                    };
-                    self.pass(encoder, view, (w, h), [0, 0, 0], &[paint], slot);
-                }
-                None => self.pass(encoder, view, (w, h), PLACEHOLDER_RGB, &[], slot),
+            });
+            let clear = match clip.source {
+                ClipSource::Title { background, .. } => crate::title_rgb(background),
+                _ if picture.is_some() => [0, 0, 0],
+                _ => PLACEHOLDER_RGB,
+            };
+            let mut paints = Vec::with_capacity(2);
+            if let Some((dst, bg)) = &picture {
+                paints.push(Paint::Texture {
+                    bind_group: bg,
+                    dst: *dst,
+                    rotate: clip.rotate,
+                    alpha: 1.0,
+                    scissor: None,
+                });
             }
+            if let Some((img, bg)) = &caption {
+                paints.push(Paint::Texture {
+                    bind_group: bg,
+                    dst: RectF {
+                        x: f64::from(img.x),
+                        y: f64::from(img.y),
+                        width: f64::from(img.width),
+                        height: f64::from(img.height),
+                    },
+                    rotate: Quarter::None,
+                    alpha: 1.0,
+                    scissor: None,
+                });
+            }
+            self.pass(encoder, view, (w, h), clear, &paints, slot);
         };
 
         let (cur_idx, cur_local) = at.current;

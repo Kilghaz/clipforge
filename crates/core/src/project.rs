@@ -275,6 +275,97 @@ impl Motion {
     }
 }
 
+/// Look of a caption or title text. Serialised names are stable.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionStyle {
+    /// White text with a soft shadow, centred near the bottom.
+    #[default]
+    Classic,
+    /// Text on a dark translucent band across the bottom.
+    Banner,
+    /// Large bold text in the centre; further lines smaller. Title cards.
+    Headline,
+    /// Small text in the bottom-left corner.
+    Corner,
+}
+
+impl CaptionStyle {
+    pub const ALL: [CaptionStyle; 4] = [
+        CaptionStyle::Classic,
+        CaptionStyle::Banner,
+        CaptionStyle::Headline,
+        CaptionStyle::Corner,
+    ];
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn from_index(index: usize) -> CaptionStyle {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+}
+
+/// Text shown over a clip for as long as the clip is visible. Line breaks
+/// in `text` are kept.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Caption {
+    pub text: String,
+    #[serde(default)]
+    pub style: CaptionStyle,
+}
+
+impl Caption {
+    #[must_use]
+    pub fn new(text: impl Into<String>, style: CaptionStyle) -> Caption {
+        Caption {
+            text: text.into(),
+            style,
+        }
+    }
+}
+
+/// Background colour of a title card.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleBackground {
+    #[default]
+    Black,
+    Charcoal,
+    Blue,
+    Red,
+    White,
+}
+
+impl TitleBackground {
+    pub const ALL: [TitleBackground; 5] = [
+        TitleBackground::Black,
+        TitleBackground::Charcoal,
+        TitleBackground::Blue,
+        TitleBackground::Red,
+        TitleBackground::White,
+    ];
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|b| *b == self).unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn from_index(index: usize) -> TitleBackground {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+
+    /// Light backgrounds need dark text.
+    #[must_use]
+    pub const fn is_light(self) -> bool {
+        matches!(self, TitleBackground::White)
+    }
+}
+
 /// A transition from the previous clip into this one.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Transition {
@@ -313,6 +404,13 @@ pub enum ClipSource {
     Photo { duration: Ticks },
     /// A video trimmed to `in_point..out_point` of the source.
     Video { in_point: Ticks, out_point: Ticks },
+    /// A title card: a solid background for `duration`; the text is the
+    /// clip's caption.
+    Title {
+        duration: Ticks,
+        #[serde(default)]
+        background: TitleBackground,
+    },
 }
 
 /// One item on the video track.
@@ -335,6 +433,9 @@ pub struct Clip {
     /// Ken Burns movement. Only applied to photos.
     #[serde(default)]
     pub motion: Motion,
+    /// Text over the clip (the title of a title card).
+    #[serde(default)]
+    pub caption: Option<Caption>,
 }
 
 fn default_volume() -> u16 {
@@ -355,6 +456,27 @@ impl Clip {
             muted: false,
             volume_percent: 100,
             motion: Motion::None,
+            caption: None,
+        }
+    }
+
+    /// A title card showing `text` (headline style) on `background`.
+    #[must_use]
+    pub fn title(text: impl Into<String>, background: TitleBackground, duration: Ticks) -> Clip {
+        Clip {
+            id: ClipId::new(),
+            media: MediaId::NONE,
+            source: ClipSource::Title {
+                duration,
+                background,
+            },
+            fit: Fit::default(),
+            rotate: Quarter::default(),
+            transition_in: Transition::default(),
+            muted: false,
+            volume_percent: 100,
+            motion: Motion::None,
+            caption: Some(Caption::new(text, CaptionStyle::Headline)),
         }
     }
 
@@ -374,6 +496,7 @@ impl Clip {
             muted: false,
             volume_percent: 100,
             motion: Motion::None,
+            caption: None,
         }
     }
 
@@ -391,7 +514,7 @@ impl Clip {
     #[must_use]
     pub fn duration(&self) -> Ticks {
         match self.source {
-            ClipSource::Photo { duration } => duration,
+            ClipSource::Photo { duration } | ClipSource::Title { duration, .. } => duration,
             ClipSource::Video {
                 in_point,
                 out_point,
@@ -402,6 +525,22 @@ impl Clip {
     #[must_use]
     pub const fn is_photo(&self) -> bool {
         matches!(self.source, ClipSource::Photo { .. })
+    }
+
+    #[must_use]
+    pub const fn is_title(&self) -> bool {
+        matches!(self.source, ClipSource::Title { .. })
+    }
+
+    #[must_use]
+    pub const fn is_video(&self) -> bool {
+        matches!(self.source, ClipSource::Video { .. })
+    }
+
+    /// Photos and title cards: clips with a free duration.
+    #[must_use]
+    pub const fn is_still(&self) -> bool {
+        !self.is_video()
     }
 }
 
@@ -498,11 +637,13 @@ impl Project {
     /// Checks structural invariants. Used by tests and after loading.
     pub fn validate(&self) -> Result<(), String> {
         for (i, clip) in self.clips.iter().enumerate() {
-            if !self.media.contains_key(&clip.media) {
+            if !clip.is_title() && !self.media.contains_key(&clip.media) {
                 return Err(format!("clip {i} references unknown media {}", clip.media));
             }
             match clip.source {
-                ClipSource::Photo { duration } if duration <= Ticks::ZERO => {
+                ClipSource::Photo { duration } | ClipSource::Title { duration, .. }
+                    if duration <= Ticks::ZERO =>
+                {
                     return Err(format!("clip {i} has non-positive duration"));
                 }
                 ClipSource::Video {
@@ -518,7 +659,7 @@ impl Project {
                         return Err(format!("clip {i} out point exceeds source duration"));
                     }
                 }
-                ClipSource::Photo { .. } => {}
+                ClipSource::Photo { .. } | ClipSource::Title { .. } => {}
             }
             if clip.transition_in.duration < Ticks::ZERO {
                 return Err(format!("clip {i} has a negative transition"));
