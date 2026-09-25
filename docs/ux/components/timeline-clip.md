@@ -172,3 +172,7 @@ Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given)
   is jargon (NN/G "match with the real world"). Alternative: "Slow zoom or pan".
 - Keyboard: `T` focuses the transition picker in the inspector
   (`keyboard.md`); like J/K/L it is not shown in a menu yet.
+
+## Resolution 2026-09-25
+
+- Fixed: keyboard access (AUDIT #2): ↑/↓ previous/next clip with playhead jump (←/→ keep frame stepping), Shift extends, Ctrl/Cmd moves focus only, Enter toggles, Alt/Option+←/→ reorders by one place (one `Reorder` per press); the strip is its own tab stop, clicks focus it, the focused clip scrolls into view. Inset keyboard-only focus ring. Clips are `list-item`s with selected state; labels include duration and muted. Gallery rows for selected+focus and focus only.

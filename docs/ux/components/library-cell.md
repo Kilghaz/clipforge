@@ -144,3 +144,7 @@ Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given)
 
 - Fixed: Ctrl/Cmd+A selects all, Escape clears or cancels a drag (library `FocusScope`, focused on click); grid padding symmetric and rows 120 px (8 px gap); placeholder icon token.
 - Deferred to AUDIT-2026-09: keyboard navigation #1, remove undo #3, context menu #4, drag ghost #14, a11y roles #18.
+
+## Resolution 2026-09-25
+
+- Fixed: keyboard access (AUDIT #1): the grid is one tab stop with Fluent extended-selection keys (arrows, Shift, Ctrl/Cmd, Space, Home/End, Page Up/Down, Enter adds to timeline), keyboard-only focus ring outside the selection border, focused row scrolls into view, clicks move the keyboard focus. Cells are `list-item`s with selected state inside a labelled `list`. Gallery rows for selected+focus and focus only. Decision note: `docs/ux/decisions/keyboard-navigation.md`.

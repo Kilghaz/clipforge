@@ -154,7 +154,7 @@ export component GalleryWindow inherits Window {
             Badge { text: "HDR"; label: "High dynamic range"; }
         }
         Row {
-            title: "Library cells: photo, selected, video, audio (no thumb), pending, failed, cloud";
+            title: "Library cells: photo, selected, video, audio (no thumb), pending, failed, cloud; selected + keyboard focus, focus only";
             CellView { cell: { index: 0, id: "a", title: "IMG_4021.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0 }; }
             CellView { cell: { index: 1, id: "b", title: "IMG_4022.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, selected: true }; }
             CellView { cell: { index: 2, id: "c", title: "Clip 5.mov", subtitle: "0:14 · 4K", image: root.sample, has-image: true, kind: 1 }; }
@@ -162,14 +162,18 @@ export component GalleryWindow inherits Window {
             CellView { cell: { index: 4, id: "e", title: "IMG_4023.jpg", subtitle: "12 Jul 2026", kind: 0, pending: true }; }
             CellView { cell: { index: 5, id: "f", title: "broken.jpg", subtitle: "", kind: 0, failed: true }; }
             CellView { cell: { index: 6, id: "g", title: "IMG_4024.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, cloud: true }; }
+            CellView { show-focus: true; cell: { index: 7, id: "h", title: "IMG_4025.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, selected: true, focused: true }; }
+            CellView { show-focus: true; cell: { index: 8, id: "i", title: "IMG_4026.jpg", subtitle: "12 Jul 2026", image: root.sample, has-image: true, kind: 0, focused: true }; }
         }
         Row {
-            title: "Timeline clips (100 px): photo, selected photo with dissolve, video, muted video, no thumb";
+            title: "Timeline clips (100 px): photo, selected photo with dissolve, video, muted video, no thumb; selected + keyboard focus, focus only";
             ClipView { width: 160px; height: 100px; item: { index: 0, id: "a", title: "IMG_4021.jpg", thumb: root.sample, has-thumb: true, width: 160, duration-text: "4.0 s" }; }
             ClipView { width: 160px; height: 100px; item: { index: 1, id: "b", title: "IMG_4022.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, selected: true, transition: 1, duration-text: "4.0 s" }; }
             ClipView { width: 220px; height: 100px; item: { index: 2, id: "c", title: "Clip 2.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, duration-text: "0:06" }; }
             ClipView { width: 220px; height: 100px; item: { index: 3, id: "d", title: "Clip 4.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, muted: true, transition: 2, overlap: 30, duration-text: "0:06" }; }
             ClipView { width: 120px; height: 100px; item: { index: 4, id: "e", title: "IMG_4099.jpg", width: 120, duration-text: "4.0 s" }; }
+            ClipView { width: 160px; height: 100px; show-focus: true; item: { index: 5, id: "f", title: "IMG_4100.jpg", thumb: root.sample, has-thumb: true, width: 160, selected: true, focused: true, duration-text: "4.0 s" }; }
+            ClipView { width: 160px; height: 100px; show-focus: true; item: { index: 6, id: "g", title: "IMG_4101.jpg", thumb: root.sample, has-thumb: true, width: 160, focused: true, duration-text: "4.0 s" }; }
         }
         Row {
             title: "Timeline clips, M4: moving photo (no transition), moving photo with slide, video with wipe (movement overlay), selected moving photo with zoom";

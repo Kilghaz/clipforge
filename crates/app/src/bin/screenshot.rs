@@ -206,6 +206,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
                 failed: index == 10,
                 pending: index == 11,
                 selected: index == 1 || index == 4,
+                focused: false,
             });
             index += 1;
         }
@@ -269,6 +270,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             is_video,
             muted: i == 4,
             moving: i == 1 || i == 3,
+            focused: false,
         });
         x += width - 40.0 + 4.0;
     }

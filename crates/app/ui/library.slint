@@ -16,6 +16,8 @@ export struct MediaCell {
     failed: bool,
     pending: bool,
     selected: bool,
+    /// Keyboard focus (drawn only while the grid has keyboard focus).
+    focused: bool,
 }
 
 export struct GridRow {
@@ -95,6 +97,21 @@ export global LibraryState {
     callback select-all();
     callback clear-selection();
     callback cancel-drag();
+    /// Grid keyboard navigation (docs/ux/decisions/keyboard-navigation.md).
+    /// nav: 0 left, 1 right, 2 up, 3 down, 4 home, 5 end, 6 page up,
+    /// 7 page down; mode: 0 replace, 1 extend, 2 focus only.
+    callback grid-navigate(int, int, int);
+    callback grid-toggle-focused();
+    /// Enter: add the selection (or the focused item) to the timeline.
+    callback grid-activate();
+    /// Tab entered the grid: give it a focused item.
+    callback grid-focus-entered();
+    /// Show the focus ring (last focus change came from the keyboard).
+    in-out property <bool> focus-visible;
+    /// Row of the focused item; `focus-token` changes on every keyboard
+    /// move so the row scrolls into view even when it did not change.
+    in-out property <int> focused-row: -1;
+    in-out property <int> focus-token;
 }
 
 /// Media type / status badge in the thumbnail corner.
@@ -112,6 +129,9 @@ export component KindBadge inherits Badge {
 /// `library_view.rs`; change both together.
 export component CellView inherits Rectangle {
     in property <MediaCell> cell;
+    /// Draw the keyboard focus ring (the grid decides: focused cell, grid
+    /// has focus, focus came from the keyboard).
+    in property <bool> show-focus;
     callback pressed(bool, bool);
     callback dragged(float, float);
     callback released(float, float);
@@ -124,8 +144,10 @@ export component CellView inherits Rectangle {
     border-width: root.cell.selected ? 2px : 0px;
     border-color: Theme.selection;
     animate background { duration: Theme.motion-fast; }
-    accessible-role: button;
+    accessible-role: list-item;
     accessible-label: root.cell.title;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.cell.selected;
 
     init => { root.shown(); }
     touch := TouchArea {
@@ -187,6 +209,16 @@ export component CellView inherits Rectangle {
             horizontal-alignment: center;
         }
     }
+    // Keyboard focus ring, outside the selection border (Fluent focus visual).
+    if root.show-focus : Rectangle {
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        border-radius: Theme.radius-m + 3px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
 }
 
 component InfoRow inherits HorizontalLayout {
@@ -209,6 +241,22 @@ export component LibraryPage inherits Rectangle {
 
     background: Theme.surface-pane;
     forward-focus: keys;
+
+    function grid-nav(nav: int, mods: KeyboardModifiers) {
+        LibraryState.focus-visible = true;
+        LibraryState.grid-navigate(nav, mods.shift ? 1 : ((mods.control || mods.meta) ? 2 : 0), floor(lv.visible-height / 120px));
+    }
+    /// Scrolls the grid so row `row` is fully visible.
+    function ensure-row-visible(row: int) {
+        if row < 0 { return; }
+        if row * 120px < -lv.content-y {
+            lv.content-y = -row * 120px;
+        } else if (row + 1) * 120px > -lv.content-y + lv.visible-height {
+            lv.content-y = -((row + 1) * 120px - lv.visible-height);
+        }
+    }
+    property <int> focus-token: LibraryState.focus-token;
+    changed focus-token => { root.ensure-row-visible(LibraryState.focused-row); }
 
     keys := FocusScope {
         key-pressed(event) => {
@@ -279,6 +327,30 @@ export component LibraryPage inherits Rectangle {
             // is also published as a property that Rust reads itself.
             changed width => { LibraryState.grid-width = self.width; LibraryState.grid-width-changed(self.width); }
             init => { LibraryState.grid-width = self.width; }
+            grid-focus := FocusScope {
+            width: parent.width;
+            height: parent.height;
+            accessible-role: list;
+            accessible-label: @tr("Library items");
+            focus-gained(reason) => {
+                if reason == FocusReason.tab-navigation {
+                    LibraryState.focus-visible = true;
+                    LibraryState.grid-focus-entered();
+                }
+            }
+            key-pressed(event) => {
+                if event.text == Key.LeftArrow { root.grid-nav(0, event.modifiers); return accept; }
+                if event.text == Key.RightArrow { root.grid-nav(1, event.modifiers); return accept; }
+                if event.text == Key.UpArrow { root.grid-nav(2, event.modifiers); return accept; }
+                if event.text == Key.DownArrow { root.grid-nav(3, event.modifiers); return accept; }
+                if event.text == Key.Home { root.grid-nav(4, event.modifiers); return accept; }
+                if event.text == Key.End { root.grid-nav(5, event.modifiers); return accept; }
+                if event.text == Key.PageUp { root.grid-nav(6, event.modifiers); return accept; }
+                if event.text == Key.PageDown { root.grid-nav(7, event.modifiers); return accept; }
+                if event.text == Key.Space { LibraryState.focus-visible = true; LibraryState.grid-toggle-focused(); return accept; }
+                if event.text == Key.Return { LibraryState.grid-activate(); return accept; }
+                return reject;
+            }
             lv := ListView {
                 for row[r] in root.rows : Rectangle {
                     height: 120px;
@@ -286,7 +358,8 @@ export component LibraryPage inherits Rectangle {
                     TouchArea {
                         pointer-event(e) => {
                             if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                                keys.focus();
+                                LibraryState.focus-visible = false;
+                                grid-focus.focus();
                                 LibraryState.marquee-start(self.mouse-x / 1px, r * 120 + self.mouse-y / 1px, e.modifiers.shift || e.modifiers.control || e.modifiers.meta);
                             } else if e.kind == PointerEventKind.move && self.pressed {
                                 LibraryState.marquee-move(self.mouse-x / 1px, r * 120 + self.mouse-y / 1px);
@@ -303,7 +376,12 @@ export component LibraryPage inherits Rectangle {
                         alignment: start;
                         for cell in row.cells : CellView {
                             cell: cell;
-                            pressed(shift, toggle) => { keys.focus(); LibraryState.cell-pressed(cell.index, shift, toggle); }
+                            show-focus: cell.focused && grid-focus.has-focus && LibraryState.focus-visible;
+                            pressed(shift, toggle) => {
+                                LibraryState.focus-visible = false;
+                                grid-focus.focus();
+                                LibraryState.cell-pressed(cell.index, shift, toggle);
+                            }
                             dragged(x, y) => { LibraryState.cell-drag-moved(cell.index, x, y); }
                             released(x, y) => { LibraryState.cell-released(cell.index, x, y); }
                             double-clicked => { LibraryState.cell-double-clicked(cell.index); }
@@ -311,6 +389,7 @@ export component LibraryPage inherits Rectangle {
                         }
                     }
                 }
+            }
             }
             if LibraryState.marquee-visible : Rectangle {
                 x: LibraryState.marquee-x * 1px;

@@ -19,7 +19,8 @@ use tracing::{debug, warn};
 
 use crate::format;
 use crate::library_view::{
-    self, GridSelection, ThumbWindow, ViewState, columns_for_width, row_count, row_of,
+    self, GridNav, GridSelection, KeyMode, ThumbWindow, ViewState, columns_for_width, grid_nav,
+    row_count, row_of,
 };
 use crate::ui::{GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell};
 
@@ -46,6 +47,8 @@ struct Inner {
     /// Decoded small thumbnails for cells inside the thumb window.
     images: HashMap<MediaId, slint::Image>,
     selection: GridSelection,
+    /// Cell that currently carries `focused` in the model.
+    shown_focus: Option<usize>,
     dirty: bool,
     last_refresh: Instant,
     /// Editor hook: add these library items to the timeline.
@@ -97,6 +100,7 @@ impl LibraryController {
             thumbs: ThumbWindow::new(THUMB_WINDOW),
             images: HashMap::new(),
             selection: GridSelection::default(),
+            shown_focus: None,
             dirty: true,
             last_refresh: Instant::now() - REFRESH_INTERVAL,
             add_to_timeline: None,
@@ -163,6 +167,11 @@ impl LibraryController {
         on!(on_select_all, |i| i.select_all());
         on!(on_clear_selection, |i| i.clear_selection());
         on!(on_cancel_drag, |i| i.cancel_drag());
+        on!(on_grid_navigate, |i, nav, mode, page_rows| i
+            .grid_navigate(nav, mode, page_rows));
+        on!(on_grid_toggle_focused, |i| i.grid_toggle_focused());
+        on!(on_grid_activate, |i| i.grid_activate());
+        on!(on_grid_focus_entered, |i| i.grid_focus_entered());
         on!(on_cell_shown, |i, idx| {
             if let Ok(idx) = usize::try_from(idx) {
                 i.cell_shown(idx);
@@ -296,8 +305,8 @@ impl Inner {
             w.global::<LibraryState>()
                 .set_total_count(i32::try_from(total).unwrap_or(i32::MAX));
         }
-        self.rebuild_rows();
         self.selection.retain_existing(&self.ids);
+        self.rebuild_rows();
         self.sync_selection_count();
         self.refresh_inspector();
     }
@@ -322,6 +331,7 @@ impl Inner {
                         has_image: image.is_some(),
                         image: image.unwrap_or_default(),
                         selected: self.selection.ids.contains(&id),
+                        focused: self.selection.focus == Some(i),
                         ..Default::default()
                     }
                 })
@@ -334,6 +344,7 @@ impl Inner {
         }
         self.row_models = row_models;
         self.rows.set_vec(grid_rows);
+        self.shown_focus = self.selection.focus;
     }
 
     fn cell(&self, index: usize) -> Option<(Rc<VecModel<MediaCell>>, usize, MediaCell)> {
@@ -391,9 +402,11 @@ impl Inner {
             }
         };
         let selected = self.selection.ids.contains(&id);
+        let focused = self.selection.focus == Some(index);
         self.update_cell(index, |c| {
             fill_cell(c, &record);
             c.selected = selected;
+            c.focused = focused;
             if let Some(img) = image {
                 c.image = img;
                 c.has_image = true;
@@ -414,8 +427,100 @@ impl Inner {
                 self.update_cell(index, |c| c.selected = on);
             }
         }
+        self.sync_focus();
         self.sync_selection_count();
         self.refresh_inspector();
+    }
+
+    /// Moves the `focused` flag in the model to the selection's focus.
+    fn sync_focus(&mut self) {
+        let focus = self.selection.focus;
+        if focus == self.shown_focus {
+            return;
+        }
+        if let Some(old) = self.shown_focus {
+            self.update_cell(old, |c| c.focused = false);
+        }
+        if let Some(new) = focus {
+            self.update_cell(new, |c| c.focused = true);
+        }
+        self.shown_focus = focus;
+    }
+
+    /// Tells the grid which row to scroll into view.
+    fn reveal_focus(&self) {
+        let (Some(w), Some(f)) = (self.state(), self.selection.focus) else {
+            return;
+        };
+        let s = w.global::<LibraryState>();
+        s.set_focused_row(to_i32(row_of(f, self.columns)));
+        s.set_focus_token(s.get_focus_token().wrapping_add(1));
+    }
+
+    fn grid_navigate(&mut self, nav: i32, mode: i32, page_rows: i32) {
+        let nav = match nav {
+            0 => GridNav::Left,
+            1 => GridNav::Right,
+            2 => GridNav::Up,
+            3 => GridNav::Down,
+            4 => GridNav::Home,
+            5 => GridNav::End,
+            6 => GridNav::PageUp,
+            _ => GridNav::PageDown,
+        };
+        let mode = match mode {
+            1 => KeyMode::Extend,
+            2 => KeyMode::FocusOnly,
+            _ => KeyMode::Replace,
+        };
+        // The first key press after entering only lands on the entry item.
+        let target = match self.selection.focus {
+            Some(from) => grid_nav(
+                from,
+                self.ids.len(),
+                self.columns,
+                usize::try_from(page_rows).unwrap_or(1),
+                nav,
+            ),
+            None => self.selection.entry_focus(&self.ids),
+        };
+        let Some(target) = target else { return };
+        let before = self.selection.ids.clone();
+        self.selection.key_select(&self.ids, target, mode);
+        self.set_selection_from(&before);
+        self.reveal_focus();
+    }
+
+    fn grid_toggle_focused(&mut self) {
+        if self.selection.focus.is_none() {
+            self.selection.focus = self.selection.entry_focus(&self.ids);
+        }
+        let before = self.selection.ids.clone();
+        self.selection.toggle_focused(&self.ids);
+        self.set_selection_from(&before);
+        self.reveal_focus();
+    }
+
+    /// Enter: the selection goes to the timeline; with nothing selected,
+    /// the focused item does.
+    fn grid_activate(&mut self) {
+        let mut ids = self.selection.ordered(&self.ids);
+        if ids.is_empty()
+            && let Some(id) = self.selection.focus.and_then(|f| self.ids.get(f))
+        {
+            ids.push(*id);
+        }
+        if let (false, Some(hook)) = (ids.is_empty(), self.add_to_timeline.clone()) {
+            hook(ids);
+        }
+    }
+
+    fn grid_focus_entered(&mut self) {
+        if self.selection.focus.is_none() {
+            self.selection.focus = self.selection.entry_focus(&self.ids);
+        }
+        self.sync_focus();
+        self.reveal_focus();
     }
 
     fn sync_selection_count(&self) {
@@ -440,6 +545,7 @@ impl Inner {
         } else {
             self.selection.click(&self.ids, index, false, false);
         }
+        self.selection.focus = Some(index);
         self.set_selection_from(&before);
         self.press = Some(Press {
             index,

@@ -541,3 +541,9 @@ msgstr "Übergänge von {} Clips gemischt"
 
 msgid "Shuffled motion on {} photos"
 msgstr "Bewegung von {} Fotos gemischt"
+
+msgid "Library items"
+msgstr "Mediathek-Elemente"
+
+msgid "Timeline clips"
+msgstr "Clips in der Zeitleiste"

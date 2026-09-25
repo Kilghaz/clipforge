@@ -32,6 +32,8 @@ export struct TimelineClip {
     muted: bool,
     /// Photo with a Ken Burns movement.
     moving: bool,
+    /// Keyboard focus (drawn only while the strip has keyboard focus).
+    focused: bool,
 }
 
 /// All editor state, owned and driven by Rust.
@@ -94,6 +96,22 @@ export global EditorState {
     callback zoom-changed(float);
     callback select-all();
     callback clear-selection();
+    /// Timeline keyboard navigation (docs/ux/decisions/keyboard-navigation.md).
+    /// ↑/↓: previous/next clip; mode 0 replace, 1 extend, 2 focus only.
+    callback clip-navigate(bool, int);
+    /// Enter: toggle the focused clip in the selection.
+    callback toggle-focused-clip();
+    /// Alt/Option+←/→: move the selected clips one position (true = later).
+    callback nudge-clips(bool);
+    /// Tab entered the strip: give it a focused clip.
+    callback strip-focus-entered();
+    /// Show the focus ring (last focus change came from the keyboard).
+    in-out property <bool> focus-visible;
+    /// Focused clip geometry for scroll-into-view; `focus-token` changes on
+    /// every keyboard move.
+    in-out property <float> focus-clip-x;
+    in-out property <float> focus-clip-width;
+    in-out property <int> focus-token;
     callback delete-selected();
     callback undo();
     callback redo();
@@ -127,6 +145,10 @@ export global EditorState {
 /// transition overlay, mute badge and (videos) trim handles.
 export component ClipView inherits Rectangle {
     in property <TimelineClip> item;
+    /// Draw the keyboard focus ring (the strip decides).
+    in property <bool> show-focus;
+    /// Any press on the clip (body or trim handle), so the strip can take focus.
+    callback pressed-any();
     property <bool> hovered: touch.has-hover || trim-left.has-hover || trim-right.has-hover;
     border-radius: Theme.radius-m;
     background: root.item.selected ? Theme.selection-tint : (touch.has-hover ? Theme.surface-card.brighter(0.15) : Theme.surface-card);
@@ -134,12 +156,15 @@ export component ClipView inherits Rectangle {
     border-color: root.item.selected ? Theme.selection : Theme.border;
     clip: true;
     animate background { duration: Theme.motion-fast; }
-    accessible-role: button;
-    accessible-label: root.item.title;
+    accessible-role: list-item;
+    accessible-label: root.item.title + ", " + root.item.duration-text + (root.item.muted ? ", " + @tr("Muted") : "");
+    accessible-item-selectable: true;
+    accessible-item-selected: root.item.selected;
 
     touch := TouchArea {
         pointer-event(e) => {
             if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.pressed-any();
                 EditorState.clip-pressed(root.item.index, e.modifiers.shift, e.modifiers.control || e.modifiers.meta);
             } else if e.kind == PointerEventKind.move && self.pressed {
                 EditorState.clip-dragged(root.item.x + self.mouse-x / 1px);
@@ -221,12 +246,24 @@ export component ClipView inherits Rectangle {
     }
     // Trim handles (videos only): drag the edges to change in/out points.
     // Shown on hover so the affordance is discoverable without clutter.
+    // Keyboard focus ring, inset: neighbouring clips touch, and the clip
+    // clips its children, so an outside ring would be cut off.
+    if root.show-focus : Rectangle {
+        x: 3px;
+        y: 3px;
+        width: parent.width - 6px;
+        height: parent.height - 6px;
+        border-radius: Theme.radius-m - 2px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
     trim-left := TouchArea {
         x: 0;
         width: 16px;
         enabled: root.item.is-video;
         mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
+            if e.kind == PointerEventKind.down { root.pressed-any(); }
             if e.kind == PointerEventKind.move && self.pressed {
                 EditorState.trim-dragged(root.item.index, true, root.item.x + self.mouse-x / 1px);
             } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
@@ -241,6 +278,7 @@ export component ClipView inherits Rectangle {
         enabled: root.item.is-video;
         mouse-cursor: root.item.is-video ? MouseCursor.col-resize : MouseCursor.default;
         pointer-event(e) => {
+            if e.kind == PointerEventKind.down { root.pressed-any(); }
             if e.kind == PointerEventKind.move && self.pressed {
                 EditorState.trim-dragged(root.item.index, false, root.item.x + (parent.width - 16px + self.mouse-x) / 1px);
             } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
@@ -301,86 +339,140 @@ export component TimelineStrip inherits Rectangle {
     property <int> tick-count: ceil(flick.content-width / (EditorState.pixels-per-second * 1px)) + 1;
     height: self.clip-top + self.clip-height + Theme.space-s;
     background: Theme.surface-window;
-    flick := Flickable {
-        content-width: max(EditorState.strip-width * 1px + 200px, self.width);
-        content-height: self.height;
-        TouchArea {
-            width: parent.content-width;
-            pointer-event(e) => {
-                if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.move) && self.pressed {
-                    EditorState.scrub(self.mouse-x / 1px);
+    /// Moves keyboard focus into the strip (the editor forwards ↑/↓ here).
+    public function focus-strip() { strip-focus.focus(); }
+    /// Handles the timeline navigation keys; true when the key was used.
+    public function nav-key(event: KeyEvent) -> bool {
+        if event.text == Key.UpArrow || event.text == Key.DownArrow {
+            EditorState.focus-visible = true;
+            EditorState.clip-navigate(event.text == Key.DownArrow, event.modifiers.shift ? 1 : ((event.modifiers.control || event.modifiers.meta) ? 2 : 0));
+            return true;
+        }
+        if event.modifiers.alt && (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
+            EditorState.focus-visible = true;
+            EditorState.nudge-clips(event.text == Key.RightArrow);
+            return true;
+        }
+        return false;
+    }
+    /// Scrolls so the focused clip is fully visible, with a small margin.
+    function reveal-focused-clip() {
+        if EditorState.focus-clip-width <= 0 { return; }
+        if EditorState.focus-clip-x * 1px - Theme.space-l < -flick.content-x {
+            flick.content-x = min(0px, -(EditorState.focus-clip-x * 1px - Theme.space-l));
+        } else if (EditorState.focus-clip-x + EditorState.focus-clip-width) * 1px + Theme.space-l > -flick.content-x + flick.width {
+            flick.content-x = -((EditorState.focus-clip-x + EditorState.focus-clip-width) * 1px + Theme.space-l - flick.width);
+        }
+    }
+    property <int> focus-token: EditorState.focus-token;
+    changed focus-token => { root.reveal-focused-clip(); }
+    strip-focus := FocusScope {
+        width: parent.width;
+        height: parent.height;
+        accessible-role: list;
+        accessible-label: @tr("Timeline clips");
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                EditorState.focus-visible = true;
+                EditorState.strip-focus-entered();
+            }
+        }
+        key-pressed(event) => {
+            if root.nav-key(event) { return accept; }
+            if event.text == Key.Return { EditorState.focus-visible = true; EditorState.toggle-focused-clip(); return accept; }
+            return reject;
+        }
+        flick := Flickable {
+            content-width: max(EditorState.strip-width * 1px + 200px, self.width);
+            content-height: self.height;
+            TouchArea {
+                width: parent.content-width;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down {
+                        EditorState.focus-visible = false;
+                        strip-focus.focus();
+                    }
+                    if (e.kind == PointerEventKind.down || e.kind == PointerEventKind.move) && self.pressed {
+                        EditorState.scrub(self.mouse-x / 1px);
+                    }
                 }
             }
-        }
-        // Time ruler.
-        Rectangle {
-            x: 0;
-            y: 0;
-            width: parent.content-width;
-            height: root.ruler-height;
-            background: Theme.surface-pane;
-            Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: Theme.border; }
-            for i in root.tick-count : Rectangle {
-                x: i * EditorState.pixels-per-second * 1px;
-                y: parent.height - self.height;
-                width: 1px;
-                height: mod(i, root.label-step) == 0 ? 8px : 4px;
-                background: Theme.text-secondary;
+            // Time ruler.
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.content-width;
+                height: root.ruler-height;
+                background: Theme.surface-pane;
+                Rectangle { y: parent.height - 1px; height: 1px; width: parent.width; background: Theme.border; }
+                for i in root.tick-count : Rectangle {
+                    x: i * EditorState.pixels-per-second * 1px;
+                    y: parent.height - self.height;
+                    width: 1px;
+                    height: mod(i, root.label-step) == 0 ? 8px : 4px;
+                    background: Theme.text-secondary;
+                }
+                for i in root.tick-count : Text {
+                    visible: mod(i, root.label-step) == 0;
+                    x: i * EditorState.pixels-per-second * 1px + Theme.space-xs;
+                    y: 2px;
+                    text: floor(i / 60) + ":" + (mod(i, 60) < 10 ? "0" : "") + mod(i, 60);
+                    color: Theme.text-secondary;
+                    font-size: Theme.font-caption;
+                }
             }
-            for i in root.tick-count : Text {
-                visible: mod(i, root.label-step) == 0;
-                x: i * EditorState.pixels-per-second * 1px + Theme.space-xs;
-                y: 2px;
-                text: floor(i / 60) + ":" + (mod(i, 60) < 10 ? "0" : "") + mod(i, 60);
-                color: Theme.text-secondary;
-                font-size: Theme.font-caption;
+            for clip in EditorState.clips : ClipView {
+                item: clip;
+                show-focus: clip.focused && strip-focus.has-focus && EditorState.focus-visible;
+                pressed-any => {
+                    EditorState.focus-visible = false;
+                    strip-focus.focus();
+                }
+                x: clip.x * 1px;
+                y: root.clip-top;
+                width: clip.width * 1px;
+                height: root.clip-height;
+            }
+            if EditorState.trim-marker >= 0 : Rectangle {
+                x: EditorState.trim-marker-x * 1px - 1px;
+                y: root.clip-top - Theme.space-xs;
+                width: 2px;
+                height: root.clip-height + Theme.space-s;
+                background: Theme.text;
+            }
+            // Insertion point while dragging from the library.
+            if EditorState.drop-marker >= 0 : Rectangle {
+                x: EditorState.drop-marker-x * 1px - 1px;
+                y: root.clip-top - Theme.space-xs;
+                width: 3px;
+                height: root.clip-height + Theme.space-s;
+                background: Theme.accent;
+            }
+            // Playhead with a grab head in the ruler.
+            Rectangle {
+                x: EditorState.playhead-x * 1px - 1px;
+                y: 0;
+                width: 2px;
+                height: parent.height;
+                background: Theme.playhead;
+            }
+            Rectangle {
+                x: EditorState.playhead-x * 1px - 6px;
+                y: 0;
+                width: 12px;
+                height: 12px;
+                border-radius: Theme.radius-s;
+                background: Theme.playhead;
             }
         }
-        for clip in EditorState.clips : ClipView {
-            item: clip;
-            x: clip.x * 1px;
-            y: root.clip-top;
-            width: clip.width * 1px;
-            height: root.clip-height;
+        if Shell.drag-over-timeline : Rectangle {
+            background: Theme.drop-target;
+            border-width: 2px;
+            border-color: Theme.accent;
         }
-        if EditorState.trim-marker >= 0 : Rectangle {
-            x: EditorState.trim-marker-x * 1px - 1px;
-            y: root.clip-top - Theme.space-xs;
-            width: 2px;
-            height: root.clip-height + Theme.space-s;
-            background: Theme.text;
-        }
-        // Insertion point while dragging from the library.
-        if EditorState.drop-marker >= 0 : Rectangle {
-            x: EditorState.drop-marker-x * 1px - 1px;
-            y: root.clip-top - Theme.space-xs;
-            width: 3px;
-            height: root.clip-height + Theme.space-s;
-            background: Theme.accent;
-        }
-        // Playhead with a grab head in the ruler.
-        Rectangle {
-            x: EditorState.playhead-x * 1px - 1px;
-            y: 0;
-            width: 2px;
-            height: parent.height;
-            background: Theme.playhead;
-        }
-        Rectangle {
-            x: EditorState.playhead-x * 1px - 6px;
-            y: 0;
-            width: 12px;
-            height: 12px;
-            border-radius: Theme.radius-s;
-            background: Theme.playhead;
-        }
-    }
-    if Shell.drag-over-timeline : Rectangle {
-        background: Theme.drop-target;
-        border-width: 2px;
-        border-color: Theme.accent;
     }
 }
+
 
 
 component Inspector inherits Rectangle {
@@ -605,6 +697,8 @@ export component EditorPage inherits Rectangle {
                 return accept;
             }
             if (event.modifiers.meta || event.modifiers.control) && event.text == "y" { EditorState.redo(); return accept; }
+            // ↑/↓ and Alt+←/→ work anywhere in the editor and move focus into the strip.
+            if strip.nav-key(event) { strip.focus-strip(); return accept; }
             if (event.modifiers.meta || event.modifiers.control) && event.text == "a" { EditorState.select-all(); return accept; }
             if event.text == Key.Delete || event.text == Key.Backspace { EditorState.delete-selected(); return accept; }
             if event.text == Key.Space { EditorState.toggle-play(); return accept; }

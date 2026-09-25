@@ -24,7 +24,9 @@ use clipforge_render::{Compositor, Frame, RenderQuality, SourceImage, SourceProv
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tracing::{info, warn};
 
-use crate::editor_view::{self, Selection, clips_for, layout, media_ref_for};
+use crate::editor_view::{
+    self, Nudge, Selection, clip_nav, clips_for, layout, media_ref_for, nudge_target,
+};
 use crate::format;
 use crate::player::Player;
 use crate::preview_worker::PreviewWorker;
@@ -221,6 +223,11 @@ impl EditorController {
         });
         on!(on_select_all, |i| i.select_all());
         on!(on_clear_selection, |i| i.clear_selection());
+        on!(on_clip_navigate, |i, forward, mode| i
+            .clip_navigate(forward, mode));
+        on!(on_toggle_focused_clip, |i| i.toggle_focused_clip());
+        on!(on_nudge_clips, |i, later| i.nudge_clips(later));
+        on!(on_strip_focus_entered, |i| i.strip_focus_entered());
         on!(on_delete_selected, |i| i.delete_selected());
         on!(on_undo, |i| i.undo());
         on!(on_redo, |i| i.redo());
@@ -422,6 +429,114 @@ impl Inner {
     fn clear_selection(&mut self) {
         self.selection.clear();
         self.sync_timeline();
+    }
+
+    // ----- keyboard navigation (docs/ux/decisions/keyboard-navigation.md) --
+
+    /// Where focus goes when the strip is entered: the focused clip, else
+    /// the first selected one, else the clip under the playhead.
+    fn entry_clip(&self) -> Option<usize> {
+        let clips = &self.project.clips;
+        if clips.is_empty() {
+            return None;
+        }
+        self.selection
+            .focus_index(clips)
+            .or_else(|| self.selection.indices(clips).first().copied())
+            .or_else(|| {
+                clipforge_core::timeline::placements(clips)
+                    .iter()
+                    .rposition(|p| p.start <= self.playhead)
+            })
+            .or(Some(0))
+    }
+
+    /// ↑/↓: previous/next clip. The playhead jumps to its start (edit point).
+    fn clip_navigate(&mut self, forward: bool, mode: i32) {
+        let len = self.project.clips.len();
+        let target = match self.selection.focus_index(&self.project.clips) {
+            Some(from) => clip_nav(Some(from), len, forward),
+            // The first key press only lands on the entry clip.
+            None => self.entry_clip(),
+        };
+        let Some(target) = target else { return };
+        match mode {
+            1 => self
+                .selection
+                .click(&self.project.clips, target, true, false),
+            2 => self.selection.set_focus(&self.project.clips, target),
+            _ => self
+                .selection
+                .click(&self.project.clips, target, false, false),
+        }
+        if let Some(p) = clipforge_core::timeline::placements(&self.project.clips).get(target) {
+            self.playhead = p.start;
+            self.preview_dirty = true;
+        }
+        self.sync_timeline();
+        self.reveal_focused_clip();
+    }
+
+    /// Enter: flip the focused clip in or out of the selection.
+    fn toggle_focused_clip(&mut self) {
+        if self.selection.focus_index(&self.project.clips).is_none()
+            && let Some(i) = self.entry_clip()
+        {
+            self.selection.set_focus(&self.project.clips, i);
+        }
+        self.selection.toggle_focused(&self.project.clips);
+        self.sync_timeline();
+        self.reveal_focused_clip();
+    }
+
+    /// Alt/Option+←/→: move the selection (or the focused clip) one place.
+    fn nudge_clips(&mut self, later: bool) {
+        let clips = &self.project.clips;
+        let mut indices = self.selection.indices(clips);
+        if indices.is_empty()
+            && let Some(f) = self.selection.focus_index(clips)
+        {
+            indices.push(f);
+        }
+        let dir = if later { Nudge::Later } else { Nudge::Earlier };
+        let Some(to) = nudge_target(clips.len(), &indices, dir) else {
+            return;
+        };
+        if self.selection.focus_index(clips).is_none()
+            && let Some(first) = indices.first()
+        {
+            self.selection.set_focus(clips, *first);
+        }
+        if let Some(cmd) = Command::move_clips(clips.len(), &indices, to) {
+            self.apply(cmd);
+            self.preview_dirty = true;
+            self.reveal_focused_clip();
+        }
+    }
+
+    fn strip_focus_entered(&mut self) {
+        if self.selection.focus_index(&self.project.clips).is_none()
+            && let Some(i) = self.entry_clip()
+        {
+            self.selection.set_focus(&self.project.clips, i);
+        }
+        self.sync_timeline();
+        self.reveal_focused_clip();
+    }
+
+    /// Publishes the focused clip's box so the strip scrolls it into view.
+    fn reveal_focused_clip(&self) {
+        let Some(i) = self.selection.focus_index(&self.project.clips) else {
+            return;
+        };
+        let boxes = layout(&self.project.clips, self.pps);
+        let (Some(b), Some(w)) = (boxes.get(i), self.state()) else {
+            return;
+        };
+        let s = w.global::<EditorState>();
+        s.set_focus_clip_x(b.x);
+        s.set_focus_clip_width(b.width);
+        s.set_focus_token(s.get_focus_token().wrapping_add(1));
     }
 
     fn delete_selected(&mut self) {
@@ -776,7 +891,10 @@ impl Inner {
             .clips
             .get(index)
             .is_some_and(|c| self.selection.ids.contains(&c.id));
-        if !(already_selected && !shift && !toggle) {
+        if already_selected && !shift && !toggle {
+            // Keep the group for dragging; the keyboard continues from here.
+            self.selection.set_focus(&self.project.clips, index);
+        } else {
             self.selection
                 .click(&self.project.clips, index, shift, toggle);
         }
@@ -1001,6 +1119,7 @@ impl Inner {
                 is_video: !clip.is_photo(),
                 muted: clip.muted,
                 moving: editor_view::clip_flags(clip).moving,
+                focused: self.selection.focus == Some(clip.id),
             });
         }
         // Reuse the model in place to avoid flicker.
