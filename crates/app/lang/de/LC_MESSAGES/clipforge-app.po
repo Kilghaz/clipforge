@@ -639,8 +639,6 @@ msgstr "Januar,Februar,März,April,Mai,Juni,Juli,August,September,Oktober,Novemb
 msgid "Length"
 msgstr "Länge"
 
-msgid "Loop until the slideshow ends"
-msgstr "Wiederholen bis zum Ende der Diashow"
 
 msgid "Lower under video sound"
 msgstr "Unter Videoton leiser"
@@ -722,3 +720,15 @@ msgstr "{} Elemente übersprungen (noch nicht gelesen oder unlesbar)"
 
 msgid "{} songs play under the slideshow once it has clips"
 msgstr "{} Musikstücke laufen unter der Diashow, sobald sie Clips hat"
+
+msgid "Loop"
+msgstr "Wiederholen"
+
+msgid "Loop the songs until the slideshow ends"
+msgstr "Musik bis zum Ende der Diashow wiederholen"
+
+msgid "Repeats the songs until the slideshow ends."
+msgstr "Wiederholt die Musik bis zum Ende der Diashow."
+
+msgid "Remove all songs"
+msgstr "Alle Musikstücke entfernen"

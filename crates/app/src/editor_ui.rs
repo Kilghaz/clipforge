@@ -296,6 +296,7 @@ impl EditorController {
         on!(on_add_closing_card, |i| i.add_title(true));
         on!(on_music_lane_pressed, |i| i.music_lane_pressed());
         on!(on_add_music, |i| i.add_music());
+        on!(on_remove_all_songs, |i| i.remove_all_songs());
         on!(on_song_move, |i, idx, up| i.song_move(idx, up));
         on!(on_song_remove, |i, idx| i.song_remove(idx));
         on!(on_music_volume_changed, |i, v| i.music_volume(v));

@@ -263,7 +263,8 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             x: x as f32,
             width: width as f32,
             overlap: if i > 0 { 40.0 } else { 0.0 },
-            selected: i == 1,
+            // The title scene selects the opening card; the others a photo.
+            selected: if scene == "title" { i == 0 } else { i == 1 },
             duration_text: if is_video {
                 "0:06".into()
             } else {

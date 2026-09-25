@@ -69,7 +69,8 @@ gallery rows before they appear in a screen; DESIGN §4 table rows.
   songs. The section reads "Music 3:12 · Slideshow 2:40" so the user sees the
   mismatch before and the match after.
 - **Captions:** the Caption section applies to the selection, or to all
-  clips when nothing is selected (like every inspector control). Typing
+  clips except title cards when nothing is selected (a bulk caption must
+  not overwrite a title's text; selecting a card explicitly includes it). Typing
   updates the preview on each keystroke; one editing session of the field is
   one undo step (History merges consecutive caption edits to the same
   clips). With a multi-selection whose captions differ, the field is empty
@@ -138,3 +139,28 @@ gallery rows before they appear in a screen; DESIGN §4 table rows.
   music first.
 - Songs picked with "Add music…" are polled in the catalogue (by path) four
   times a second until the library has read them; given up after 2 min.
+
+## Review (`/ux-review`, 2026-09-25)
+
+Renders looked at: `populated.png`, `music.png`, `title.png`, `narrow.png`,
+`gallery.png` (M5 rows cropped at 2×). Tests: `cargo nextest run -p
+clipforge-app` 58/58 including token lint and gallery coverage; clippy clean.
+
+Fixed after triage (the user asked for all findings):
+
+1. **should** — the German switch label "Wiederholen bis zum Ende der
+   Diashow" could not wrap and pushed the Music inspector wider than
+   296 px, cutting off read-outs and buttons. Label is now "Loop" /
+   "Wiederholen" with a caption below; the full sentence is the accessible
+   label.
+2. **should** — with nothing selected, typing or filling captions also
+   overwrote title cards, and "Fill from date" counted cards as missing a
+   date. Bulk caption actions now skip title cards unless they are selected
+   (`caption_targets`, test `bulk_captions_leave_title_cards_alone`).
+3. **nice** — removing every song needed the Delete key; the Songs section
+   has a "Remove all songs" button (one undo step).
+4. **nice** — the Charcoal swatch barely showed on the pane; swatches get a
+   light edge.
+5. **nice** — the `title` scene now selects the title card.
+
+No open findings.

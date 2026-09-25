@@ -466,6 +466,20 @@ pub(crate) fn caption_view(
     }
 }
 
+/// Clips the caption controls act on: the selection, or with nothing
+/// selected every clip except title cards (their text is the title, so a
+/// bulk caption must not overwrite it).
+#[must_use]
+pub(crate) fn caption_targets(project: &Project, selected: &[usize]) -> Vec<usize> {
+    if selected.is_empty() {
+        (0..project.clips.len())
+            .filter(|&i| !project.clips[i].is_title())
+            .collect()
+    } else {
+        selected.to_vec()
+    }
+}
+
 /// Entries that give every target `text` (empty text removes the caption).
 /// Existing captions keep their style; new ones get `style`.
 #[must_use]
@@ -504,8 +518,9 @@ pub(crate) fn caption_style_entries(
 }
 
 /// Entries that fill captions from each target's media with `text_for`;
-/// clips for which it returns `None` (no date, title cards) are skipped.
-/// Returns the entries and how many targets were skipped.
+/// title cards are left out (they have no media), clips for which it returns
+/// `None` (no date) are skipped. Returns the entries and how many clips were
+/// skipped.
 pub(crate) fn caption_fill_entries(
     project: &Project,
     targets: &[usize],
@@ -515,6 +530,7 @@ pub(crate) fn caption_fill_entries(
     let mut skipped = 0;
     let entries = targets
         .iter()
+        .filter(|&&i| !project.clips[i].is_title())
         .filter_map(|&i| {
             let clip = &project.clips[i];
             let text = project.media_ref(clip.media).and_then(&text_for);
@@ -1144,5 +1160,35 @@ mod tests {
             let rgb = [0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
             assert_eq!(rgb, clipforge_render::title_rgb(*bg), "{token}");
         }
+    }
+
+    #[test]
+    fn bulk_captions_leave_title_cards_alone() {
+        use clipforge_core::project::TitleBackground;
+        let mut p = photo_project(&[4, 4]);
+        Command::InsertClips {
+            entries: vec![(
+                0,
+                Clip::title("Summer", TitleBackground::Black, Ticks::SECOND),
+            )],
+            media: vec![],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(
+            caption_targets(&p, &[]),
+            vec![1, 2],
+            "nothing selected: no titles"
+        );
+        assert_eq!(
+            caption_targets(&p, &[0, 2]),
+            vec![0, 2],
+            "an explicit selection keeps them"
+        );
+        let (entries, skipped) = caption_fill_entries(&p, &[0, 1, 2], CaptionStyle::Classic, |m| {
+            Some(m.name.clone())
+        });
+        assert_eq!(entries.len(), 2);
+        assert_eq!(skipped, 0, "title cards are not counted as missing a date");
     }
 }

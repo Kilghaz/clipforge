@@ -15,7 +15,7 @@ Gallery rows: "SongRow: …; SwatchGroup default / keyboard focus / disabled; �
 
 | Element | Reference says | Ours | Status | Evidence |
 |---|---|---|---|---|
-| swatch | colour tile, sizes XS–L | 24 px tile inside a 32 px cell, `radius-s`, 1 px border so dark swatches show on the dark pane | ✅ | gallery |
+| swatch | colour tile, sizes XS–L | 24 px tile inside a 32 px cell, `radius-s`, 1 px `text-disabled` edge (brightens on hover) so dark swatches (Black, Charcoal) stand out from the dark pane | ✅ | gallery |
 | selection indicator | selected swatch marked | 2 px accent ring with a 4 px gap (reads on black and on white) | ✅ | gallery row 1–2 |
 | group label | aria-label "Color swatches", overridable | `label` → accessible group name ("Title background") | ✅ | `editor.slint` |
 | colour names | localised names | `names` → tooltip and accessible label per swatch (Black, Charcoal, Blue, Red, White) | ✅ | gallery |

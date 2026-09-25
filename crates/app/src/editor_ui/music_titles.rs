@@ -249,9 +249,14 @@ impl Inner {
 
     // ----- captions ---------------------------------------------------------
 
+    /// What the caption controls act on (never title cards in bulk).
+    fn caption_targets(&self) -> Vec<usize> {
+        editor_view::caption_targets(&self.project, &self.selection.indices(&self.project.clips))
+    }
+
     /// Typing into the caption field; one undo step per editing session.
     pub(super) fn caption_edited(&mut self, text: &str) {
-        let targets = self.targets();
+        let targets = self.caption_targets();
         if targets.is_empty() {
             return;
         }
@@ -278,8 +283,11 @@ impl Inner {
 
     pub(super) fn caption_style_changed(&mut self, index: i32) {
         self.caption_style = CaptionStyle::from_index(usize::try_from(index).unwrap_or(0));
-        let entries =
-            editor_view::caption_style_entries(&self.project, &self.targets(), self.caption_style);
+        let entries = editor_view::caption_style_entries(
+            &self.project,
+            &self.caption_targets(),
+            self.caption_style,
+        );
         if entries.is_empty() {
             self.sync_inspector();
             return;
@@ -298,7 +306,7 @@ impl Inner {
             .collect();
         let (entries, skipped) = editor_view::caption_fill_entries(
             &self.project,
-            &self.targets(),
+            &self.caption_targets(),
             self.caption_style,
             |m| {
                 let (d, month, y) = format::civil_date(m.captured_at_ms?);
@@ -320,7 +328,7 @@ impl Inner {
     pub(super) fn caption_fill_name(&mut self) {
         let (entries, skipped) = editor_view::caption_fill_entries(
             &self.project,
-            &self.targets(),
+            &self.caption_targets(),
             self.caption_style,
             |m| Some(editor_view::caption_from_file_name(&m.name)),
         );
@@ -350,7 +358,7 @@ impl Inner {
 
     pub(super) fn caption_remove(&mut self) {
         let entries: Vec<_> = self
-            .targets()
+            .caption_targets()
             .into_iter()
             .filter(|&i| self.project.clips[i].caption.is_some())
             .map(|i| (i, None))
@@ -475,7 +483,8 @@ impl Inner {
     pub(super) fn sync_captions(&self) {
         let Some(w) = self.state() else { return };
         let s = w.global::<EditorState>();
-        let targets = self.targets();
+        let targets = self.caption_targets();
+        let all = self.targets();
         let view = editor_view::caption_view(&self.project, &targets, self.caption_style);
         if s.get_caption_text() != view.text.as_str() {
             s.set_caption_text(view.text.into());
@@ -483,13 +492,13 @@ impl Inner {
         s.set_caption_mixed(view.mixed);
         s.set_caption_any(view.any);
         s.set_caption_style_index(i32::try_from(view.style.index()).unwrap_or(0));
-        let titles: Vec<&Clip> = targets
+        let titles: Vec<&Clip> = all
             .iter()
             .map(|&i| &self.project.clips[i])
             .filter(|c| c.is_title())
             .collect();
         s.set_has_title_target(!titles.is_empty());
-        s.set_only_title_target(!titles.is_empty() && titles.len() == targets.len());
+        s.set_only_title_target(!titles.is_empty() && titles.len() == all.len());
         if let Some(clipforge_core::ClipSource::Title { background, .. }) =
             titles.first().map(|c| &c.source)
         {

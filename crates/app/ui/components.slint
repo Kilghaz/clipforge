@@ -610,7 +610,8 @@ export component SwatchGroup inherits HorizontalLayout {
             border-radius: Theme.radius-s;
             background: c;
             border-width: 1px;
-            border-color: touch.has-hover && root.enabled ? Theme.text-secondary : Theme.border;
+            // A light edge so dark swatches stand out from the dark pane.
+            border-color: touch.has-hover && root.enabled ? Theme.text : Theme.text-disabled;
             opacity: root.enabled ? 1 : 0.4;
         }
         touch := TouchArea {

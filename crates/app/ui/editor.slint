@@ -198,6 +198,7 @@ export global EditorState {
     // Music.
     callback music-lane-pressed();
     callback add-music();
+    callback remove-all-songs();
     callback song-move(int, bool);
     callback song-remove(int);
     callback music-volume-changed(float);
@@ -893,6 +894,12 @@ component Inspector inherits Rectangle {
                     remove => { EditorState.song-remove(i); }
                 }
                 ActionButton { text: @tr("Add music…"); icon: Icons.add; clicked => { EditorState.add-music(); } }
+                ActionButton {
+                    text: @tr("Remove all songs");
+                    icon: Icons.delete;
+                    enabled: EditorState.songs.length > 0;
+                    clicked => { EditorState.remove-all-songs(); }
+                }
             }
             Section {
                 title: @tr("Volume");
@@ -936,11 +943,14 @@ component Inspector inherits Rectangle {
             }
             Section {
                 title: @tr("Length");
+                // Short label: std Switch text cannot wrap; the detail goes below.
                 Switch {
-                    text: @tr("Loop until the slideshow ends");
+                    text: @tr("Loop");
                     checked <=> EditorState.music-loop;
                     toggled => { EditorState.music-loop-changed(self.checked); }
+                    accessible-label: @tr("Loop the songs until the slideshow ends");
                 }
+                Caption { text: @tr("Repeats the songs until the slideshow ends."); wrap: word-wrap; overflow: clip; }
                 Caption { text: @tr("Music {} · Slideshow {}", EditorState.music-length-text, EditorState.show-length-text); wrap: word-wrap; overflow: clip; }
                 ActionButton {
                     text: @tr("Fit slideshow to music");
