@@ -42,7 +42,7 @@ use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
 
 use ui::{
     EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell,
-    Strings, TimelineClip,
+    SongBlockView, SongItem, Strings, TimelineClip,
 };
 
 const SCENES: &[&str] = &[
@@ -51,6 +51,8 @@ const SCENES: &[&str] = &[
     "export",
     "settings",
     "narrow",
+    "music",
+    "title",
     "gallery",
 ];
 
@@ -93,7 +95,7 @@ fn main() -> Result<()> {
         let path = out.join(format!("{scene}.png"));
         if scene == "gallery" {
             // 2× so 1 px details (borders, centring) are visible.
-            let (w, h, scale) = (1480, 1760, 2.0);
+            let (w, h, scale) = (1480, 2400, 2.0);
             window.dispatch_event(WindowEvent::ScaleFactorChanged {
                 scale_factor: scale,
             });
@@ -241,6 +243,8 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     let mut x = 8.0;
     for i in 0..6 {
         let is_video = i == 2 || i == 4;
+        // The show opens with a title card; the third photo has a caption.
+        let is_title = i == 0;
         let width = if is_video { 240.0 } else { 160.0 };
         clips.push(TimelineClip {
             index: i,
@@ -271,10 +275,56 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             muted: i == 4,
             moving: i == 1 || i == 3,
             focused: false,
+            is_title,
+            title_bg: slint::Color::from_rgb_u8(22, 44, 84),
+            title_text: if is_title {
+                "Summer in Italy".into()
+            } else {
+                "".into()
+            },
+            title_light: false,
+            has_caption: is_title || i == 3,
         });
         x += width - 40.0 + 4.0;
     }
     editor.set_clips(ModelRc::new(VecModel::from(clips)));
+    // Two songs, the playlist loops once; fade-out at the end.
+    let songs = [
+        ("Sunny road.mp3", 360.0, false),
+        ("Evening.m4a", 250.0, false),
+        ("Sunny road.mp3", x as f32 - 618.0, true),
+    ];
+    let mut sx = 0.0f32;
+    let blocks: Vec<SongBlockView> = songs
+        .iter()
+        .map(|(t, w, repeat)| {
+            let b = SongBlockView {
+                x: sx,
+                width: *w,
+                title: (*t).into(),
+                repeat: *repeat,
+            };
+            sx += w;
+            b
+        })
+        .collect();
+    editor.set_song_blocks(ModelRc::new(VecModel::from(blocks)));
+    editor.set_music_end_x(sx);
+    editor.set_music_fade_x(sx - 120.0);
+    editor.set_songs(ModelRc::new(VecModel::from(vec![
+        SongItem {
+            title: "Sunny road.mp3".into(),
+            duration_text: "0:09".into(),
+        },
+        SongItem {
+            title: "Evening.m4a".into(),
+            duration_text: "0:06".into(),
+        },
+    ])));
+    editor.set_music_length_text("0:15".into());
+    editor.set_show_length_text("0:26".into());
+    editor.set_can_fit_music(true);
+    editor.set_caption_text("".into());
     editor.set_clip_count(6);
     editor.set_selected_count(1);
     // The selected clip (index 1) is a photo with a dissolve and a zoom-in.
@@ -299,6 +349,22 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_export_progress(0.42);
         }
         "settings" => app.global::<Shell>().set_settings_open(true),
+        "music" => {
+            editor.set_music_selected(true);
+            editor.set_selected_count(0);
+            editor.set_music_fade_out(3.0);
+        }
+        "title" => {
+            // The opening title card is selected: caption, background, duration.
+            editor.set_only_title_target(true);
+            editor.set_has_title_target(true);
+            editor.set_has_photo_target(false);
+            editor.set_caption_text("Summer in Italy\nJuly 2026".into());
+            editor.set_caption_any(true);
+            editor.set_caption_style_index(2);
+            editor.set_title_background_index(2);
+            editor.set_transition_index(0);
+        }
         _ => {}
     }
     Ok(())

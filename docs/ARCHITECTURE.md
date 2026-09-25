@@ -1,16 +1,16 @@
 # Architecture (living document)
 
-Redrawn from the code after each milestone. Last update: Milestone 4 (transitions and motion).
+Redrawn from the code after each milestone. Last update: Milestone 5 (music and titles).
 
 ## Crates
 
 | Crate | Purpose | Key types today |
 |---|---|---|
-| `clipforge-core` | Model, commands, undo, time | `Project`, `Clip`, `TransitionKind`, `Motion`, `Command`, `History`, `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
+| `clipforge-core` | Model, commands, undo, time | `Project`, `Clip` (photo / video / title card, `Caption`), `TransitionKind`, `Motion`, `Music` (`Song`, `song_spans`, `MusicEnvelope`), `Command`, `History` (with merge groups), `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
 | `clipforge-media` | Probing, stills, streaming decode | `MediaInfo`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli` (+`frame_at`), `VideoReader`, `AudioReader`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
-| `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010) | `FrameRenderer`, `best_renderer`, `GpuCompositor`, `Compositor`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
-| `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `audio::{mix, write_wav}`, `EncoderCatalog`, `Yuv420` |
+| `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010), caption text | `FrameRenderer`, `best_renderer`, `GpuCompositor`, `Compositor`, `text::TextRenderer`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
+| `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `audio::{Mixer, mix, write_mix}`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
@@ -113,3 +113,24 @@ caches: stills with mips (LRU, 768 MB), one texture per video (re-upload on new 
 
 `tests/gpu_matches_cpu.rs` keeps both compositors in step; it skips when
 no adapter is available.
+
+## Music and titles (Milestone 5)
+
+```
+Project.music: Music { songs: [Song { id, media }], volume, fade_in, fade_out, looped, duck }
+   music::song_spans(project, show_end)  songs back to back from 0, looped, cut at the end
+   music::MusicEnvelope                  volume × fades × ducking under video sound
+export::audio::Mixer(project, sources, from)
+   voices = video clips (transition cross-fades) + song spans (envelope), opened lazily
+   ├─ export: write_mix → WAV (streamed, cancellable) → ffmpeg
+   └─ preview: player feed thread → cpal ring buffer
+Clip.caption: Option<Caption { text, style }>;  ClipSource::Title { duration, background }
+render::text::TextRenderer (parley + swash, bundled Inter, no system fonts)
+   caption → cached straight-alpha image placed inside the picture's visible area
+   CPU: draw_caption over the clip frame;  GPU: caption texture quad in the clip's pass
+```
+
+Commands: `SetMusic` (songs and settings in one), `SetCaptions` (text, style,
+fill and removal), `SetTitleBackground`; title cards are clips inserted
+with `InsertClips` and count as stills for `SetPhotoDuration`. Typing a
+caption uses `History::apply_merging`, so a typing session is one undo step.

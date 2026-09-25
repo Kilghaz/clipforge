@@ -15,6 +15,7 @@ const REPO_RAW: &str = "https://raw.githubusercontent.com/microsoft/fluentui-sys
 /// (folder name in the upstream repo, snake_case icon name, filled?)
 const ICONS: &[(&str, &str, bool)] = &[
     ("Add", "add", false),
+    ("Arrow Down", "arrow_down", false),
     ("Arrow Move", "arrow_move", false),
     ("Arrow Redo", "arrow_redo", false),
     ("Arrow Rotate Clockwise", "arrow_rotate_clockwise", false),
@@ -22,9 +23,11 @@ const ICONS: &[(&str, &str, bool)] = &[
     ("Arrow Sort Down", "arrow_sort_down", false),
     ("Arrow Sort Up", "arrow_sort_up", false),
     ("Arrow Undo", "arrow_undo", false),
+    ("Arrow Up", "arrow_up", false),
     ("Checkmark Circle", "checkmark_circle", false),
     ("Chevron Down", "chevron_down", false),
     ("Chevron Up", "chevron_up", false),
+    ("Closed Caption", "closed_caption", false),
     ("Cloud", "cloud", false),
     ("Delete", "delete", false),
     ("Dismiss", "dismiss", false),
@@ -48,6 +51,7 @@ const ICONS: &[(&str, &str, bool)] = &[
     ("Share", "share", false),
     ("Speaker 2", "speaker_2", false),
     ("Speaker Mute", "speaker_mute", false),
+    ("Text T", "text_t", false),
     ("Video", "video", false),
     ("Warning", "warning", false),
     ("Zoom In", "zoom_in", false),

@@ -29,3 +29,7 @@ Rationale for the grid and timeline keys:
 | Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z | Undo / redo | M2 |
 | Cmd/Ctrl+D | Duplicate selection (planned, not wired yet) | M4 |
 | T | Focus the transition picker in the inspector (then ↑ ↓ to choose, Return to apply) | M4 |
+| Tab to the music lane, Enter / Space | Select the music (the inspector shows the playlist and music settings) | M5 |
+| Delete (music selected) | Remove all songs (one undo step) | M5 |
+| ← → ↑ ↓, Home / End | Title background swatches: move the selection | M5 |
+| (typing in the caption field) | Letters, Space, Delete and arrows edit the text; editor shortcuts wait until the field loses focus | M5 |

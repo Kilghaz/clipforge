@@ -167,3 +167,41 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Tab reaches the timeline strip; Enter toggles the focused clip.
 - [ ] VoiceOver / Narrator announce the grid and strip as lists, items with
       their selected state, clips with duration and "muted".
+
+## Milestone 5
+
+- [ ] Library → select an audio file and "Add to timeline" (or double-click,
+      or drag it onto the timeline): the song appears on the music lane, not
+      as a clip; photos in the same selection become clips; one undo removes
+      both.
+- [ ] "Add music…" (lane, Music inspector or Edit menu) picks audio files;
+      they are imported and appear as songs a moment later ("Added N songs").
+- [ ] The lane shows songs back to back on the clips' time scale; with Loop
+      on, the playlist repeats (dimmed) until the show ends; the fade-out
+      darkens the end.
+- [ ] Clicking the lane selects the music (ring) and the inspector shows
+      Songs, Volume, Fades, Length; Escape, a clip click or empty strip space
+      leaves it. Tab reaches the lane; Enter selects it.
+- [ ] Move up / down / remove reorder the playlist; each is one undo step;
+      Delete with the music selected removes all songs.
+- [ ] Playback: music plays from the playhead, fades in and out, and gets
+      quieter under a video clip with sound (Lower under video sound);
+      the export has the same mix.
+- [ ] "Fit slideshow to music" makes the show as long as the songs (videos
+      and title cards keep their length); the read-out shows the two lengths.
+- [ ] Captions: typing updates the preview live; one Cmd/Ctrl+Z undoes the
+      whole typing session; a multi-selection with different captions shows
+      "Different captions". Style chips change all selected captions.
+- [ ] "Fill from date" writes e.g. "25 September 2026" (German "25.
+      September 2026"); clips without a date are reported and left alone.
+      "Fill from file name" drops the extension. "Remove captions" clears.
+- [ ] Captions move with their clip through slides and wipes; a letterboxed
+      portrait photo keeps its caption on the photo.
+- [ ] "Add opening title" inserts a selected title card at the start with
+      the project name (or "My slideshow"); "Add closing card" appends "The
+      end". The inspector shows Duration, Caption and Background; the
+      swatches change the card colour; framing and motion are hidden.
+- [ ] A title card can be dragged, deleted, given a transition and a
+      duration preset like a photo; the timeline shows its colour and text.
+- [ ] German: every new string translated; song counts say "Musikstücke";
+      nothing is cut off in the inspector at 900 px.

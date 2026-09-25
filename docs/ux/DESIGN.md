@@ -175,6 +175,9 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | Timeline ruler (`editor.slint`) | Premiere / Spectrum "Slider" ticks | One tick per second, labels thinned by zoom level, playhead with grab head. |
 | `ValueSlider` (`editor.slint`) | Spectrum "Slider" | Slider with live value read-out and accessible label. |
 | Panel divider (`main.slint`) | Fluent "SplitView" | 1 px line, 8 px grab area, accent on hover, double-click resets. |
+| `MusicLane` (`editor.slint`) | Premiere / Clipchamp audio track, NN/G direct manipulation | 40 px lane under the clips: song blocks on the strip's time scale, looped repeats dimmed, fade-out ramp, empty state with "Add music…"; click / Enter selects the music. |
+| `SongRow` | Fluent list view item | Song name and length with quiet move up / down / remove buttons (Music inspector). |
+| `SwatchGroup` | Spectrum "ColorSwatchPicker" | Single choice from named colour swatches; one tab stop, arrow keys, names as tooltips. Title card backgrounds. |
 | Drop overlay / drag ghost | Fluent drag-and-drop visuals | Tinted zone + border while hovering; ghost shows icon and count, accent when droppable. |
 
 (Add a row whenever a custom component lands.)

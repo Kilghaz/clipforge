@@ -47,8 +47,9 @@ export component IconButton inherits Rectangle {
 
     states [
         disabled when !root.enabled : {
-            root.background: root.accent ? Theme.accent-disabled : Theme.control-disabled;
-            root.border-color: root.accent ? transparent : Theme.border;
+            // Quiet buttons stay borderless when disabled; only the glyph dims.
+            root.background: root.accent ? Theme.accent-disabled : (root.quiet ? transparent : Theme.control-disabled);
+            root.border-color: root.accent || root.quiet ? transparent : Theme.border;
             glyph.color: root.accent ? Theme.on-accent-disabled : Theme.text-disabled;
         }
         pressed when touch.pressed : {
@@ -107,9 +108,11 @@ export component ChoiceButton inherits Rectangle {
     in property <bool> focusable: true;
     /// Draw the focus ring on the group's behalf.
     in property <bool> show-focus;
+    /// Tighter side padding, for four options in a narrow inspector.
+    in property <bool> compact;
     callback clicked;
     height: Theme.control-height;
-    min-width: max(40px, label.preferred-width + 2 * Theme.space-m);
+    min-width: max(40px, label.preferred-width + 2 * (root.compact ? Theme.space-s : Theme.space-m));
     border-radius: Theme.radius-s;
     border-width: 1px;
     border-color: root.selected ? transparent : Theme.border;
@@ -273,6 +276,8 @@ export component ChoiceGroup inherits VerticalLayout {
     in property <[string]> accessible-options: [];
     in property <string> label;
     in property <bool> enabled: true;
+    /// Tighter buttons (see `ChoiceButton.compact`).
+    in property <bool> compact;
     in-out property <int> selected-index;
     callback changed(int);
     spacing: 0;
@@ -302,6 +307,7 @@ export component ChoiceGroup inherits VerticalLayout {
                 horizontal-stretch: 1;
                 enabled: root.enabled;
                 focusable: false;
+                compact: root.compact;
                 selected: i == root.selected-index;
                 show-focus: group-focus.has-focus && i == root.selected-index;
                 clicked => { root.select(i); group-focus.focus(); }
@@ -546,4 +552,102 @@ export component DialogButtons inherits HorizontalLayout {
     if root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; min-width: 120px; clicked => { root.secondary(); } }
     if root.primary-visible : ActionButton { text: root.primary-text; min-width: 120px; primary: true; enabled: root.primary-enabled; clicked => { root.primary(); } }
     if !root.macos && root.secondary-text != "" : ActionButton { text: root.secondary-text; min-width: 120px; clicked => { root.secondary(); } }
+}
+
+/// Single choice from a small fixed palette (Spectrum "ColorSwatchPicker").
+/// One tab stop; arrow keys move the selection; each swatch names its colour
+/// in the tooltip and to screen readers.
+export component SwatchGroup inherits HorizontalLayout {
+    in property <[color]> colors;
+    in property <[string]> names;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in-out property <int> selected-index;
+    callback changed(int);
+    spacing: Theme.space-s;
+    alignment: start;
+    accessible-role: groupbox;
+    accessible-label: root.label;
+    forward-focus: group-focus;
+    function select(i: int) {
+        if i >= 0 && i < root.colors.length && i != root.selected-index {
+            root.selected-index = i;
+            root.changed(i);
+        }
+    }
+    group-focus := FocusScope {
+        enabled: root.enabled;
+        width: 0;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.UpArrow { root.select(max(0, root.selected-index - 1)); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.DownArrow { root.select(min(root.colors.length - 1, root.selected-index + 1)); return accept; }
+            if event.text == Key.Home { root.select(0); return accept; }
+            if event.text == Key.End { root.select(root.colors.length - 1); return accept; }
+            return reject;
+        }
+    }
+    for c[i] in root.colors : Rectangle {
+        width: Theme.control-height;
+        height: Theme.control-height;
+        property <bool> selected: i == root.selected-index;
+        accessible-role: button;
+        accessible-label: i < root.names.length ? root.names[i] : "";
+        accessible-checkable: true;
+        accessible-checked: self.selected;
+        accessible-enabled: root.enabled;
+        accessible-action-default => { root.select(i); }
+        // Selected: accent ring with a gap, so dark and light swatches both show it.
+        Rectangle {
+            border-radius: Theme.radius-s + 2px;
+            border-width: 2px;
+            border-color: parent.selected ? (group-focus.has-focus ? Theme.focus-ring : Theme.accent) : transparent;
+        }
+        Rectangle {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            height: parent.height - 8px;
+            border-radius: Theme.radius-s;
+            background: c;
+            border-width: 1px;
+            border-color: touch.has-hover && root.enabled ? Theme.text-secondary : Theme.border;
+            opacity: root.enabled ? 1 : 0.4;
+        }
+        touch := TouchArea {
+            enabled: root.enabled;
+            clicked => { root.select(i); group-focus.focus(); }
+        }
+        Tooltip { text: @markdown("\{i < root.names.length ? root.names[i] : ""}"); }
+    }
+}
+
+/// One song of the music playlist (Fluent list view item with item
+/// actions): name, length, move up / down and remove.
+export component SongRow inherits Rectangle {
+    in property <string> title;
+    in property <string> duration-text;
+    in property <bool> first;
+    in property <bool> last;
+    callback move-up;
+    callback move-down;
+    callback remove;
+    height: Theme.bar-height;
+    accessible-role: list-item;
+    accessible-label: root.title + ", " + root.duration-text;
+    HorizontalLayout {
+        spacing: Theme.space-xs;
+        Icon { source: Icons.music-note; size: Theme.icon-s; color: Theme.audio; y: (parent.height - self.height) / 2; }
+        Rectangle { width: Theme.space-xs; }
+        // Name above, length below: the name gets the whole remaining width.
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 0;
+            alignment: center;
+            Text { text: root.title; color: Theme.text; font-size: Theme.font-body; overflow: elide; }
+            Text { text: root.duration-text; color: Theme.text-secondary; font-size: Theme.font-caption; }
+        }
+        IconButton { icon: Icons.arrow-up; tooltip: @tr("Move up"); quiet: true; enabled: !root.first; clicked => { root.move-up(); } }
+        IconButton { icon: Icons.arrow-down; tooltip: @tr("Move down"); quiet: true; enabled: !root.last; clicked => { root.move-down(); } }
+        IconButton { icon: Icons.dismiss; tooltip: @tr("Remove song"); quiet: true; clicked => { root.remove(); } }
+    }
 }

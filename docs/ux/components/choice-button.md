@@ -53,6 +53,7 @@ Used in: `crates/app/ui/editor.slint` "Photo duration" presets 2 / 3 / 4 / 5 / 8
 | gap between items | Spectrum regular density gap; `DESIGN.md` §2 "gap between related controls 8" | `Theme.space-xs` 4 px | ❌ |
 | type size / weight | `DESIGN.md` body 14 | `Theme.font-body` 14, regular | ✅ |
 | motion | `DESIGN.md` 100–150 ms | `animate background 120 ms` | ✅ |
+| compact padding (M5) | `DESIGN.md` §2 "component internal padding 8 or 12" | `compact` on `ChoiceGroup`/`ChoiceButton`: 8 px sides instead of 12, so four caption styles fit 264 px in English and German | ✅ | gallery "ChoiceGroup compact" |
 | justified width | Spectrum `isJustified`: "divide all available horizontal space evenly among the buttons" | `horizontal-stretch: 1` per item in `editor.slint` | ✅ |
 
 ## Behaviour and keyboard

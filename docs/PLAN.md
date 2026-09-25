@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: v1 (2026-09-22). Milestones 0–4 implemented (M3 without proxies); see §10 for deviations. Refinement pass with fresh context still to do.
+Status: v1 (2026-09-22). Milestones 0–5 implemented (M3 without proxies); see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -509,6 +509,17 @@ Kept short; the ADRs hold the reasoning.
   draw-into-rectangle routine plus a pure transition module) instead of WGSL
   shaders. Golden tests are pixel assertions at progress 0 / 0.5 / 1 per
   kind rather than stored PNGs. The GPU compositor is tracked as issue #1.
+- **M5, audio tracks:** one music track (a playlist) instead of two audio
+  tracks; narration is not planned for v1. Songs play back to back from
+  the start and always end with the show (fit = trim + fade out); "fit
+  slideshow to music" changes photo durations.
+- **M5, titles:** opening title and closing card are title-card clips (solid
+  background + caption) on the video track rather than a separate
+  `TitleSet`, so they get transitions, durations, drag and delete for free
+  and can also be placed mid-show.
+- **M5, text rendering:** parley + swash (already in the tree via Slint)
+  instead of `cosmic-text`, with one bundled font (Inter, OFL) so captions
+  look the same on every machine.
 - **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
   replaces the CPU compositor for preview and export; the CPU compositor is
   the fallback without a GPU and the reference in tests. Frames are still

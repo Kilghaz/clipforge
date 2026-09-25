@@ -29,7 +29,7 @@ leaving the editor."
 | Music lane under the clips | **new** `MusicLane` (`editor.slint`), same x scale as the strip | Premiere / Clipchamp audio track; direct manipulation of "the music" as one object. Shows each song as a block with its name, repeats of a looped playlist dimmed, the fade-out as a ramp, and an empty state with "Add music…". Spec card + gallery rows. |
 | Song list | **new** `SongRow` (`components.slint`): name, duration, move up, move down, remove (`IconButton`s) | Fluent list view: text items with item actions beside them. Keyboard: Tab to the buttons; up/down disabled at the ends. Spec card + gallery row. |
 | Music volume, fades | existing `ValueSlider` | same as clip volume |
-| Loop, duck | std `CheckBox` | binary settings with a label |
+| Loop, duck | std `Switch` | settings that apply at once (Fluent toggle switch; `Mute` uses the same) |
 | Fit slideshow to music / Add music… | existing `ActionButton` | verb-first action buttons |
 | Caption text | std `TextEdit` (multi-line) | Spectrum text area: captions and titles can have a second line (the title card uses it as a subtitle). Help text under it: "A second line is shown smaller on titles." |
 | Caption style | existing `ChoiceGroup` (4 options: Classic, Banner, Title, Corner) | Fluent: < 5 static options. German labels kept short (Klassisch, Band, Titel, Ecke) to fit 296 px. The core name `Headline` shows as "Title". |
@@ -78,8 +78,9 @@ gallery rows before they appear in a screen; DESIGN §4 table rows.
   "25. September 2026"), "Fill from file name" the name without extension;
   clips without a date are left unchanged and counted in the status.
   "Remove captions" removes them from the targets. Each is one
-  `SetCaptions` step. Style applies to the targets' captions; with nothing
-  selected it also becomes the style for new captions.
+  `SetCaptions` step. Style applies to the targets' existing captions and is
+  remembered (for the session) as the style of captions typed or filled
+  next.
 - **Title cards:** "Add opening title" inserts a 4 s card with the project
   name (or "My slideshow") at the start and selects it so the text field is
   ready; "Add closing card" appends "The end". Both use the project's
@@ -127,3 +128,13 @@ gallery rows before they appear in a screen; DESIGN §4 table rows.
 
 `core::history`:
 - `merged_caption_edits_undo_in_one_step`
+
+## Implementation notes
+
+- The caption style picker is a compact `ChoiceGroup` (8 px padding) so four
+  options fit in English and German.
+- The clip inspector stays in the tree (hidden) while the music inspector
+  covers it, so `T` can still reach the transition picker; `T` leaves the
+  music first.
+- Songs picked with "Add music…" are polled in the catalogue (by path) four
+  times a second until the library has read them; given up after 2 min.

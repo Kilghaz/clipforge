@@ -85,11 +85,22 @@ export global Theme {
     out property <brush> selection-tint: Palette.accent-background.transparentize(0.78);
     out property <brush> hover-tint: Palette.foreground.transparentize(0.92);
     out property <brush> drop-target: Palette.accent-background.transparentize(0.8);
+
+    // Title card backgrounds: content colours, not UI chrome. Must equal
+    // `clipforge_render::title_rgb` (checked by a test) so the swatch, the
+    // timeline clip and the rendered video agree.
+    out property <color> title-bg-black: #000000;
+    out property <color> title-bg-charcoal: #26282e;
+    out property <color> title-bg-blue: #162c54;
+    out property <color> title-bg-red: #601820;
+    out property <color> title-bg-white: #f4f2ee;
+    out property <[color]> title-backgrounds: [self.title-bg-black, self.title-bg-charcoal, self.title-bg-blue, self.title-bg-red, self.title-bg-white];
 }
 
 /// Fluent UI System Icons subset, fetched by `cargo xtask fluent-icons`.
 export global Icons {
     out property <image> add: @image-url("../../../assets/fluent/add.svg");
+    out property <image> arrow-down: @image-url("../../../assets/fluent/arrow_down.svg");
     out property <image> arrow-move: @image-url("../../../assets/fluent/arrow_move.svg");
     out property <image> arrow-redo: @image-url("../../../assets/fluent/arrow_redo.svg");
     out property <image> arrow-rotate-clockwise: @image-url("../../../assets/fluent/arrow_rotate_clockwise.svg");
@@ -97,9 +108,11 @@ export global Icons {
     out property <image> arrow-sort-down: @image-url("../../../assets/fluent/arrow_sort_down.svg");
     out property <image> arrow-sort-up: @image-url("../../../assets/fluent/arrow_sort_up.svg");
     out property <image> arrow-undo: @image-url("../../../assets/fluent/arrow_undo.svg");
+    out property <image> arrow-up: @image-url("../../../assets/fluent/arrow_up.svg");
     out property <image> checkmark-circle: @image-url("../../../assets/fluent/checkmark_circle.svg");
     out property <image> chevron-down: @image-url("../../../assets/fluent/chevron_down.svg");
     out property <image> chevron-up: @image-url("../../../assets/fluent/chevron_up.svg");
+    out property <image> closed-caption: @image-url("../../../assets/fluent/closed_caption.svg");
     out property <image> cloud: @image-url("../../../assets/fluent/cloud.svg");
     out property <image> delete: @image-url("../../../assets/fluent/delete.svg");
     out property <image> dismiss: @image-url("../../../assets/fluent/dismiss.svg");
@@ -123,6 +136,7 @@ export global Icons {
     out property <image> share: @image-url("../../../assets/fluent/share.svg");
     out property <image> speaker: @image-url("../../../assets/fluent/speaker_2.svg");
     out property <image> speaker-mute: @image-url("../../../assets/fluent/speaker_mute.svg");
+    out property <image> text-t: @image-url("../../../assets/fluent/text_t.svg");
     out property <image> video: @image-url("../../../assets/fluent/video.svg");
     out property <image> warning: @image-url("../../../assets/fluent/warning.svg");
     out property <image> zoom-in: @image-url("../../../assets/fluent/zoom_in.svg");

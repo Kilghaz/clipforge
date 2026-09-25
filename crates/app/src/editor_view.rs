@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use clipforge_core::timeline::{effective_overlap, placements};
+use clipforge_core::music::song_spans;
+use clipforge_core::project::{Caption, CaptionStyle};
+use clipforge_core::timeline::{effective_overlap, placements, total_duration};
 use clipforge_core::{Clip, ClipId, MediaRef, Project, RefKind, Ticks};
 use clipforge_library::{MediaRecord, ProbeState};
 use clipforge_media::MediaKind;
@@ -266,9 +268,11 @@ pub(crate) fn media_ref_for(record: &MediaRecord) -> Option<MediaRef> {
         return None;
     }
     let info = record.info.as_ref()?;
+    let timed = info.duration.is_some_and(|d| d > Ticks::ZERO);
     let kind = match record.kind {
         MediaKind::Photo => RefKind::Photo,
-        MediaKind::Video if info.duration.is_some_and(|d| d > Ticks::ZERO) => RefKind::Video,
+        MediaKind::Video if timed => RefKind::Video,
+        MediaKind::Audio if timed => RefKind::Audio,
         _ => return None,
     };
     Some(MediaRef {
@@ -278,10 +282,10 @@ pub(crate) fn media_ref_for(record: &MediaRecord) -> Option<MediaRef> {
         fingerprint_hash: record.fingerprint.hash,
         size: record.fingerprint.size,
         pixel_size: info.display_size(),
-        duration: if kind == RefKind::Video {
-            info.duration
-        } else {
+        duration: if kind == RefKind::Photo {
             None
+        } else {
+            info.duration
         },
         captured_at_ms: info.captured_at_ms,
         name: record.file_name(),
@@ -350,6 +354,186 @@ pub(crate) fn clip_flags(clip: &Clip) -> ClipFlags {
         transition: i32::try_from(clip.transition_in.kind.index()).unwrap_or(0),
         moving: clip.is_photo() && clip.motion != clipforge_core::Motion::None,
     }
+}
+
+/// Library items split by where they go: photos and videos become clips,
+/// audio becomes songs of the music track.
+#[must_use]
+pub(crate) fn split_songs(refs: Vec<MediaRef>) -> (Vec<MediaRef>, Vec<MediaRef>) {
+    refs.into_iter().partition(|r| r.kind != RefKind::Audio)
+}
+
+/// One song on the music lane.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SongBlock {
+    /// Index into `Music::songs`.
+    pub song: usize,
+    pub x: f32,
+    pub width: f32,
+    pub title: String,
+    /// A second or later pass of a looped playlist.
+    pub repeat: bool,
+}
+
+/// The music lane: song blocks on the strip's time scale, and where the
+/// fade-out starts and the music ends (strip x).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct MusicLane {
+    pub blocks: Vec<SongBlock>,
+    pub fade_x: f32,
+    pub end_x: f32,
+}
+
+#[must_use]
+pub(crate) fn music_lane(project: &Project, clips: &[Clip], boxes: &[ClipBox]) -> MusicLane {
+    let show_end = total_duration(clips);
+    let spans = song_spans(project, show_end);
+    let mut seen = vec![false; project.music.songs.len()];
+    let blocks: Vec<SongBlock> = spans
+        .iter()
+        .map(|s| {
+            let x = x_at_time(clips, boxes, s.start);
+            let end = x_at_time(clips, boxes, s.end());
+            let repeat = seen.get(s.song).copied().unwrap_or(false);
+            if let Some(v) = seen.get_mut(s.song) {
+                *v = true;
+            }
+            SongBlock {
+                song: s.song,
+                x,
+                width: (end - x).max(1.0),
+                title: project
+                    .media_ref(s.media)
+                    .map(|m| m.name.clone())
+                    .unwrap_or_default(),
+                repeat,
+            }
+        })
+        .collect();
+    let end = spans.last().map_or(Ticks::ZERO, |s| s.end());
+    let fade = project.music.fade_out.max(Ticks::ZERO).min(end);
+    MusicLane {
+        blocks,
+        fade_x: x_at_time(clips, boxes, end - fade),
+        end_x: x_at_time(clips, boxes, end),
+    }
+}
+
+/// What the caption field shows for the targets.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CaptionView {
+    /// The shared text ("" when none of the targets has a caption).
+    pub text: String,
+    /// The targets' captions differ; the field shows a placeholder.
+    pub mixed: bool,
+    /// Style of the first caption among the targets, else `fallback`.
+    pub style: CaptionStyle,
+    /// Some target has a caption (enables "Remove captions").
+    pub any: bool,
+}
+
+#[must_use]
+pub(crate) fn caption_view(
+    project: &Project,
+    targets: &[usize],
+    fallback: CaptionStyle,
+) -> CaptionView {
+    let texts: Vec<&str> = targets
+        .iter()
+        .map(|&i| {
+            project.clips[i]
+                .caption
+                .as_ref()
+                .map_or("", |c| c.text.as_str())
+        })
+        .collect();
+    let first = texts.first().copied().unwrap_or("");
+    let mixed = texts.iter().any(|t| *t != first);
+    let captions = || {
+        targets
+            .iter()
+            .filter_map(|&i| project.clips[i].caption.as_ref())
+    };
+    CaptionView {
+        text: if mixed {
+            String::new()
+        } else {
+            first.to_owned()
+        },
+        mixed,
+        style: captions().next().map_or(fallback, |c| c.style),
+        any: captions().next().is_some(),
+    }
+}
+
+/// Entries that give every target `text` (empty text removes the caption).
+/// Existing captions keep their style; new ones get `style`.
+#[must_use]
+pub(crate) fn caption_text_entries(
+    project: &Project,
+    targets: &[usize],
+    text: &str,
+    style: CaptionStyle,
+) -> Vec<(usize, Option<Caption>)> {
+    targets
+        .iter()
+        .map(|&i| {
+            let caption = (!text.is_empty()).then(|| {
+                let style = project.clips[i].caption.as_ref().map_or(style, |c| c.style);
+                Caption::new(text, style)
+            });
+            (i, caption)
+        })
+        .collect()
+}
+
+/// Entries that change the style of the targets' existing captions.
+#[must_use]
+pub(crate) fn caption_style_entries(
+    project: &Project,
+    targets: &[usize],
+    style: CaptionStyle,
+) -> Vec<(usize, Option<Caption>)> {
+    targets
+        .iter()
+        .filter_map(|&i| {
+            let c = project.clips[i].caption.as_ref()?;
+            (c.style != style).then(|| (i, Some(Caption::new(c.text.clone(), style))))
+        })
+        .collect()
+}
+
+/// Entries that fill captions from each target's media with `text_for`;
+/// clips for which it returns `None` (no date, title cards) are skipped.
+/// Returns the entries and how many targets were skipped.
+pub(crate) fn caption_fill_entries(
+    project: &Project,
+    targets: &[usize],
+    style: CaptionStyle,
+    text_for: impl Fn(&MediaRef) -> Option<String>,
+) -> (Vec<(usize, Option<Caption>)>, usize) {
+    let mut skipped = 0;
+    let entries = targets
+        .iter()
+        .filter_map(|&i| {
+            let clip = &project.clips[i];
+            let text = project.media_ref(clip.media).and_then(&text_for);
+            if text.is_none() {
+                skipped += 1;
+            }
+            let style = clip.caption.as_ref().map_or(style, |c| c.style);
+            text.map(|t| (i, Some(Caption::new(t, style))))
+        })
+        .collect();
+    (entries, skipped)
+}
+
+/// A caption from a file name: the name without its extension.
+#[must_use]
+pub(crate) fn caption_from_file_name(name: &str) -> String {
+    std::path::Path::new(name)
+        .file_stem()
+        .map_or_else(|| name.to_owned(), |s| s.to_string_lossy().into_owned())
 }
 
 /// Where a trim drag started: the clip's trim and its on-screen edges.
@@ -797,5 +981,168 @@ mod tests {
         let b = left_trim_box(&a, Ticks::from_seconds(6) - MIN_TRIM, 40.0);
         assert_eq!(b.width, MIN_CLIP_WIDTH);
         assert!((b.x + b.width - 260.0).abs() < 1e-3);
+    }
+
+    fn audio(secs: i64, name: &str) -> MediaRef {
+        MediaRef {
+            id: MediaId::new(),
+            kind: RefKind::Audio,
+            path: "/a".into(),
+            fingerprint_hash: 1,
+            size: 1,
+            pixel_size: None,
+            duration: Some(Ticks::from_seconds(secs)),
+            captured_at_ms: None,
+            name: name.into(),
+        }
+    }
+
+    fn photo_project(secs: &[i64]) -> Project {
+        let mut p = Project::new();
+        let m = MediaRef {
+            kind: RefKind::Photo,
+            duration: None,
+            name: "IMG_1.jpg".into(),
+            captured_at_ms: Some(1_720_000_000_000),
+            ..audio(0, "")
+        };
+        Command::InsertClips {
+            entries: secs
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, Clip::photo(m.id, Ticks::from_seconds(*s))))
+                .collect(),
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        p
+    }
+
+    fn with_songs(mut p: Project, songs: &[(i64, &str)]) -> Project {
+        let refs: Vec<MediaRef> = songs.iter().map(|(s, n)| audio(*s, n)).collect();
+        let music = clipforge_core::Music {
+            songs: refs
+                .iter()
+                .map(|r| clipforge_core::Song::new(r.id))
+                .collect(),
+            ..clipforge_core::Music::default()
+        };
+        Command::SetMusic { music, media: refs }
+            .apply(&mut p)
+            .unwrap();
+        p
+    }
+
+    #[test]
+    fn song_blocks_follow_the_playlist_and_mark_repeats() {
+        let p = with_songs(
+            photo_project(&[4, 4, 4, 4, 4]),
+            &[(7, "a.mp3"), (5, "b.mp3")],
+        );
+        let boxes = layout(&p.clips, 20.0);
+        let lane = music_lane(&p, &p.clips, &boxes);
+        let summary: Vec<(usize, f32, f32, bool)> = lane
+            .blocks
+            .iter()
+            .map(|b| (b.song, b.x, b.width, b.repeat))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (0, 0.0, 140.0, false),
+                (1, 140.0, 100.0, false),
+                (0, 240.0, 140.0, true),
+                (1, 380.0, 20.0, true),
+            ]
+        );
+        assert_eq!(lane.blocks[0].title, "a.mp3");
+        assert!((lane.end_x - 400.0).abs() < 1e-3);
+        assert!((lane.fade_x - 340.0).abs() < 1e-3, "3 s fade out");
+    }
+
+    #[test]
+    fn song_blocks_are_empty_without_songs() {
+        let p = photo_project(&[4]);
+        let lane = music_lane(&p, &p.clips, &layout(&p.clips, 10.0));
+        assert!(lane.blocks.is_empty());
+        let p = with_songs(Project::new(), &[(7, "a.mp3")]);
+        assert!(
+            music_lane(&p, &p.clips, &[]).blocks.is_empty(),
+            "no clips, no show"
+        );
+    }
+
+    #[test]
+    fn caption_for_multi_selection_is_shared_or_mixed() {
+        let mut p = photo_project(&[4, 4, 4]);
+        let v = caption_view(&p, &[0, 1], CaptionStyle::Banner);
+        assert_eq!(
+            v,
+            CaptionView {
+                text: String::new(),
+                mixed: false,
+                style: CaptionStyle::Banner,
+                any: false
+            }
+        );
+        Command::SetCaptions {
+            entries: caption_text_entries(&p, &[0, 1], "Rome", CaptionStyle::Corner),
+        }
+        .apply(&mut p)
+        .unwrap();
+        let v = caption_view(&p, &[0, 1], CaptionStyle::Classic);
+        assert_eq!(
+            (v.text.as_str(), v.mixed, v.style, v.any),
+            ("Rome", false, CaptionStyle::Corner, true)
+        );
+        let v = caption_view(&p, &[0, 1, 2], CaptionStyle::Classic);
+        assert!(v.mixed && v.text.is_empty() && v.any);
+        // Style changes only touch existing captions; empty text removes.
+        let e = caption_style_entries(&p, &[0, 1, 2], CaptionStyle::Banner);
+        assert_eq!(e.len(), 2);
+        let e = caption_text_entries(&p, &[0], "", CaptionStyle::Classic);
+        assert_eq!(e, vec![(0, None)]);
+    }
+
+    #[test]
+    fn caption_from_file_name_drops_the_extension() {
+        assert_eq!(caption_from_file_name("IMG_4021.jpg"), "IMG_4021");
+        assert_eq!(
+            caption_from_file_name("Rome at dusk.final.HEIC"),
+            "Rome at dusk.final"
+        );
+        assert_eq!(caption_from_file_name("noext"), "noext");
+        let p = photo_project(&[4, 4]);
+        let (entries, skipped) = caption_fill_entries(&p, &[0, 1], CaptionStyle::Classic, |m| {
+            Some(caption_from_file_name(&m.name))
+        });
+        assert_eq!(skipped, 0);
+        assert_eq!(entries[1].1.as_ref().unwrap().text, "IMG_1");
+    }
+
+    #[test]
+    fn library_ids_split_into_clips_and_songs() {
+        let p = photo_project(&[4]);
+        let photo = p.media.values().next().unwrap().clone();
+        let (clips, songs) = split_songs(vec![audio(3, "s"), photo.clone(), audio(4, "t")]);
+        assert_eq!(clips, vec![photo]);
+        assert_eq!(songs.len(), 2);
+    }
+
+    #[test]
+    fn title_background_colours_match_the_renderer() {
+        use clipforge_core::project::TitleBackground;
+        let theme = include_str!("../ui/theme.slint");
+        for (bg, token) in TitleBackground::ALL
+            .iter()
+            .zip(["black", "charcoal", "blue", "red", "white"])
+        {
+            let key = format!("title-bg-{token}: #");
+            let at = theme.find(&key).unwrap_or_else(|| panic!("{key} missing")) + key.len();
+            let hex = &theme[at..at + 6];
+            let rgb = [0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
+            assert_eq!(rgb, clipforge_render::title_rgb(*bg), "{token}");
+        }
     }
 }

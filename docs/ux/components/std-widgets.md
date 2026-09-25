@@ -31,6 +31,8 @@ Gallery rows: "SearchField empty / with text / disabled; std ComboBox, CheckBox,
 | Export "HDR (available once HDR sources are supported)" (`editor.slint` l. 390) | CheckBox, always disabled | never checkable | Fluent: label is a statement the check mark makes true; a permanently disabled option with an explanation in its label is neither status nor action | ❌ | `export` scene |
 | Library status bar (`library.slint` l. 407) | ProgressIndicator 80 px | indeterminate while scanning, determinate `done / total` while adding | Fluent: indeterminate bar for unknown non-blocking work, determinate once the total is known, with a text line ("Scanning…", "Adding {} of {}…") | ✅ | gallery both variants |
 | Export dialog (`editor.slint` l. 392) | ProgressIndicator | determinate `export-progress`, text "Exporting… {}%", Cancel button | Fluent determinate bar; DESIGN §3: > 10 s cancellable | ✅ | `export` scene |
+| Inspector "Caption" (`editor.slint`, M5) | TextEdit, 64 px | multi-line caption / title text | Spectrum TextArea: multi-line input for longer text, visible label (section title), help text under the field | ✅ placeholder "Add a caption" / "Different captions"; typing is merged into one undo step per focus session | `title.png` |
+| Music "Lower under video sound", "Loop until the slideshow ends" (`editor.slint`, M5) | Switch | on/off, applied at once | Fluent: toggle switch for settings that take effect immediately | ✅ | `music.png` |
 | Window menu (`main.slint` l. 45) | MenuBar | File / Edit / View | Fluent: menu bar for a horizontal row of top-level menus; example set File, Edit, View, Help | ✅ (structure) | `empty` scene |
 
 ## Labels and wording

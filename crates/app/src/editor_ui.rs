@@ -32,6 +32,8 @@ use crate::player::Player;
 use crate::preview_worker::PreviewWorker;
 use crate::ui::{EditorState, MainWindow, TimelineClip};
 
+mod music_titles;
+
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
 /// How long a status message stays in the transport bar.
 const STATUS_VISIBLE: Duration = Duration::from_secs(5);
@@ -151,6 +153,11 @@ struct Inner {
     /// Trim gesture in progress: shown live, committed on release.
     trim: Option<TrimState>,
     export: Option<ExportRun>,
+    /// The music lane is selected (the inspector shows the music).
+    music_selected: bool,
+    /// Style for new captions (the caption style picker).
+    caption_style: clipforge_core::project::CaptionStyle,
+    pending_songs: music_titles::PendingSongs,
 }
 
 impl EditorController {
@@ -212,6 +219,9 @@ impl EditorController {
             drag: None,
             trim: None,
             export: None,
+            music_selected: false,
+            caption_style: clipforge_core::project::CaptionStyle::default(),
+            pending_songs: music_titles::PendingSongs::default(),
         }));
 
         macro_rules! on {
@@ -273,6 +283,27 @@ impl EditorController {
         });
         on!(on_export_start, |i| i.export_start());
         on!(on_export_cancel, |i| i.export_cancel());
+        on!(on_caption_edited, |i, text| i.caption_edited(&text));
+        on!(on_caption_committed, |i| i.caption_committed());
+        on!(on_caption_style_changed, |i, idx| i
+            .caption_style_changed(idx));
+        on!(on_caption_fill_date, |i| i.caption_fill_date());
+        on!(on_caption_fill_name, |i| i.caption_fill_name());
+        on!(on_caption_remove, |i| i.caption_remove());
+        on!(on_title_background_changed, |i, idx| i
+            .title_background_changed(idx));
+        on!(on_add_opening_title, |i| i.add_title(false));
+        on!(on_add_closing_card, |i| i.add_title(true));
+        on!(on_music_lane_pressed, |i| i.music_lane_pressed());
+        on!(on_add_music, |i| i.add_music());
+        on!(on_song_move, |i, idx, up| i.song_move(idx, up));
+        on!(on_song_remove, |i, idx| i.song_remove(idx));
+        on!(on_music_volume_changed, |i, v| i.music_volume(v));
+        on!(on_music_fades_changed, |i, fade_in, fade_out| i
+            .music_fades(fade_in, fade_out));
+        on!(on_music_loop_changed, |i, on| i.music_loop(on));
+        on!(on_music_duck_changed, |i, on| i.music_duck(on));
+        on!(on_fit_to_music, |i| i.fit_to_music());
 
         let timer = Timer::default();
         {
@@ -394,17 +425,24 @@ impl Inner {
             self.set_status(if skipped > 0 { 2 } else { 0 }, skipped);
             return;
         }
-        let clips = clips_for(&self.project, &refs);
-        let entries = clips
-            .into_iter()
-            .enumerate()
-            .map(|(k, c)| (at + k, c))
-            .collect();
         let added = refs.len();
-        self.apply(Command::InsertClips {
-            entries,
-            media: refs,
-        });
+        // Audio goes to the music; photos and videos become clips. One undo step.
+        let (refs, songs) = editor_view::split_songs(refs);
+        let mut commands = Vec::new();
+        if !refs.is_empty() {
+            let clips = clips_for(&self.project, &refs);
+            let entries = clips
+                .into_iter()
+                .enumerate()
+                .map(|(k, c)| (at + k, c))
+                .collect();
+            commands.push(Command::InsertClips {
+                entries,
+                media: refs,
+            });
+        }
+        commands.extend(self.songs_command(songs));
+        self.apply(Command::Batch { commands });
         self.set_status(
             if skipped > 0 { 2 } else { 1 },
             if skipped > 0 { skipped } else { added },
@@ -434,6 +472,7 @@ impl Inner {
     }
 
     fn select_all(&mut self) {
+        self.leave_music();
         self.selection.select_all(&self.project.clips);
         self.sync_timeline();
     }
@@ -444,6 +483,7 @@ impl Inner {
         if self.cancel_trim() {
             return;
         }
+        self.leave_music();
         self.selection.clear();
         self.sync_timeline();
     }
@@ -557,6 +597,10 @@ impl Inner {
     }
 
     fn delete_selected(&mut self) {
+        if self.music_selected {
+            self.remove_all_songs();
+            return;
+        }
         let indices = self.selection.indices(&self.project.clips);
         if indices.is_empty() {
             return;
@@ -588,7 +632,7 @@ impl Inner {
         let indices: Vec<usize> = self
             .targets()
             .into_iter()
-            .filter(|&i| self.project.clips[i].is_photo())
+            .filter(|&i| self.project.clips[i].is_still())
             .collect();
         if indices.is_empty() {
             return;
@@ -952,6 +996,7 @@ impl Inner {
         let Ok(index) = usize::try_from(idx) else {
             return;
         };
+        self.leave_music();
         let already_selected = self
             .project
             .clips
@@ -1032,6 +1077,11 @@ impl Inner {
     // ----- transport --------------------------------------------------------
 
     fn scrub(&mut self, x: f32) {
+        if self.music_selected {
+            // A click on empty strip space leaves the music.
+            self.leave_music();
+            self.sync_timeline();
+        }
         let boxes = layout(&self.project.clips, self.pps);
         self.playhead = editor_view::time_at_x(&self.project.clips, &boxes, x);
         self.set_playing(false);
@@ -1096,6 +1146,7 @@ impl Inner {
             self.autosave();
         }
         self.poll_export();
+        self.poll_pending_songs(false);
     }
 
     // ----- preview ----------------------------------------------------------
@@ -1153,9 +1204,10 @@ impl Inner {
     fn sync_timeline(&mut self) {
         let boxes = self.display_boxes();
         let clips = self.display_clips().into_owned();
-        let media_ids: Vec<MediaId> = clips.iter().map(|c| c.media).collect();
-        let thumbs: Vec<Option<slint::Image>> =
-            media_ids.into_iter().map(|m| self.strip_thumb(m)).collect();
+        let thumbs: Vec<Option<slint::Image>> = clips
+            .iter()
+            .map(|c| (!c.is_title()).then(|| self.strip_thumb(c.media)).flatten())
+            .collect();
         let mut rows = Vec::with_capacity(clips.len());
         for (i, ((clip, b), thumb)) in clips.iter().zip(&boxes).zip(thumbs).enumerate() {
             rows.push(TimelineClip {
@@ -1176,10 +1228,29 @@ impl Inner {
                 selected: self.selection.ids.contains(&clip.id),
                 duration_text: SharedString::from(format::duration(clip.duration())),
                 transition: editor_view::clip_flags(clip).transition,
-                is_video: !clip.is_photo(),
+                is_video: clip.is_video(),
                 muted: clip.muted,
                 moving: editor_view::clip_flags(clip).moving,
                 focused: self.selection.focus == Some(clip.id),
+                is_title: clip.is_title(),
+                title_bg: match clip.source {
+                    clipforge_core::ClipSource::Title { background, .. } => {
+                        let [r, g, b] = clipforge_render::title_rgb(background);
+                        slint::Color::from_rgb_u8(r, g, b)
+                    }
+                    _ => slint::Color::default(),
+                },
+                title_text: SharedString::from(
+                    clip.caption
+                        .as_ref()
+                        .and_then(|c| c.text.lines().next())
+                        .unwrap_or_default(),
+                ),
+                title_light: clipforge_render::caption_on_light(clip),
+                has_caption: clip
+                    .caption
+                    .as_ref()
+                    .is_some_and(|c| !c.text.trim().is_empty()),
             });
         }
         // Reuse the model in place to avoid flicker.
@@ -1200,6 +1271,7 @@ impl Inner {
         }
         self.sync_inspector();
         self.sync_transport();
+        self.sync_music();
     }
 
     fn strip_thumb(&mut self, id: MediaId) -> Option<slint::Image> {
@@ -1263,7 +1335,7 @@ impl Inner {
         let videos: Vec<&clipforge_core::Clip> = targets
             .iter()
             .map(|&i| &self.project.clips[i])
-            .filter(|c| !c.is_photo())
+            .filter(|c| c.is_video())
             .collect();
         s.set_has_video_target(!videos.is_empty());
         s.set_only_video_target(!videos.is_empty() && videos.len() == targets.len());
@@ -1283,6 +1355,7 @@ impl Inner {
             s.set_muted(v.muted);
             s.set_volume_percent(f32::from(v.volume_percent));
         }
+        self.sync_captions();
     }
 
     fn sync_project(&self) {

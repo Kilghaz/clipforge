@@ -7,6 +7,8 @@ use crate::project::Project;
 #[derive(Debug, Default)]
 pub struct History {
     undo: Vec<(CommandLabel, Command)>,
+    /// Merge group of the top undo entry (see [`History::apply_merging`]).
+    merge: Option<u64>,
     redo: Vec<(CommandLabel, Command)>,
     /// Number of applied commands since the last `mark_saved`.
     dirty: i64,
@@ -25,11 +27,37 @@ impl History {
         self.undo.push((label, inverse));
         self.redo.clear();
         self.dirty += 1;
+        self.merge = None;
         Ok(())
+    }
+
+    /// Like [`History::apply`], but consecutive commands with the same
+    /// `group` form one undo step (typing into one text field). The first
+    /// command's inverse is kept; later inverses are dropped. Any other
+    /// command, an undo, a save or [`History::seal`] ends the group.
+    pub fn apply_merging(
+        &mut self,
+        project: &mut Project,
+        command: Command,
+        group: u64,
+    ) -> Result<(), CommandError> {
+        if self.merge == Some(group) && self.redo.is_empty() && !self.undo.is_empty() {
+            command.apply(project)?;
+            return Ok(());
+        }
+        self.apply(project, command)?;
+        self.merge = Some(group);
+        Ok(())
+    }
+
+    /// Ends the current merge group; the next edit starts a new undo step.
+    pub fn seal(&mut self) {
+        self.merge = None;
     }
 
     /// Undoes the last command. Returns its label, or `None` if nothing to undo.
     pub fn undo(&mut self, project: &mut Project) -> Option<CommandLabel> {
+        self.merge = None;
         let (label, inverse) = self.undo.pop()?;
         match inverse.apply(project) {
             Ok(redo) => {
@@ -42,6 +70,7 @@ impl History {
     }
 
     pub fn redo(&mut self, project: &mut Project) -> Option<CommandLabel> {
+        self.merge = None;
         let (label, cmd) = self.redo.pop()?;
         match cmd.apply(project) {
             Ok(inverse) => {
@@ -81,6 +110,8 @@ impl History {
 
     pub fn mark_saved(&mut self) {
         self.dirty = 0;
+        // An edit merged after a save must count as a change.
+        self.merge = None;
     }
 
     /// Forgets everything (new/open project).
@@ -88,6 +119,7 @@ impl History {
         self.undo.clear();
         self.redo.clear();
         self.dirty = 0;
+        self.merge = None;
     }
 }
 
@@ -208,5 +240,53 @@ mod tests {
         assert!(!h.is_dirty());
         h.clear();
         assert!(!h.can_undo() && !h.can_redo());
+    }
+
+    #[test]
+    fn merged_caption_edits_undo_in_one_step() {
+        use crate::project::{Caption, CaptionStyle};
+        let m = MediaRef {
+            id: MediaId::new(),
+            kind: RefKind::Photo,
+            path: "/p".into(),
+            fingerprint_hash: 1,
+            size: 1,
+            pixel_size: None,
+            duration: None,
+            captured_at_ms: None,
+            name: "p".into(),
+        };
+        let mut p = Project::new();
+        let mut h = History::new();
+        h.apply(
+            &mut p,
+            Command::InsertClips {
+                entries: vec![(0, Clip::photo(m.id, Ticks::SECOND))],
+                media: vec![m],
+            },
+        )
+        .unwrap();
+        let before = p.clone();
+        let typed = |t: &str| Command::SetCaptions {
+            entries: vec![(0, Some(Caption::new(t, CaptionStyle::Classic)))],
+        };
+        for t in ["R", "Ro", "Rom", "Rome"] {
+            h.apply_merging(&mut p, typed(t), 7).unwrap();
+        }
+        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        h.undo(&mut p);
+        assert_eq!(p, before, "one undo removes the whole typing session");
+        h.redo(&mut p);
+        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        // A sealed group, another group or a save starts a new step.
+        h.seal();
+        h.apply_merging(&mut p, typed("Rome!"), 7).unwrap();
+        h.mark_saved();
+        h.apply_merging(&mut p, typed("Rome!!"), 7).unwrap();
+        assert!(h.is_dirty(), "edit after save counts");
+        h.undo(&mut p);
+        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome!");
+        h.undo(&mut p);
+        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
     }
 }

@@ -152,8 +152,6 @@ msgstr "Unbenannte Diashow"
 msgid "Added {} items to the timeline"
 msgstr "{} Elemente zur Zeitleiste hinzugefügt"
 
-msgid "{} items skipped (audio files and items without metadata cannot be added yet)"
-msgstr "{} Elemente übersprungen (Audiodateien und Elemente ohne Metadaten können noch nicht hinzugefügt werden)"
 
 msgid "ffmpeg was not found. Install it or place it next to the app."
 msgstr "ffmpeg wurde nicht gefunden. Installiere es oder lege es neben die App."
@@ -547,3 +545,180 @@ msgstr "Mediathek-Elemente"
 
 msgid "Timeline clips"
 msgstr "Clips in der Zeitleiste"
+
+msgid "Add a caption"
+msgstr "Beschriftung hinzufügen"
+
+msgid "Add closing card"
+msgstr "Abspann am Ende"
+
+msgid "Add music…"
+msgstr "Musik hinzufügen…"
+
+msgid "Add opening title"
+msgstr "Titel am Anfang"
+
+msgid "Added {} songs to the music"
+msgstr "{} Musikstücke zur Musik hinzugefügt"
+
+msgid "Background"
+msgstr "Hintergrund"
+
+msgid "Banner"
+msgstr "Band"
+
+msgid "Banner, on a dark band"
+msgstr "Band, auf dunklem Streifen"
+
+msgid "Black"
+msgstr "Schwarz"
+
+msgid "Blue"
+msgstr "Blau"
+
+msgid "Caption"
+msgstr "Beschriftung"
+
+msgid "Caption style"
+msgstr "Beschriftungsstil"
+
+msgid "Charcoal"
+msgstr "Anthrazit"
+
+msgid "Classic"
+msgstr "Klassisch"
+
+msgid "Classic, at the bottom"
+msgstr "Klassisch, unten"
+
+msgid "Corner"
+msgstr "Ecke"
+
+msgid "Corner, small at the bottom left"
+msgstr "Ecke, klein unten links"
+
+msgid "Different captions"
+msgstr "Unterschiedliche Beschriftungen"
+
+msgid "Drop songs here or"
+msgstr "Musik hier ablegen oder"
+
+msgid "Fade in"
+msgstr "Einblenden"
+
+msgid "Fade out"
+msgstr "Ausblenden"
+
+msgid "Fades"
+msgstr "Blenden"
+
+msgid "Fill from date"
+msgstr "Aus Datum füllen"
+
+msgid "Fill from file name"
+msgstr "Aus Dateiname füllen"
+
+msgid "Filled captions on {} clips"
+msgstr "Beschriftungen für {} Clips gefüllt"
+
+msgid "Fit slideshow to music"
+msgstr "Diashow an Musik anpassen"
+
+msgid "Gives every photo the same duration so the slideshow is as long as the songs."
+msgstr "Gibt allen Fotos dieselbe Dauer, damit die Diashow so lang ist wie die Musik."
+
+msgid "Has a caption"
+msgstr "Hat eine Beschriftung"
+
+msgid "In the Title style a second line is shown smaller."
+msgstr "Im Stil „Titel“ wird eine zweite Zeile kleiner gezeigt."
+
+msgid "January,February,March,April,May,June,July,August,September,October,November,December"
+msgstr "Januar,Februar,März,April,Mai,Juni,Juli,August,September,Oktober,November,Dezember"
+
+msgid "Length"
+msgstr "Länge"
+
+msgid "Loop until the slideshow ends"
+msgstr "Wiederholen bis zum Ende der Diashow"
+
+msgid "Lower under video sound"
+msgstr "Unter Videoton leiser"
+
+msgid "Move down"
+msgstr "Nach unten"
+
+msgid "Move up"
+msgstr "Nach oben"
+
+msgid "Music"
+msgstr "Musik"
+
+msgid "Music volume"
+msgstr "Musiklautstärke"
+
+msgid "Music {} · Slideshow {}"
+msgstr "Musik {} · Diashow {}"
+
+msgid "Music: no songs"
+msgstr "Musik: keine Musikstücke"
+
+msgid "Music: {} songs"
+msgstr "Musik: {} Musikstücke"
+
+msgid "My slideshow"
+msgstr "Meine Diashow"
+
+msgid "No songs yet. Add music or drop audio files from the library."
+msgstr "Noch keine Musik. Füge Musik hinzu oder ziehe Audiodateien aus der Mediathek hierher."
+
+msgid "Plays under the whole slideshow"
+msgstr "Läuft unter der ganzen Diashow"
+
+msgid "Red"
+msgstr "Rot"
+
+msgid "Remove captions"
+msgstr "Beschriftungen entfernen"
+
+msgid "Remove song"
+msgstr "Musikstück entfernen"
+
+msgid "Songs"
+msgstr "Musikstücke"
+
+msgid "The end"
+msgstr "Ende"
+
+msgid "Title"
+msgstr "Titel"
+
+msgid "Title background"
+msgstr "Titelhintergrund"
+
+msgid "Title card"
+msgstr "Titelkarte"
+
+msgid "Title card: {}"
+msgstr "Titelkarte: {}"
+
+msgid "Title, large in the centre"
+msgstr "Titel, groß in der Mitte"
+
+msgid "Titles"
+msgstr "Titel und Abspann"
+
+msgid "White"
+msgstr "Weiß"
+
+msgid "{0} {1} {2}"
+msgstr "{0}. {1} {2}"
+
+msgid "{} clips have no date or file name and were left unchanged"
+msgstr "{} Clips haben kein Datum oder keinen Dateinamen und wurden nicht geändert"
+
+msgid "{} items skipped (not read yet or unreadable)"
+msgstr "{} Elemente übersprungen (noch nicht gelesen oder unlesbar)"
+
+msgid "{} songs play under the slideshow once it has clips"
+msgstr "{} Musikstücke laufen unter der Diashow, sobald sie Clips hat"

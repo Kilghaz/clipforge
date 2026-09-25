@@ -1,8 +1,8 @@
-import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView } from "std-widgets.slint";
+import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView, TextEdit } from "std-widgets.slint";
 import { Shell } from "shell.slint";
 import { LibraryState } from "library.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow } from "components.slint";
 
 /// Where the timeline strip is on screen, for cross-panel drops.
 export struct StripRect {
@@ -34,6 +34,28 @@ export struct TimelineClip {
     moving: bool,
     /// Keyboard focus (drawn only while the strip has keyboard focus).
     focused: bool,
+    /// Title card: drawn as its background colour with the first text line.
+    is-title: bool,
+    title-bg: color,
+    title-text: string,
+    title-light: bool,
+    /// Carries a caption (badge).
+    has-caption: bool,
+}
+
+/// One song block on the music lane (strip x scale).
+export struct SongBlockView {
+    x: float,
+    width: float,
+    title: string,
+    /// Second or later pass of a looped playlist.
+    repeat: bool,
+}
+
+/// One entry of the playlist in the inspector.
+export struct SongItem {
+    title: string,
+    duration-text: string,
 }
 
 /// All editor state, owned and driven by Rust.
@@ -66,6 +88,33 @@ export global EditorState {
     in-out property <bool> only-video-target;
     in-out property <bool> muted;
     in-out property <float> volume-percent: 100;
+    /// Targets are only title cards (hides framing, renames duration).
+    in-out property <bool> only-title-target;
+    /// Targets include title cards (shows the background swatches).
+    in-out property <bool> has-title-target;
+    in-out property <int> title-background-index;
+
+    // Caption of the targets.
+    in-out property <string> caption-text;
+    /// Targets' captions differ (field shows a placeholder).
+    in-out property <bool> caption-mixed;
+    in-out property <int> caption-style-index;
+    in-out property <bool> caption-any;
+
+    // Music.
+    in-out property <[SongBlockView]> song-blocks;
+    in-out property <float> music-fade-x;
+    in-out property <float> music-end-x;
+    in-out property <bool> music-selected;
+    in-out property <[SongItem]> songs;
+    in-out property <float> music-volume: 100;
+    in-out property <float> music-fade-in: 0;
+    in-out property <float> music-fade-out: 3;
+    in-out property <bool> music-loop: true;
+    in-out property <bool> music-duck: true;
+    in-out property <string> music-length-text;
+    in-out property <string> show-length-text;
+    in-out property <bool> can-fit-music;
 
     // Project
     in-out property <string> project-title;
@@ -136,6 +185,26 @@ export global EditorState {
     callback save-project-as();
     callback export-start();
     callback export-cancel();
+    // Captions and titles.
+    callback caption-edited(string);
+    callback caption-committed();
+    callback caption-style-changed(int);
+    callback caption-fill-date();
+    callback caption-fill-name();
+    callback caption-remove();
+    callback title-background-changed(int);
+    callback add-opening-title();
+    callback add-closing-card();
+    // Music.
+    callback music-lane-pressed();
+    callback add-music();
+    callback song-move(int, bool);
+    callback song-remove(int);
+    callback music-volume-changed(float);
+    callback music-fades-changed(float, float);
+    callback music-loop-changed(bool);
+    callback music-duck-changed(bool);
+    callback fit-to-music();
 }
 
 /// Timeline clip: Spectrum "Card" with a type colour, selection ring,
@@ -154,7 +223,7 @@ export component ClipView inherits Rectangle {
     clip: true;
     animate background { duration: Theme.motion-fast; }
     accessible-role: list-item;
-    accessible-label: root.item.title + ", " + root.item.duration-text + (root.item.muted ? ", " + @tr("Muted") : "");
+    accessible-label: (root.item.is-title ? @tr("Title card: {}", root.item.title-text) : root.item.title) + ", " + root.item.duration-text + (root.item.muted ? ", " + @tr("Muted") : "") + (root.item.has-caption && !root.item.is-title ? ", " + @tr("Has a caption") : "");
     accessible-item-selectable: true;
     accessible-item-selected: root.item.selected;
 
@@ -173,19 +242,33 @@ export component ClipView inherits Rectangle {
     VerticalLayout {
         padding: 0;
         spacing: 0;
-        // Type colour along the top edge (photo / video token).
-        Rectangle { height: 3px; background: root.item.is-video ? Theme.video : Theme.photo; }
+        // Type colour along the top edge (photo / video / title token).
+        Rectangle { height: 3px; background: root.item.is-title ? Theme.title-clip : (root.item.is-video ? Theme.video : Theme.photo); }
         Rectangle {
             vertical-stretch: 1;
-            background: Theme.surface-canvas;
+            background: root.item.is-title ? root.item.title-bg : Theme.surface-canvas;
             clip: true;
-            if root.item.has-thumb : Image {
+            // Title card: its colour and the first line of its text.
+            if root.item.is-title : Text {
+                x: Theme.space-s;
+                width: parent.width - 2 * Theme.space-s;
+                height: parent.height;
+                text: root.item.title-text;
+                color: root.item.title-light ? Theme.title-bg-black : Theme.title-bg-white;
+                font-size: Theme.font-secondary;
+                font-weight: Theme.weight-semibold;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+            if root.item.has-thumb && !root.item.is-title : Image {
                 source: root.item.thumb;
                 image-fit: cover;
                 width: parent.width;
                 height: parent.height;
             }
-            if !root.item.has-thumb : Icon {
+            if !root.item.has-thumb && !root.item.is-title : Icon {
                 source: root.item.is-video ? Icons.video : Icons.image;
                 size: Theme.icon-l;
                 color: Theme.text-disabled;
@@ -201,7 +284,7 @@ export component ClipView inherits Rectangle {
                 padding-left: Theme.space-s;
                 padding-right: Theme.space-s;
                 spacing: Theme.space-xs;
-                Text { text: root.item.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                Text { text: root.item.is-title ? @tr("Title card") : root.item.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
                 Caption { text: root.item.duration-text; }
             }
         }
@@ -240,6 +323,13 @@ export component ClipView inherits Rectangle {
         y: Theme.space-s;
         icon: Icons.speaker-mute;
         label: @tr("Muted");
+    }
+    // Caption badge: next to the motion / mute badge (one slot further).
+    if root.item.has-caption && !root.item.is-title : Badge {
+        x: root.badge-x + ((root.item.moving || (root.item.is-video && root.item.muted)) ? Theme.control-height-s + Theme.space-xs : 0px);
+        y: Theme.space-s;
+        icon: Icons.closed-caption;
+        label: @tr("Has a caption");
     }
     // Trim handles (videos only): drag the edges to change in/out points.
     // Shown on hover so the affordance is discoverable without clutter.
@@ -316,6 +406,87 @@ export component ValueSlider inherits HorizontalLayout {
     }
 }
 
+/// Music lane under the clips (Premiere / Clipchamp audio track): one
+/// block per song on the strip's time scale, repeats of a looped playlist
+/// dimmed, the fade-out as a darkening ramp. Clicking selects the music.
+export component MusicLane inherits Rectangle {
+    in property <[SongBlockView]> blocks;
+    in property <float> fade-x;
+    in property <float> end-x;
+    in property <bool> selected;
+    in property <int> song-count;
+    /// Visible width of the strip, so the empty state stays in view.
+    in property <length> viewport-width;
+    in property <bool> show-focus;
+    callback pressed;
+    callback add-music;
+    background: root.selected ? Theme.selection-tint : Theme.surface-pane;
+    border-radius: Theme.radius-m;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Theme.selection : Theme.border;
+    accessible-role: button;
+    accessible-label: root.song-count == 0 ? @tr("Music: no songs") : @tr("Music: {} songs", root.song-count);
+    accessible-action-default => { root.pressed(); }
+    touch := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left { root.pressed(); }
+        }
+    }
+    for b in root.blocks : Rectangle {
+        x: b.x * 1px + 1px;
+        y: Theme.space-xs;
+        width: max(b.width * 1px - 2px, 1px);
+        height: parent.height - 2 * Theme.space-xs;
+        border-radius: Theme.radius-s;
+        background: Theme.audio.with-alpha(b.repeat ? 0.22 : 0.45);
+        clip: true;
+        HorizontalLayout {
+            padding-left: Theme.space-s;
+            padding-right: Theme.space-s;
+            spacing: Theme.space-xs;
+            Icon { source: Icons.music-note; size: Theme.icon-s; color: Theme.text; y: (parent.height - self.height) / 2; }
+            Text { text: b.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; min-width: 0; }
+        }
+    }
+    // Fade-out: the lane darkens towards the end of the music.
+    if root.end-x > root.fade-x : Rectangle {
+        x: root.fade-x * 1px;
+        y: Theme.space-xs;
+        width: (root.end-x - root.fade-x) * 1px;
+        height: parent.height - 2 * Theme.space-xs;
+        background: @linear-gradient(90deg, transparent 0%, Theme.surface-window 100%);
+    }
+    if root.blocks.length == 0 : HorizontalLayout {
+        x: 0;
+        width: min(parent.width, root.viewport-width);
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-s;
+        spacing: Theme.space-s;
+        alignment: start;
+        Icon { source: Icons.music-note; size: Theme.icon-s; color: Theme.text-secondary; y: (parent.height - self.height) / 2; }
+        Caption {
+            text: root.song-count == 0 ? @tr("Drop songs here or") : @tr("{} songs play under the slideshow once it has clips", root.song-count);
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.song-count == 0 : ActionButton {
+            text: @tr("Add music…");
+            icon: Icons.add;
+            y: (parent.height - self.height) / 2;
+            clicked => { root.add-music(); }
+        }
+    }
+    if root.show-focus : Rectangle {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        border-radius: Theme.radius-m - 1px;
+        border-width: 2px;
+        border-color: Theme.focus-ring;
+    }
+}
+
 /// Timeline strip: time ruler, clips, playhead, drop and trim markers.
 /// Ruler 24 px, clips 100 px, 8 px margins (DESIGN.md §4).
 export component TimelineStrip inherits Rectangle {
@@ -330,11 +501,13 @@ export component TimelineStrip inherits Rectangle {
     property <length> ruler-height: 24px;
     property <length> clip-top: self.ruler-height + Theme.space-xs;
     property <length> clip-height: 100px;
+    property <length> lane-top: self.clip-top + self.clip-height + Theme.space-xs;
+    property <length> lane-height: Theme.bar-height;
     // One tick per second; a label every `label-step` seconds so
     // labels never crowd at low zoom.
     property <int> label-step: EditorState.pixels-per-second >= 80 ? 1 : (EditorState.pixels-per-second >= 40 ? 2 : (EditorState.pixels-per-second >= 20 ? 5 : 10));
     property <int> tick-count: ceil(flick.content-width / (EditorState.pixels-per-second * 1px)) + 1;
-    height: self.clip-top + self.clip-height + Theme.space-s;
+    height: self.lane-top + self.lane-height + Theme.space-s;
     background: Theme.surface-window;
     /// Moves keyboard focus into the strip (the editor forwards ↑/↓ here).
     public function focus-strip() { strip-focus.focus(); }
@@ -430,6 +603,38 @@ export component TimelineStrip inherits Rectangle {
                 width: clip.width * 1px;
                 height: root.clip-height;
             }
+            lane-focus := FocusScope {
+                x: 0;
+                y: root.lane-top;
+                width: max(EditorState.strip-width * 1px, flick.width - Theme.space-s);
+                height: root.lane-height;
+                key-pressed(event) => {
+                    if event.text == Key.Return || event.text == Key.Space {
+                        EditorState.focus-visible = true;
+                        EditorState.music-lane-pressed();
+                        return accept;
+                    }
+                    return reject;
+                }
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation { EditorState.focus-visible = true; }
+                }
+                MusicLane {
+                    blocks: EditorState.song-blocks;
+                    fade-x: EditorState.music-fade-x;
+                    end-x: EditorState.music-end-x;
+                    selected: EditorState.music-selected;
+                    song-count: EditorState.songs.length;
+                    viewport-width: flick.width;
+                    show-focus: lane-focus.has-focus && EditorState.focus-visible;
+                    pressed => {
+                        EditorState.focus-visible = false;
+                        lane-focus.focus();
+                        EditorState.music-lane-pressed();
+                    }
+                    add-music => { EditorState.add-music(); }
+                }
+            }
             // Insertion point while dragging from the library.
             if EditorState.drop-marker >= 0 : Rectangle {
                 x: EditorState.drop-marker-x * 1px - 1px;
@@ -470,7 +675,11 @@ component Inspector inherits Rectangle {
     public function focus-transition() { transition-picker.focus(); }
     background: Theme.surface-pane;
     width: 296px;
+    // The music inspector covers the clip inspector while the music is
+    // selected; the clip inspector stays in the tree so `T` can reach the
+    // transition picker.
     ScrollView {
+        visible: !EditorState.music-selected;
         VerticalLayout {
             padding: Theme.space-l;
             spacing: Theme.space-xl;
@@ -492,7 +701,7 @@ component Inspector inherits Rectangle {
                 }
             }
             if !EditorState.only-video-target : Section {
-                title: @tr("Photo duration");
+                title: EditorState.only-title-target ? @tr("Duration") : @tr("Photo duration");
                 ValueSlider {
                     minimum: 0.5;
                     maximum: 20;
@@ -511,6 +720,40 @@ component Inspector inherits Rectangle {
                         EditorState.duration-seconds = i == 0 ? 2 : i == 1 ? 3 : i == 2 ? 4 : i == 3 ? 5 : 8;
                         EditorState.duration-changed(EditorState.duration-seconds);
                     }
+                }
+            }
+            if EditorState.clip-count > 0 : Section {
+                title: @tr("Caption");
+                TextEdit {
+                    height: 64px;
+                    wrap: word-wrap;
+                    text <=> EditorState.caption-text;
+                    placeholder-text: EditorState.caption-mixed ? @tr("Different captions") : @tr("Add a caption");
+                    accessible-label: @tr("Caption");
+                    edited(t) => { EditorState.caption-edited(t); }
+                    changed has-focus => { if !self.has-focus { EditorState.caption-committed(); } }
+                }
+                Caption { text: @tr("In the Title style a second line is shown smaller."); wrap: word-wrap; overflow: clip; }
+                ChoiceGroup {
+                    label: @tr("Caption style");
+                    compact: true;
+                    options: [@tr("Classic"), @tr("Banner"), @tr("Title"), @tr("Corner")];
+                    accessible-options: [@tr("Classic, at the bottom"), @tr("Banner, on a dark band"), @tr("Title, large in the centre"), @tr("Corner, small at the bottom left")];
+                    selected-index <=> EditorState.caption-style-index;
+                    changed(i) => { EditorState.caption-style-changed(i); }
+                }
+                ActionButton { text: @tr("Fill from date"); clicked => { EditorState.caption-fill-date(); } }
+                ActionButton { text: @tr("Fill from file name"); clicked => { EditorState.caption-fill-name(); } }
+                ActionButton { text: @tr("Remove captions"); icon: Icons.delete; enabled: EditorState.caption-any; clicked => { EditorState.caption-remove(); } }
+            }
+            if EditorState.has-title-target : Section {
+                title: @tr("Background");
+                SwatchGroup {
+                    label: @tr("Title background");
+                    colors: Theme.title-backgrounds;
+                    names: [@tr("Black"), @tr("Charcoal"), @tr("Blue"), @tr("Red"), @tr("White")];
+                    selected-index <=> EditorState.title-background-index;
+                    changed(i) => { EditorState.title-background-changed(i); }
                 }
             }
             if EditorState.has-video-target : Section {
@@ -532,7 +775,7 @@ component Inspector inherits Rectangle {
                 }
                 Caption { text: @tr("Drag the edges of a video clip to trim it."); wrap: word-wrap; overflow: clip; }
             }
-            Section {
+            if !EditorState.only-title-target : Section {
                 title: @tr("Framing");
                 ChoiceGroup {
                     label: @tr("Framing");
@@ -602,6 +845,11 @@ component Inspector inherits Rectangle {
             }
             Divider { }
             Section {
+                title: @tr("Titles");
+                ActionButton { text: @tr("Add opening title"); icon: Icons.text-t; clicked => { EditorState.add-opening-title(); } }
+                ActionButton { text: @tr("Add closing card"); icon: Icons.text-t; clicked => { EditorState.add-closing-card(); } }
+            }
+            Section {
                 title: @tr("Project");
                 ChoiceGroup {
                     label: @tr("Orientation");
@@ -619,6 +867,87 @@ component Inspector inherits Rectangle {
                     enabled: EditorState.selected-count > 0;
                     clicked => { EditorState.delete-selected(); }
                 }
+            }
+        }
+    }
+    if EditorState.music-selected : ScrollView {
+        VerticalLayout {
+            padding: Theme.space-l;
+            spacing: Theme.space-xl;
+            alignment: start;
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                Title { text: @tr("Music"); }
+                Caption { text: @tr("Plays under the whole slideshow"); wrap: word-wrap; overflow: clip; }
+            }
+            Section {
+                title: @tr("Songs");
+                if EditorState.songs.length == 0 : Caption { text: @tr("No songs yet. Add music or drop audio files from the library."); wrap: word-wrap; overflow: clip; }
+                for song[i] in EditorState.songs : SongRow {
+                    title: song.title;
+                    duration-text: song.duration-text;
+                    first: i == 0;
+                    last: i == EditorState.songs.length - 1;
+                    move-up => { EditorState.song-move(i, true); }
+                    move-down => { EditorState.song-move(i, false); }
+                    remove => { EditorState.song-remove(i); }
+                }
+                ActionButton { text: @tr("Add music…"); icon: Icons.add; clicked => { EditorState.add-music(); } }
+            }
+            Section {
+                title: @tr("Volume");
+                ValueSlider {
+                    minimum: 0;
+                    maximum: 200;
+                    step: 5;
+                    value <=> EditorState.music-volume;
+                    value-text: round(EditorState.music-volume) + " %";
+                    label: @tr("Music volume");
+                    released(v) => { EditorState.music-volume-changed(v); }
+                }
+                Switch {
+                    text: @tr("Lower under video sound");
+                    checked <=> EditorState.music-duck;
+                    toggled => { EditorState.music-duck-changed(self.checked); }
+                }
+            }
+            Section {
+                title: @tr("Fades");
+                SecondaryText { text: @tr("Fade in"); }
+                ValueSlider {
+                    minimum: 0;
+                    maximum: 10;
+                    step: 0.5;
+                    value <=> EditorState.music-fade-in;
+                    value-text: round(EditorState.music-fade-in * 10) / 10 + " s";
+                    label: @tr("Fade in");
+                    released(v) => { EditorState.music-fades-changed(v, EditorState.music-fade-out); }
+                }
+                SecondaryText { text: @tr("Fade out"); }
+                ValueSlider {
+                    minimum: 0;
+                    maximum: 10;
+                    step: 0.5;
+                    value <=> EditorState.music-fade-out;
+                    value-text: round(EditorState.music-fade-out * 10) / 10 + " s";
+                    label: @tr("Fade out");
+                    released(v) => { EditorState.music-fades-changed(EditorState.music-fade-in, v); }
+                }
+            }
+            Section {
+                title: @tr("Length");
+                Switch {
+                    text: @tr("Loop until the slideshow ends");
+                    checked <=> EditorState.music-loop;
+                    toggled => { EditorState.music-loop-changed(self.checked); }
+                }
+                Caption { text: @tr("Music {} · Slideshow {}", EditorState.music-length-text, EditorState.show-length-text); wrap: word-wrap; overflow: clip; }
+                ActionButton {
+                    text: @tr("Fit slideshow to music");
+                    enabled: EditorState.can-fit-music;
+                    clicked => { EditorState.fit-to-music(); }
+                }
+                Caption { text: @tr("Gives every photo the same duration so the slideshow is as long as the songs."); wrap: word-wrap; overflow: clip; }
             }
         }
     }
@@ -698,7 +1027,11 @@ export component EditorPage inherits Rectangle {
             if event.text == Key.LeftArrow { EditorState.step-frames(event.modifiers.shift ? -10 : -1); return accept; }
             if event.text == Key.RightArrow { EditorState.step-frames(event.modifiers.shift ? 10 : 1); return accept; }
             if event.text == Key.Home { EditorState.scrub(0); return accept; }
-            if event.text == "t" && !event.modifiers.control && !event.modifiers.meta { inspector.focus-transition(); return accept; }
+            if event.text == "t" && !event.modifiers.control && !event.modifiers.meta {
+                if EditorState.music-selected { EditorState.clear-selection(); }
+                inspector.focus-transition();
+                return accept;
+            }
             if event.text == Key.End { EditorState.scrub(EditorState.strip-width); return accept; }
             if event.text == Key.Escape { EditorState.clear-selection(); return accept; }
             return reject;

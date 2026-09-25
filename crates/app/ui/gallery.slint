@@ -4,9 +4,9 @@
 // Not part of the app; nothing here is translated (labels are for us).
 import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
-import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState } from "editor.slint";
+import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState, MusicLane } from "editor.slint";
 
 component Row inherits VerticalLayout {
     in property <string> title;
@@ -185,6 +185,51 @@ export component GalleryWindow inherits Window {
             ClipView { width: 160px; height: 100px; item: { index: 1, id: "g", title: "IMG_4102.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, transition: 4, moving: true, duration-text: "4.0 s" }; }
             ClipView { width: 220px; height: 100px; item: { index: 2, id: "h", title: "Clip 6.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, overlap: 30, transition: 8, duration-text: "0:06" }; }
             ClipView { width: 160px; height: 100px; item: { index: 3, id: "i", title: "IMG_4104.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, transition: 12, moving: true, selected: true, duration-text: "4.0 s" }; }
+        }
+        Row {
+            title: "Timeline clips, M5: title card (dark), title card (white, selected), photo with caption, moving photo with caption, muted video with caption";
+            ClipView { width: 160px; height: 100px; item: { index: 0, id: "t1", is-title: true, title-bg: Theme.title-bg-blue, title-text: "Summer in Italy", has-caption: true, width: 160, duration-text: "0:04" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 1, id: "t2", is-title: true, title-bg: Theme.title-bg-white, title-light: true, title-text: "The end", has-caption: true, selected: true, width: 160, overlap: 40, transition: 1, duration-text: "0:04" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 2, id: "c1", title: "IMG_4101.jpg", thumb: root.sample, has-thumb: true, has-caption: true, width: 160, duration-text: "0:04" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 3, id: "c2", title: "IMG_4102.jpg", thumb: root.sample, has-thumb: true, has-caption: true, moving: true, width: 160, duration-text: "0:04" }; }
+            ClipView { width: 220px; height: 100px; item: { index: 4, id: "c3", title: "Clip 7.mov", thumb: root.sample, has-thumb: true, has-caption: true, is-video: true, muted: true, width: 220, duration-text: "0:06" }; }
+        }
+        Row {
+            title: "MusicLane (40 px): songs with a looped repeat and fade-out; selected + keyboard focus; empty; songs but no clips";
+            VerticalLayout {
+                spacing: Theme.space-s;
+                MusicLane {
+                    width: 560px; height: Theme.bar-height; viewport-width: 560px; song-count: 2;
+                    blocks: [{ x: 0, width: 240, title: "Sunny road.mp3", repeat: false }, { x: 240, width: 180, title: "Evening.m4a", repeat: false }, { x: 420, width: 140, title: "Sunny road.mp3", repeat: true }];
+                    fade-x: 480; end-x: 560;
+                }
+                MusicLane {
+                    width: 560px; height: Theme.bar-height; viewport-width: 560px; song-count: 1; selected: true; show-focus: true;
+                    blocks: [{ x: 0, width: 560, title: "Long song with a long name.flac", repeat: false }];
+                    fade-x: 500; end-x: 560;
+                }
+                MusicLane { width: 560px; height: Theme.bar-height; viewport-width: 560px; song-count: 0; }
+                MusicLane { width: 560px; height: Theme.bar-height; viewport-width: 560px; song-count: 3; }
+            }
+        }
+        Row {
+            title: "SongRow: first, middle, last (up/down disabled at the ends), long name; SwatchGroup default / keyboard focus / disabled; ChoiceGroup compact (4 options)";
+            Rectangle {
+                width: 280px;
+                background: Theme.surface-pane;
+                VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    SongRow { title: "Sunny road.mp3"; duration-text: "3:12"; first: true; }
+                    SongRow { title: "Evening.m4a"; duration-text: "2:40"; }
+                    SongRow { title: "A very long song name that keeps going.flac"; duration-text: "12:04"; last: true; }
+                    SwatchGroup { label: "Background"; colors: Theme.title-backgrounds; names: ["Black", "Charcoal", "Blue", "Red", "White"]; selected-index: 2; }
+                    SwatchGroup { label: "Background"; colors: Theme.title-backgrounds; names: ["Black", "Charcoal", "Blue", "Red", "White"]; selected-index: 4; }
+                    SwatchGroup { label: "Background"; colors: Theme.title-backgrounds; names: ["Black", "Charcoal", "Blue", "Red", "White"]; selected-index: 0; enabled: false; }
+                    ChoiceGroup { label: "Caption style"; compact: true; options: ["Klassisch", "Band", "Titel", "Ecke"]; selected-index: 0; }
+                    ChoiceGroup { label: "Caption style"; compact: true; options: ["Classic", "Banner", "Title", "Corner"]; selected-index: 2; }
+                }
+            }
         }
         Row {
             title: "Section + ValueSlider (inspector form), 280 px wide; EmptyState; DialogButtons Windows / macOS";
