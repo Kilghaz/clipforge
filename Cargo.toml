@@ -66,6 +66,19 @@ print_stderr = "warn"
 [profile.dev.package."*"]
 opt-level = 2
 
+# Our pixel-pushing crates run their own loops (blends, copies, yuv): in an
+# unoptimised build a Ken Burns preview frame took ~110 ms instead of ~2 ms,
+# so `cargo run` stuttered. Optimise them in dev too; the UI and model
+# crates stay fast to compile and easy to debug.
+[profile.dev.package.clipforge-render]
+opt-level = 3
+
+[profile.dev.package.clipforge-export]
+opt-level = 3
+
+[profile.dev.package.clipforge-media]
+opt-level = 3
+
 # CI: no dependency optimisation, no debug info. Cuts cold compile time
 # roughly in half; used by clippy and tests in .github/workflows/ci.yml.
 [profile.ci]
