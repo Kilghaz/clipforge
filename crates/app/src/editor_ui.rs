@@ -20,7 +20,7 @@ use clipforge_jobs::{CancellationToken, JobError, Priority, Scheduler};
 use clipforge_library::{Library, ThumbLevel};
 use clipforge_media::{Backends, FfmpegCli, FfmpegLocation, MediaInfo, Prober};
 use clipforge_platform::AppDirs;
-use clipforge_render::{Compositor, Frame, RenderQuality, SourceImage, SourceProvider};
+use clipforge_render::{Frame, RenderQuality, SourceImage, SourceProvider};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use tracing::{info, warn};
 
@@ -1466,7 +1466,9 @@ impl Inner {
                         return Err(JobError::Failed(e.to_string()));
                     }
                 };
-                let compositor = Compositor::new();
+                // The export gets its own GPU device (or the CPU fallback).
+                let compositor = clipforge_render::best_renderer();
+                info!(renderer = compositor.name(), "export renderer");
                 // Audio first: it is small and lets ffmpeg mux in one pass.
                 let wav_path = output.with_extension("clipforge-audio.wav");
                 let audio = if clipforge_export::audio::has_audio(&project) {
@@ -1481,7 +1483,8 @@ impl Inner {
                 } else {
                     None
                 };
-                let mut frames = TimelineFrames::new(&project, &compositor, &sources, quality);
+                let mut frames =
+                    TimelineFrames::new(&project, compositor.as_ref(), &sources, quality);
                 let progress_tx = tx.clone();
                 let result = exporter.run(
                     &plan,

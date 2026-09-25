@@ -15,12 +15,48 @@
 pub mod compositor;
 pub mod draw;
 pub mod frame;
+pub mod gpu;
 pub mod layout;
 pub mod quality;
 pub mod source;
 pub mod transition;
 
 pub use compositor::Compositor;
+pub use gpu::GpuCompositor;
+
+use clipforge_core::{Project, Ticks};
+
+/// Colour drawn where a source is not available (yet).
+pub const PLACEHOLDER_RGB: [u8; 3] = [40, 42, 48];
+
+/// Anything that turns a project and a time into a frame. Implemented by
+/// the CPU [`Compositor`] and the [`GpuCompositor`].
+pub trait FrameRenderer: Send + Sync {
+    /// Renders the frame at timeline time `t` (black beyond the end).
+    fn render(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Frame;
+
+    /// Short name for logs ("cpu", "gpu").
+    fn name(&self) -> &str;
+}
+
+/// The fastest renderer available: the GPU compositor, or the CPU one when
+/// no GPU adapter exists or `CLIPFORGE_RENDERER=cpu` is set.
+#[must_use]
+pub fn best_renderer() -> Box<dyn FrameRenderer> {
+    let force_cpu =
+        std::env::var("CLIPFORGE_RENDERER").is_ok_and(|v| v.eq_ignore_ascii_case("cpu"));
+    if !force_cpu && let Some(gpu) = GpuCompositor::new() {
+        return Box::new(gpu);
+    }
+    tracing::info!("using the CPU compositor");
+    Box::new(Compositor::new())
+}
 pub use frame::Frame;
 pub use layout::{Rect, place};
 pub use quality::{PREVIEW_LONG_EDGE, RenderQuality};

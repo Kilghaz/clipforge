@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use clipforge_core::{Project, Ticks};
-use clipforge_render::{Compositor, Frame, RenderQuality, SourceProvider};
+use clipforge_render::{Frame, RenderQuality, SourceProvider};
 
 struct Shared {
     request: Mutex<Option<(Arc<Project>, Ticks)>>,
@@ -33,7 +33,9 @@ impl PreviewWorker {
         let thread = std::thread::Builder::new()
             .name("clipforge-preview".into())
             .spawn(move || {
-                let compositor = Compositor::new();
+                // GPU when available (created on this thread, once), else CPU.
+                let compositor = clipforge_render::best_renderer();
+                tracing::info!(renderer = compositor.name(), "preview renderer");
                 loop {
                     let (project, t) = {
                         let Ok(mut guard) = worker.request.lock() else {

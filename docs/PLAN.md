@@ -509,6 +509,10 @@ Kept short; the ADRs hold the reasoning.
   draw-into-rectangle routine plus a pure transition module) instead of WGSL
   shaders. Golden tests are pixel assertions at progress 0 / 0.5 / 1 per
   kind rather than stored PNGs. The GPU compositor is tracked as issue #1.
+- **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
+  replaces the CPU compositor for preview and export; the CPU compositor is
+  the fallback without a GPU and the reference in tests. Frames are still
+  read back to RGBA; zero-copy preview is a later step.
 - **M4, "random" Ken Burns preset:** implemented as a "Shuffle motion"
   action that writes concrete presets per clip (undoable, reproducible),
   not as a stored "random" value that changes on every render.

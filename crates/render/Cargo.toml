@@ -12,6 +12,9 @@ clipforge-media.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 fast_image_resize.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

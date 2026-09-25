@@ -2,7 +2,9 @@
 
 use clipforge_core::timeline::frame_at;
 use clipforge_core::{Project, Ticks};
-use clipforge_render::{Compositor, Frame, RenderQuality, SourceProvider};
+#[cfg(test)]
+use clipforge_render::Compositor;
+use clipforge_render::{Frame, FrameRenderer, RenderQuality, SourceProvider};
 
 /// What the exporter gets for frame `i`.
 #[derive(Debug)]
@@ -30,7 +32,7 @@ pub trait FrameSource {
 /// Frames of a project timeline at full quality.
 pub struct TimelineFrames<'a> {
     project: &'a Project,
-    compositor: &'a Compositor,
+    compositor: &'a dyn FrameRenderer,
     sources: &'a dyn SourceProvider,
     quality: RenderQuality,
     len: u64,
@@ -49,7 +51,7 @@ impl<'a> TimelineFrames<'a> {
     #[must_use]
     pub fn new(
         project: &'a Project,
-        compositor: &'a Compositor,
+        compositor: &'a dyn FrameRenderer,
         sources: &'a dyn SourceProvider,
         quality: RenderQuality,
     ) -> Self {

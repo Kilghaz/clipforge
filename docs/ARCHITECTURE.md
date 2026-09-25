@@ -9,7 +9,7 @@ Redrawn from the code after each milestone. Last update: Milestone 4 (transition
 | `clipforge-core` | Model, commands, undo, time | `Project`, `Clip`, `TransitionKind`, `Motion`, `Command`, `History`, `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
 | `clipforge-media` | Probing, stills, streaming decode | `MediaInfo`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli` (+`frame_at`), `VideoReader`, `AudioReader`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
-| `clipforge-render` | CPU compositor | `Compositor`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
+| `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010) | `FrameRenderer`, `best_renderer`, `GpuCompositor`, `Compositor`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
 | `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `EncodePlan`, `Exporter`, `TimelineFrames`, `FileSources`, `audio::{mix, write_wav}`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
 | `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
@@ -58,10 +58,10 @@ over 5 000 rows in 1.1 ms.
 Slint EditorState ── callbacks ──► EditorController { Project, History, Selection }
         ▲                                 │ Command::apply → inverse pushed to History
         │ TimelineClip model, preview     ▼
-        │ image (960x540 RGBA)      Compositor::render(project, playhead, Preview,
+        │ image (960x540 RGBA)      best_renderer().render(project, playhead, Preview,
         │                                 PreviewSources ← library 1280 px thumbs)
         │
-   Export… ──► job: TimelineFrames(project, Compositor, FileSources(full decode))
+   Export… ──► job: TimelineFrames(project, best_renderer(), FileSources(full decode))
                ──► Yuv420 per distinct picture ──► ffmpeg stdin ──► .mp4
                progress via -progress pipe, cancel kills the process
 ```
@@ -98,3 +98,18 @@ photos and of the opening, and reuses the frame of still photos.
 - Cache: `<cache>/thumbs/<hh>/<fingerprint>/{256,640,1280}.jpg`; proxies from M3.
 - Project: single JSON file (`*.clipforge.json`) chosen by the user; unused media refs are pruned on save.
 - Autosave: `<data>/autosave.clipforge.json`, restored on start.
+
+## GPU compositor (ADR-0010)
+
+```
+best_renderer() ─► GpuCompositor (wgpu: Metal / DX12 / Vulkan)
+                   └─ no adapter or CLIPFORGE_RENDERER=cpu ─► Compositor (CPU)
+GpuCompositor::render: clip ─► quad into target A (fit, rotation, camera)
+                       outgoing clip or opening colour ─► target B
+                       transition pass (alpha / offset / scissor / solid) ─► out
+                       ─► read back RGBA ─► Frame (same as the CPU path)
+caches: stills with mips (LRU, 768 MB), one texture per video (re-upload on new frame)
+```
+
+`tests/gpu_matches_cpu.rs` keeps both compositors in step; it skips when
+no adapter is available.

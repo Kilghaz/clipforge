@@ -41,6 +41,9 @@ fast_image_resize = { version = "6", features = ["image"] }
 kamadak-exif = "0.6"
 rfd = { version = "0.17", default-features = false }
 cpal = "0.18"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "vulkan", "wgsl"] }
+pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg", "software-renderer-systemfonts"] }
 slint-build = "1.18"
 i-slint-backend-winit = { version = "1.18", default-features = false, features = ["renderer-femtovg", "accessibility"] }

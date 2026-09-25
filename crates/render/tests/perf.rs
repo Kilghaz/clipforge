@@ -10,7 +10,7 @@ use std::time::Instant;
 use clipforge_core::project::{MediaRef, RefKind, Transition, TransitionKind};
 use clipforge_core::{Clip, Command, MediaId, Motion, Project, Resolution, Ticks};
 use clipforge_render::source::MapProvider;
-use clipforge_render::{Compositor, RenderQuality, SourceImage};
+use clipforge_render::{Compositor, FrameRenderer, GpuCompositor, RenderQuality, SourceImage};
 
 /// Two 1280 × 853 photos (the preview thumbnail size), the second with a
 /// dissolve, both with Ken Burns.
@@ -106,6 +106,42 @@ fn cpu_frame_times() {
     let (p4, provider4) = scene(4032);
     measure("cpu 4K export, dissolve + 2x ken burns", 5, |i| {
         let _ = c.render(
+            &p4,
+            Ticks::from_millis(3_000 + i64::from(i) * 33),
+            RenderQuality::Full(Resolution::Uhd4k),
+            &provider4,
+        );
+    });
+}
+
+#[test]
+#[ignore = "performance measurement, run manually"]
+fn gpu_frame_times() {
+    let Some(g) = GpuCompositor::new() else {
+        eprintln!("no GPU adapter");
+        return;
+    };
+    eprintln!("adapter: {}", g.adapter_name());
+    let (p, provider) = scene(1280);
+    measure("gpu preview, ken burns", 120, |i| {
+        let _ = g.render(
+            &p,
+            Ticks::from_millis(i64::from(i) * 33),
+            RenderQuality::Preview,
+            &provider,
+        );
+    });
+    measure("gpu preview, dissolve + 2x ken burns", 60, |i| {
+        let _ = g.render(
+            &p,
+            Ticks::from_millis(3_000 + i64::from(i) * 16),
+            RenderQuality::Preview,
+            &provider,
+        );
+    });
+    let (p4, provider4) = scene(4032);
+    measure("gpu 4K export, dissolve + 2x ken burns", 20, |i| {
+        let _ = g.render(
             &p4,
             Ticks::from_millis(3_000 + i64::from(i) * 33),
             RenderQuality::Full(Resolution::Uhd4k),

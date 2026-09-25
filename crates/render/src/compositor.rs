@@ -14,8 +14,7 @@ use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
 use crate::transition;
 
-/// Colour drawn where a source is not available (yet).
-const PLACEHOLDER_RGB: [u8; 3] = [40, 42, 48];
+use crate::PLACEHOLDER_RGB;
 /// Scaled-picture cache entries kept per compositor.
 const CACHE_ENTRIES: usize = 48;
 
@@ -43,6 +42,22 @@ pub struct Compositor {
 impl std::fmt::Debug for Compositor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Compositor").finish()
+    }
+}
+
+impl crate::FrameRenderer for Compositor {
+    fn render(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Frame {
+        Compositor::render(self, project, t, quality, sources)
+    }
+
+    fn name(&self) -> &str {
+        "cpu"
     }
 }
 
