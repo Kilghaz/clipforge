@@ -25,16 +25,19 @@ use clipforge_core::project::{Clip, ClipSource, Motion, Quarter, TransitionKind}
 use clipforge_core::timeline::opening_overlap;
 use clipforge_core::{Fit, MediaId, Project, Ticks};
 
+use crate::colour;
 use crate::draw::RectF;
-use crate::frame::Frame;
+use crate::frame::{Frame, Frame16};
 use crate::layout::place;
 use crate::quality::RenderQuality;
-use crate::source::{SourceImage, SourceProvider};
+use crate::source::{HlgImage, SourceImage, SourceProvider};
 use crate::text::{TextImage, TextRenderer, text_draw};
 use crate::transition::{ease, opening_colour};
 use crate::{FrameRenderer, PLACEHOLDER_RGB};
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Targets of the HDR (HLG) render path: enough precision for 10-bit output.
+const HDR_TARGET: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Uniform slots per frame (each 256 bytes, the dynamic offset alignment).
 const SLOTS: u64 = 32;
 const SLOT_SIZE: u64 = 256;
@@ -56,6 +59,15 @@ struct Sampled {
     bind_group: wgpu::BindGroup,
     size: (u32, u32),
     bytes: u64,
+    /// Holds HLG pixels (an HDR video frame); otherwise SDR, which the HDR
+    /// path converts in the shader.
+    hlg: bool,
+}
+
+/// Identity of the frame a video texture holds.
+enum FrameId {
+    Sdr(Arc<Vec<u8>>),
+    Hlg(Arc<Vec<u16>>),
 }
 
 /// A frame-sized render target that can also be sampled.
@@ -75,7 +87,7 @@ struct CachedVideo {
     /// The uploaded frame, to skip re-uploading repeats. Holding the `Arc`
     /// (not just its address) matters: once a frame is freed the allocator
     /// may hand its address to the next one, and a stale picture would stick.
-    frame: Arc<Vec<u8>>,
+    frame: FrameId,
 }
 
 /// Text blocks uploaded recently; the `Arc` identifies the rendered image
@@ -88,7 +100,8 @@ struct State {
     videos: HashMap<MediaId, CachedVideo>,
     still_bytes: u64,
     clock: u64,
-    targets: Option<((u32, u32), [Target; 3])>,
+    /// Frame-sized targets for (width, height, HDR).
+    targets: Option<((u32, u32, bool), [Target; 3])>,
     readback: Option<(u64, wgpu::Buffer)>,
 }
 
@@ -98,6 +111,11 @@ pub struct GpuCompositor {
     queue: wgpu::Queue,
     adapter_name: String,
     pipeline: wgpu::RenderPipeline,
+    /// Same shader into 16-bit float targets (HDR output).
+    pipeline_hdr: wgpu::RenderPipeline,
+    /// Texture format of HLG video frames: 16-bit normalised where the GPU
+    /// supports it, else half float (converted on upload).
+    hlg_format: wgpu::TextureFormat,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     uniforms: wgpu::Buffer,
@@ -132,6 +150,8 @@ enum Paint<'a> {
         rotate: Quarter,
         alpha: f32,
         scissor: Option<Scissor>,
+        /// The texture holds SDR pixels (converted to HLG in HDR output).
+        sdr: bool,
     },
     /// A solid colour over the whole target.
     Solid { rgb: [u8; 3], alpha: f32 },
@@ -150,8 +170,15 @@ impl GpuCompositor {
         }))
         .ok()?;
         let info = adapter.get_info();
+        let features = adapter.features() & wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+        let hlg_format = if features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
+            wgpu::TextureFormat::Rgba16Unorm
+        } else {
+            wgpu::TextureFormat::Rgba16Float
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("clipforge compositor"),
+            required_features: features,
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
             ..Default::default()
         }))
@@ -201,34 +228,38 @@ impl GpuCompositor {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("quad"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let make_pipeline = |format: wgpu::TextureFormat| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("quad"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make_pipeline(FORMAT);
+        let pipeline_hdr = make_pipeline(HDR_TARGET);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("linear"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -252,6 +283,8 @@ impl GpuCompositor {
             queue,
             adapter_name: format!("{} ({:?})", info.name, info.backend),
             pipeline,
+            pipeline_hdr,
+            hlg_format,
             layout,
             sampler,
             uniforms,
@@ -344,7 +377,73 @@ impl GpuCompositor {
             bind_group,
             size: (w, h),
             bytes,
+            hlg: false,
         }
+    }
+
+    /// Uploads a 16-bit HLG video frame (no mipmaps).
+    fn upload_hlg(&self, img: &HlgImage) -> Sampled {
+        let (w, h) = (img.width.max(1), img.height.max(1));
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("hlg source"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.hlg_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.write_hlg(&texture, img);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.bind_group(&view);
+        Sampled {
+            _texture: texture,
+            bind_group,
+            size: (w, h),
+            bytes: u64::from(w) * u64::from(h) * 8,
+            hlg: true,
+        }
+    }
+
+    fn write_hlg(&self, texture: &wgpu::Texture, img: &HlgImage) {
+        let expected = img.width as usize * img.height as usize * 4;
+        if img.rgba16.len() < expected {
+            return;
+        }
+        let samples = &img.rgba16[..expected];
+        let bytes: Vec<u8> = if self.hlg_format == wgpu::TextureFormat::Rgba16Unorm {
+            bytemuck::cast_slice(samples).to_vec()
+        } else {
+            // Half floats for GPUs without 16-bit normalised textures.
+            samples
+                .iter()
+                .flat_map(|v| f32_to_f16(f32::from(*v) / 65_535.0).to_le_bytes())
+                .collect()
+        };
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(img.width * 8),
+                rows_per_image: Some(img.height),
+            },
+            wgpu::Extent3d {
+                width: img.width,
+                height: img.height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     fn write_level0(&self, texture: &wgpu::Texture, img: &SourceImage) {
@@ -407,7 +506,7 @@ impl GpuCompositor {
             self.queue.write_buffer(
                 &self.uniforms,
                 slot * SLOT_SIZE,
-                bytemuck::bytes_of(&quad(full, 1, 1, Quarter::None, 1.0, None)),
+                bytemuck::bytes_of(&quad(full, 1, 1, Quarter::None, 1.0, None, false)),
             );
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -448,7 +547,7 @@ impl GpuCompositor {
         self.queue.submit(Some(encoder.finish()));
     }
 
-    fn make_targets(&self, w: u32, h: u32) -> [Target; 3] {
+    fn make_targets(&self, w: u32, h: u32, hdr: bool) -> [Target; 3] {
         let make = |label| {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -460,7 +559,7 @@ impl GpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: FORMAT,
+                format: if hdr { HDR_TARGET } else { FORMAT },
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_SRC,
@@ -479,6 +578,7 @@ impl GpuCompositor {
 
     /// Records one pass: clear to `clear` (or keep the target with `None`),
     /// then the paints in order.
+    #[allow(clippy::too_many_arguments)]
     fn pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -487,15 +587,20 @@ impl GpuCompositor {
         clear: Option<[u8; 3]>,
         paints: &[Paint<'_>],
         slot: &mut u64,
+        hdr: bool,
     ) {
-        let colour = |c: u8| f64::from(c) / 255.0;
         let load = match clear {
-            Some(clear) => wgpu::LoadOp::Clear(wgpu::Color {
-                r: colour(clear[0]),
-                g: colour(clear[1]),
-                b: colour(clear[2]),
-                a: 1.0,
-            }),
+            Some(clear) => {
+                let sdr = clear.map(|c| f32::from(c) / 255.0);
+                // Clear colours are SDR (backgrounds, placeholders).
+                let c = if hdr { colour::sdr_to_hlg(sdr) } else { sdr };
+                wgpu::LoadOp::Clear(wgpu::Color {
+                    r: f64::from(c[0]),
+                    g: f64::from(c[1]),
+                    b: f64::from(c[2]),
+                    a: 1.0,
+                })
+            }
             None => wgpu::LoadOp::Load,
         };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -514,7 +619,11 @@ impl GpuCompositor {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(if hdr {
+            &self.pipeline_hdr
+        } else {
+            &self.pipeline
+        });
         for paint in paints {
             if *slot >= SLOTS {
                 tracing::warn!("too many draws in one frame; skipping");
@@ -527,9 +636,10 @@ impl GpuCompositor {
                     rotate,
                     alpha,
                     scissor,
+                    sdr,
                 } => (
                     bind_group,
-                    quad(dst, size.0, size.1, rotate, alpha, None),
+                    quad(dst, size.0, size.1, rotate, alpha, None, hdr && sdr),
                     scissor,
                 ),
                 Paint::Solid { rgb, alpha } => {
@@ -544,7 +654,7 @@ impl GpuCompositor {
                     };
                     (
                         &white.bind_group,
-                        quad(full, size.0, size.1, Quarter::None, alpha, Some(rgb)),
+                        quad(full, size.0, size.1, Quarter::None, alpha, Some(rgb), hdr),
                         None,
                     )
                 }
@@ -575,6 +685,7 @@ impl GpuCompositor {
         local: Ticks,
         want_edge: u32,
         sources: &dyn SourceProvider,
+        hdr: bool,
     ) -> Option<&'s Sampled> {
         match clip.source {
             ClipSource::Photo { .. } => {
@@ -606,17 +717,45 @@ impl GpuCompositor {
             }
             ClipSource::Title { .. } => None,
             ClipSource::Video { in_point, .. } => {
+                // HDR output takes HDR videos at full range; everything else
+                // (and SDR output) uses the 8-bit frame.
+                if hdr
+                    && let Some(img) =
+                        sources.video_frame_hlg(clip.media, in_point + local, want_edge)
+                {
+                    let reuse = state.videos.get(&clip.media).is_some_and(|v| {
+                        v.sampled.hlg && v.sampled.size == (img.width, img.height)
+                    });
+                    if reuse {
+                        if let Some(v) = state.videos.get_mut(&clip.media)
+                            && !matches!(&v.frame, FrameId::Hlg(f) if Arc::ptr_eq(f, &img.rgba16))
+                        {
+                            self.write_hlg(&v.sampled._texture, &img);
+                            v.frame = FrameId::Hlg(Arc::clone(&img.rgba16));
+                        }
+                    } else {
+                        let sampled = self.upload_hlg(&img);
+                        state.videos.insert(
+                            clip.media,
+                            CachedVideo {
+                                sampled,
+                                frame: FrameId::Hlg(Arc::clone(&img.rgba16)),
+                            },
+                        );
+                    }
+                    return state.videos.get(&clip.media).map(|v| &v.sampled);
+                }
                 let img = sources.video_frame(clip.media, in_point + local, want_edge)?;
                 let reuse = state
                     .videos
                     .get(&clip.media)
-                    .is_some_and(|v| v.sampled.size == (img.width, img.height));
+                    .is_some_and(|v| !v.sampled.hlg && v.sampled.size == (img.width, img.height));
                 if reuse {
                     if let Some(v) = state.videos.get_mut(&clip.media)
-                        && !Arc::ptr_eq(&v.frame, &img.rgba)
+                        && !matches!(&v.frame, FrameId::Sdr(f) if Arc::ptr_eq(f, &img.rgba))
                     {
                         self.write_level0(&v.sampled._texture, &img);
-                        v.frame = Arc::clone(&img.rgba);
+                        v.frame = FrameId::Sdr(Arc::clone(&img.rgba));
                     }
                 } else {
                     let sampled = self.upload(&img, false);
@@ -624,7 +763,7 @@ impl GpuCompositor {
                         clip.media,
                         CachedVideo {
                             sampled,
-                            frame: Arc::clone(&img.rgba),
+                            frame: FrameId::Sdr(Arc::clone(&img.rgba)),
                         },
                     );
                 }
@@ -634,6 +773,7 @@ impl GpuCompositor {
     }
 
     /// The text track over the finished frame in target 2.
+    #[allow(clippy::too_many_arguments)]
     fn draw_texts(
         &self,
         state: &mut State,
@@ -642,6 +782,7 @@ impl GpuCompositor {
         (w, h): (u32, u32),
         encoder: &mut wgpu::CommandEncoder,
         slot: &mut u64,
+        hdr: bool,
     ) {
         let mut draws = Vec::new();
         for item in project.texts.iter().filter(|i| i.visible_at(t)) {
@@ -668,9 +809,10 @@ impl GpuCompositor {
                 rotate: Quarter::None,
                 alpha: d.alpha,
                 scissor: d.clip.map(|c| scissor_of(c, w, h)),
+                sdr: true,
             })
             .collect();
-        self.pass(encoder, &targets[2].view, (w, h), None, &paints, slot);
+        self.pass(encoder, &targets[2].view, (w, h), None, &paints, slot, hdr);
     }
 
     /// Bind group of an uploaded text block, uploading it on first use.
@@ -702,14 +844,16 @@ impl GpuCompositor {
         bg
     }
 
+    /// Copies a target to the CPU: tightly packed rows of `bytes_per_pixel`.
     fn read_back(
         &self,
         state: &mut State,
         texture: &wgpu::Texture,
         w: u32,
         h: u32,
-    ) -> Option<Frame> {
-        let row = w * 4;
+        bytes_per_pixel: u32,
+    ) -> Option<Vec<u8>> {
+        let row = w * bytes_per_pixel;
         let padded =
             row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let size = u64::from(padded) * u64::from(h);
@@ -759,23 +903,16 @@ impl GpuCompositor {
             return None;
         }
         rx.recv().ok()?.ok()?;
-        let mut rgba = Vec::with_capacity((row * h) as usize);
+        let mut bytes = Vec::with_capacity((row * h) as usize);
         {
             let view = buffer.get_mapped_range(..).ok()?;
             for y in 0..h as usize {
                 let start = y * padded as usize;
-                rgba.extend_from_slice(&view[start..start + row as usize]);
+                bytes.extend_from_slice(&view[start..start + row as usize]);
             }
         }
         buffer.unmap();
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px[3] = 255;
-        }
-        Some(Frame {
-            width: w,
-            height: h,
-            rgba,
-        })
+        Some(bytes)
     }
 }
 
@@ -804,6 +941,7 @@ fn quad(
     rotate: Quarter,
     alpha: f32,
     solid: Option<[u8; 3]>,
+    convert_to_hlg: bool,
 ) -> QuadUniform {
     #[allow(clippy::cast_possible_truncation)]
     let nx = |x: f64| (x / f64::from(w) * 2.0 - 1.0) as f32;
@@ -834,7 +972,7 @@ fn quad(
             turns,
             alpha.clamp(0.0, 1.0),
             if solid.is_some() { 1.0 } else { 0.0 },
-            0.0,
+            if convert_to_hlg { 1.0 } else { 0.0 },
         ],
     }
 }
@@ -875,25 +1013,33 @@ fn clip_rect(
     ))
 }
 
-impl FrameRenderer for GpuCompositor {
-    fn render(
+impl GpuCompositor {
+    /// Renders the frame at `t` into the output target and reads it back:
+    /// 8-bit RGBA, or with `hdr` half-float RGBA (HLG, BT.2020). `None`
+    /// means nothing to draw (beyond the end) or a GPU failure.
+    fn compose(
         &self,
         project: &Project,
         t: Ticks,
         quality: RenderQuality,
         sources: &dyn SourceProvider,
-    ) -> Frame {
+        hdr: bool,
+    ) -> Option<Vec<u8>> {
         let (w, h) = quality.frame_size(project.settings.aspect);
         let at = clipforge_core::timeline::frame_at(&project.clips, t);
         if at.is_none() && !project.texts.iter().any(|i| i.visible_at(t)) {
-            return Frame::black(w, h);
+            return None;
         }
         let Ok(mut guard) = self.state.lock() else {
-            return Frame::black(w, h);
+            return None;
         };
         let state = &mut *guard;
-        if state.targets.as_ref().is_none_or(|(s, _)| *s != (w, h)) {
-            state.targets = Some(((w, h), self.make_targets(w, h)));
+        if state
+            .targets
+            .as_ref()
+            .is_none_or(|(s, _)| *s != (w, h, hdr))
+        {
+            state.targets = Some(((w, h, hdr), self.make_targets(w, h, hdr)));
         }
         let want_edge = quality
             .source_edge(clipforge_core::Aspect::Landscape16x9)
@@ -925,14 +1071,14 @@ impl FrameRenderer for GpuCompositor {
                 (1.0, 0.0, 0.0)
             };
             let source = self
-                .source(state, clip, local, want_edge, sources)
-                .map(|s| (s.size, s.bind_group.clone()));
+                .source(state, clip, local, want_edge, sources, hdr)
+                .map(|s| (s.size, s.bind_group.clone(), !s.hlg));
             let Some((_, targets)) = state.targets.as_ref() else {
                 return;
             };
             let view = &targets[idx].view;
-            let picture = source.and_then(|(size, bg)| {
-                clip_rect(size, clip.rotate, w, h, clip.fit, camera).map(|r| (r, bg))
+            let picture = source.and_then(|(size, bg, sdr)| {
+                clip_rect(size, clip.rotate, w, h, clip.fit, camera).map(|r| (r, bg, sdr))
             });
             let clear = match clip.source {
                 ClipSource::Title { background, .. } => crate::title_rgb(background),
@@ -940,16 +1086,17 @@ impl FrameRenderer for GpuCompositor {
                 _ => PLACEHOLDER_RGB,
             };
             let mut paints = Vec::with_capacity(2);
-            if let Some((dst, bg)) = &picture {
+            if let Some((dst, bg, sdr)) = &picture {
                 paints.push(Paint::Texture {
                     bind_group: bg,
                     dst: *dst,
                     rotate: clip.rotate,
                     alpha: 1.0,
                     scissor: None,
+                    sdr: *sdr,
                 });
             }
-            self.pass(encoder, view, (w, h), Some(clear), &paints, slot);
+            self.pass(encoder, view, (w, h), Some(clear), &paints, slot, hdr);
         };
 
         if let Some(at) = at {
@@ -994,9 +1141,7 @@ impl FrameRenderer for GpuCompositor {
                         }
                         None => Some(opening_rgb),
                     };
-                    let Some((_, targets)) = state.targets.as_ref() else {
-                        return Frame::black(w, h);
-                    };
+                    let (_, targets) = state.targets.as_ref()?;
                     let full = RectF {
                         x: 0.0,
                         y: 0.0,
@@ -1009,6 +1154,7 @@ impl FrameRenderer for GpuCompositor {
                         rotate: Quarter::None,
                         alpha,
                         scissor,
+                        sdr: false,
                     };
                     let from_paint = |dst: RectF| match from_rgb {
                         Some(rgb) => Paint::Solid { rgb, alpha: 1.0 },
@@ -1018,6 +1164,7 @@ impl FrameRenderer for GpuCompositor {
                             rotate: Quarter::None,
                             alpha: 1.0,
                             scissor: None,
+                            sdr: false,
                         },
                     };
                     let paints = transition_paints(draw_kind, p, w, h, full, &to, &from_paint);
@@ -1028,6 +1175,7 @@ impl FrameRenderer for GpuCompositor {
                         Some([0, 0, 0]),
                         &paints,
                         &mut slot,
+                        hdr,
                     );
                 }
             }
@@ -1040,16 +1188,73 @@ impl FrameRenderer for GpuCompositor {
                 Some([0, 0, 0]),
                 &[],
                 &mut slot,
+                hdr,
             );
         }
-        self.draw_texts(state, project, t, (w, h), &mut encoder, &mut slot);
+        self.draw_texts(state, project, t, (w, h), &mut encoder, &mut slot, hdr);
         self.queue.submit(Some(encoder.finish()));
-        let Some((_, targets)) = state.targets.take() else {
+        let (key, targets) = state.targets.take()?;
+        let bytes = self.read_back(state, &targets[2].texture, w, h, if hdr { 8 } else { 4 });
+        state.targets = Some((key, targets));
+        bytes
+    }
+}
+
+impl FrameRenderer for GpuCompositor {
+    fn render(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Frame {
+        let (w, h) = quality.frame_size(project.settings.aspect);
+        let Some(mut rgba) = self.compose(project, t, quality, sources, false) else {
             return Frame::black(w, h);
         };
-        let frame = self.read_back(state, &targets[2].texture, w, h);
-        state.targets = Some(((w, h), targets));
-        frame.unwrap_or_else(|| Frame::black(w, h))
+        for px in rgba.as_chunks_mut::<4>().0 {
+            px[3] = 255;
+        }
+        Frame {
+            width: w,
+            height: h,
+            rgba,
+        }
+    }
+
+    fn render_hlg(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Option<Frame16> {
+        let (w, h) = quality.frame_size(project.settings.aspect);
+        let rgba16 = match self.compose(project, t, quality, sources, true) {
+            Some(bytes) => bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .enumerate()
+                .map(|(i, b)| {
+                    if i % 4 == 3 {
+                        u16::MAX
+                    } else {
+                        let v = f16_to_f32(u16::from_le_bytes(*b));
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let q = (v.clamp(0.0, 1.0) * 65_535.0).round() as u16;
+                        q
+                    }
+                })
+                .collect(),
+            // Nothing to draw: black.
+            None => [0, 0, 0, u16::MAX].repeat(w as usize * h as usize),
+        };
+        Some(Frame16 {
+            width: w,
+            height: h,
+            rgba16,
+        })
     }
 
     fn name(&self) -> &str {
@@ -1159,5 +1364,69 @@ fn transition_paints<'a>(
             let scale = 0.6 + 0.4 * f64::from(e);
             vec![from(full), to(full.zoomed(scale, 0.0, 0.0, w, h), e, None)]
         }
+    }
+}
+
+/// IEEE 754 half → single precision.
+fn f16_to_f32(h: u16) -> f32 {
+    let sign = u32::from(h >> 15) << 31;
+    let exp = u32::from((h >> 10) & 0x1f);
+    let mant = u32::from(h & 0x3ff);
+    let bits = match (exp, mant) {
+        (0, 0) => sign,
+        (0, m) => {
+            // Subnormal: normalise.
+            let mut e = 127 - 15 + 1;
+            let mut m = m;
+            while m & 0x400 == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            sign | (e << 23) | ((m & 0x3ff) << 13)
+        }
+        (0x1f, m) => sign | 0x7f80_0000 | (m << 13),
+        (e, m) => sign | ((e + 127 - 15) << 23) | (m << 13),
+    };
+    f32::from_bits(bits)
+}
+
+/// Single → half precision (round to nearest), for values in 0..1.
+fn f32_to_f16(v: f32) -> u16 {
+    let v = v.clamp(0.0, 65_504.0);
+    if v < 6.103_515_6e-5 {
+        // Subnormal half: v / 2^-24.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        return (v / 5.960_464_5e-8).round() as u16;
+    }
+    let bits = v.to_bits();
+    let exp = ((bits >> 23) & 0xff) as i32 - 127 + 15;
+    let mant = bits & 0x7f_ffff;
+    // Round the 23-bit mantissa to 10 bits.
+    let rounded = mant + 0x1000;
+    let (exp, mant) = if rounded & 0x80_0000 != 0 {
+        (exp + 1, 0)
+    } else {
+        (exp, rounded >> 13)
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let h = ((exp as u32) << 10 | (mant & 0x3ff)) as u16;
+    h
+}
+
+#[cfg(test)]
+mod half_tests {
+    use super::{f16_to_f32, f32_to_f16};
+
+    #[test]
+    fn half_floats_round_trip_the_unit_range() {
+        for i in 0..=1000 {
+            #[allow(clippy::cast_precision_loss)]
+            let v = i as f32 / 1000.0;
+            let back = f16_to_f32(f32_to_f16(v));
+            assert!((back - v).abs() <= v * 0.001 + 1e-6, "{v} → {back}");
+        }
+        assert_eq!(f16_to_f32(0x3c00), 1.0);
+        assert_eq!(f16_to_f32(0x3800), 0.5);
+        assert_eq!(f32_to_f16(1.0), 0x3c00);
     }
 }

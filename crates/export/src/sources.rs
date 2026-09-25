@@ -8,13 +8,29 @@ use std::sync::{Arc, Mutex};
 
 use clipforge_core::{MediaId, Project, Ticks};
 use clipforge_media::{
-    AudioReader, Backends, FfmpegCli, MediaInfo, Prober, StillDecoder, VideoReader,
+    AudioReader, Backends, FfmpegCli, MediaInfo, Prober, StillDecoder, VideoFrame, VideoReader,
 };
-use clipforge_render::{SourceImage, SourceProvider};
+use clipforge_render::{HlgImage, SourceImage, SourceProvider, colour};
 
 use crate::audio::{AudioSourceFactory, AudioStream};
 
 const CACHE_ENTRIES: usize = 8;
+
+/// A decoded video frame as an SDR picture. HDR frames are tone mapped in
+/// horizontal bands on all cores (a 4K frame takes ~270 ms on one).
+#[must_use]
+pub fn sdr_frame(frame: VideoFrame) -> SourceImage {
+    clipforge_render::sdr_source_with(frame, |rgb48, transfer, out| {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+        // Whole pixels per band: 3 samples in, 4 bytes out.
+        let pixels = (rgb48.len() / 3).div_ceil(threads).max(1);
+        std::thread::scope(|scope| {
+            for (src, dst) in rgb48.chunks(pixels * 3).zip(out.chunks_mut(pixels * 4)) {
+                scope.spawn(move || colour::hdr16_to_sdr8_into(src, transfer, dst));
+            }
+        });
+    })
+}
 
 pub struct FileSources {
     backends: Backends,
@@ -88,13 +104,10 @@ impl AudioStream for ReaderStream {
     }
 }
 
-impl SourceProvider for FileSources {
-    fn video_frame(
-        &self,
-        media: MediaId,
-        source_time: Ticks,
-        max_edge: u32,
-    ) -> Option<SourceImage> {
+impl FileSources {
+    /// The decoded frame of `media` at `source_time`, reusing the streaming
+    /// reader while the requests move forward.
+    fn frame(&self, media: MediaId, source_time: Ticks, max_edge: u32) -> Option<VideoFrame> {
         let cli = self.ffmpeg.as_ref()?;
         let path = self.paths.get(&media)?;
         let info = self.info(media)?;
@@ -110,12 +123,31 @@ impl SourceProvider for FileSources {
             readers.insert(media, reader);
         }
         let reader = readers.get_mut(&media)?;
-        let frame = reader.frame_at(source_time).ok()??;
-        Some(SourceImage {
-            width: frame.width,
-            height: frame.height,
-            rgba: Arc::new(frame.rgba),
-        })
+        reader.frame_at(source_time).ok()?
+    }
+}
+
+impl SourceProvider for FileSources {
+    /// SDR output: HDR videos tone mapped.
+    fn video_frame(
+        &self,
+        media: MediaId,
+        source_time: Ticks,
+        max_edge: u32,
+    ) -> Option<SourceImage> {
+        self.frame(media, source_time, max_edge).map(sdr_frame)
+    }
+
+    /// HDR output: HDR videos at full range (HLG); SDR videos come through
+    /// `video_frame` and are converted by the compositor.
+    fn video_frame_hlg(
+        &self,
+        media: MediaId,
+        source_time: Ticks,
+        max_edge: u32,
+    ) -> Option<HlgImage> {
+        let frame = self.frame(media, source_time, max_edge)?;
+        clipforge_render::hlg_source(&frame)
     }
 
     fn still(&self, media: MediaId, max_edge: u32) -> Option<SourceImage> {
@@ -155,6 +187,42 @@ mod tests {
     use clipforge_jobs::CancellationToken;
     use clipforge_media::{FfmpegLocation, Prober};
     use clipforge_render::{Compositor, RenderQuality};
+
+    fn hlg_frame(width: u32, height: u32) -> VideoFrame {
+        let n = (width * height) as usize;
+        let rgb48 = (0..n * 3).map(|i| (i * 131 % 65_536) as u16).collect();
+        VideoFrame::Hdr(clipforge_media::HdrImage {
+            width,
+            height,
+            transfer: clipforge_media::ColorTransfer::Hlg,
+            rgb48,
+        })
+    }
+
+    #[test]
+    fn parallel_tone_mapping_matches_the_single_threaded_one() {
+        // An odd size so the bands do not divide evenly.
+        let frame = hlg_frame(37, 23);
+        let parallel = sdr_frame(frame.clone());
+        let single = clipforge_render::sdr_source(frame);
+        assert_eq!(parallel.rgba, single.rgba);
+        assert_eq!(parallel.rgba.len(), 37 * 23 * 4);
+    }
+
+    #[test]
+    #[ignore = "timing, run manually"]
+    #[allow(clippy::print_stderr)]
+    fn parallel_tone_mapping_frame_time() {
+        let frame = hlg_frame(3840, 2160);
+        let start = std::time::Instant::now();
+        for _ in 0..5 {
+            std::hint::black_box(sdr_frame(frame.clone()));
+        }
+        eprintln!(
+            "parallel tone map 4K: {:.1} ms/frame",
+            start.elapsed().as_secs_f64() * 200.0
+        );
+    }
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

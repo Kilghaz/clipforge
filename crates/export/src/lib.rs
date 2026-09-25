@@ -26,4 +26,4 @@ pub use frames::{FrameRef, FrameSource, TimelineFrames};
 pub use options::{ExportOptions, Quality};
 pub use plan::{Codec, EncodePlan, PixelFormat};
 pub use progress::ProgressLine;
-pub use sources::FileSources;
+pub use sources::{FileSources, sdr_frame};

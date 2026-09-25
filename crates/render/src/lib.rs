@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod colour;
 pub mod compositor;
 pub mod draw;
 pub mod frame;
@@ -55,6 +56,20 @@ pub trait FrameRenderer: Send + Sync {
         sources: &dyn SourceProvider,
     ) -> Frame;
 
+    /// Renders the frame at `t` as HDR (HLG, BT.2020, 16-bit): HDR videos
+    /// keep their range, SDR pictures sit at the reference white. `None`
+    /// when this renderer has no HDR path (the CPU compositor).
+    fn render_hlg(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Option<Frame16> {
+        let _ = (project, t, quality, sources);
+        None
+    }
+
     /// Short name for logs ("cpu", "gpu").
     fn name(&self) -> &str;
 }
@@ -71,7 +86,7 @@ pub fn best_renderer() -> Box<dyn FrameRenderer> {
     tracing::info!("using the CPU compositor");
     Box::new(Compositor::new())
 }
-pub use frame::Frame;
+pub use frame::{Frame, Frame16};
 pub use layout::{Rect, place};
 pub use quality::{PREVIEW_LONG_EDGE, RenderQuality};
-pub use source::{SourceImage, SourceProvider};
+pub use source::{HlgImage, SourceImage, SourceProvider, hlg_source, sdr_source, sdr_source_with};

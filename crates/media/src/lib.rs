@@ -28,7 +28,9 @@ pub use image_backend::ImageBackend;
 pub use info::{MediaInfo, Rotation};
 pub use kind::{ColorTransfer, MediaKind};
 pub use probe::{DecodedImage, Prober, StillDecoder};
-pub use stream::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AudioReader, VideoReader};
+pub use stream::{
+    AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AudioReader, HdrImage, VideoFrame, VideoReader,
+};
 
 #[cfg(test)]
 pub(crate) mod test_support {

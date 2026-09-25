@@ -127,11 +127,8 @@ fn fetch_loop(
         if let Some(r) = reader.as_mut() {
             match r.frame_at(wanted) {
                 Ok(Some(img)) => {
-                    let src = SourceImage {
-                        width: img.width,
-                        height: img.height,
-                        rgba: Arc::new(img.rgba),
-                    };
+                    // HDR video is tone mapped for the (SDR) preview.
+                    let src = clipforge_export::sdr_frame(img);
                     if let Ok(mut l) = shared.latest.lock() {
                         *l = Some((wanted, src));
                     }

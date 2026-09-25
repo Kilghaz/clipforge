@@ -149,3 +149,23 @@ fn gpu_frame_times() {
         );
     });
 }
+
+/// HDR → SDR tone mapping of a 4K frame (SDR export of HLG video) and
+/// the preview size. Run with `--ignored`.
+#[test]
+#[ignore = "timing, run manually"]
+fn tone_mapping_frame_times() {
+    use clipforge_render::colour::{SourceTransfer, hdr16_to_sdr8};
+    for (w, h) in [(3840usize, 2160usize), (960, 540)] {
+        let px: Vec<u16> = (0..w * h * 3).map(|i| (i * 7919 % 65_536) as u16).collect();
+        let t = std::time::Instant::now();
+        let n = 3;
+        for _ in 0..n {
+            std::hint::black_box(hdr16_to_sdr8(&px, SourceTransfer::Hlg));
+        }
+        eprintln!(
+            "tone map {w}x{h}: {:.1} ms/frame",
+            t.elapsed().as_secs_f64() * 1000.0 / f64::from(n)
+        );
+    }
+}

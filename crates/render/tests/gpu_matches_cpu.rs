@@ -458,3 +458,152 @@ fn text_track_matches_through_its_animations() {
         &provider,
     );
 }
+
+/// Provider for the HDR test: a photo (SDR) and a video whose HLG frames
+/// are a known ramp.
+struct HdrSources {
+    photo: MediaId,
+    video: MediaId,
+    map: MapProvider,
+}
+
+impl SourceProvider for HdrSources {
+    fn still(&self, media: MediaId, max_edge: u32) -> Option<SourceImage> {
+        self.map.still(media, max_edge)
+    }
+
+    fn video_frame(&self, media: MediaId, _: Ticks, max_edge: u32) -> Option<SourceImage> {
+        self.map.still(media, max_edge)
+    }
+
+    fn video_frame_hlg(
+        &self,
+        media: MediaId,
+        _: Ticks,
+        _: u32,
+    ) -> Option<clipforge_render::HlgImage> {
+        if media != self.video {
+            return None;
+        }
+        // Horizontal HLG ramp 0..1, 320 × 180.
+        let (w, h) = (320u32, 180u32);
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..h {
+            for x in 0..w {
+                let v = (x * 65_535 / (w - 1)) as u16;
+                px.extend_from_slice(&[v, v, v, u16::MAX]);
+            }
+        }
+        Some(clipforge_render::HlgImage {
+            width: w,
+            height: h,
+            rgba16: Arc::new(px),
+        })
+    }
+}
+
+#[test]
+fn hdr_output_places_sdr_at_reference_white_and_keeps_hlg_video() {
+    use clipforge_render::colour;
+    let Some(g) = gpu() else { return };
+    let (photo, video) = (MediaId::new(), MediaId::new());
+    let mut map = MapProvider::default();
+    // White on the left half, a grey ramp on the right (SDR photo).
+    let (pw, ph) = (320u32, 180u32);
+    let mut rgba = Vec::with_capacity((pw * ph * 4) as usize);
+    for _ in 0..ph {
+        for x in 0..pw {
+            let v = if x < pw / 2 {
+                255
+            } else {
+                ((x - pw / 2) * 255 / (pw / 2 - 1)) as u8
+            };
+            rgba.extend_from_slice(&[v, v, v, 255]);
+        }
+    }
+    map.images.insert(
+        photo,
+        SourceImage {
+            width: pw,
+            height: ph,
+            rgba: Arc::new(rgba),
+        },
+    );
+    map.images.insert(video, gradient(320, 180, 0));
+    let sources = HdrSources { photo, video, map };
+    let mut p = Project::new();
+    Command::InsertClips {
+        entries: vec![
+            (0, Clip::photo(sources.photo, Ticks::from_seconds(2))),
+            (1, Clip::video(video, Ticks::from_seconds(2))),
+        ],
+        media: vec![media(photo, RefKind::Photo), media(video, RefKind::Video)],
+    }
+    .apply(&mut p)
+    .unwrap();
+    // The CPU compositor has no HDR path.
+    assert!(
+        Compositor::new()
+            .render_hlg(&p, Ticks::SECOND, RenderQuality::Preview, &sources)
+            .is_none()
+    );
+
+    let f = g
+        .render_hlg(&p, Ticks::SECOND, RenderQuality::Preview, &sources)
+        .unwrap();
+    assert_eq!((f.width, f.height), (960, 540));
+    let at = |f: &clipforge_render::Frame16, x: u32, y: u32| {
+        let i = ((y * f.width + x) * 4) as usize;
+        [f.rgba16[i], f.rgba16[i + 1], f.rgba16[i + 2]].map(|v| f32::from(v) / 65_535.0)
+    };
+    // SDR white → HLG 0.75 (BT.2408 reference white).
+    let white = at(&f, 200, 270);
+    assert!(white.iter().all(|c| (c - 0.75).abs() < 0.01), "{white:?}");
+    // The shader's conversion matches the CPU maths along the SDR ramp.
+    for x in (500..940).step_by(40) {
+        let got = at(&f, x, 270);
+        let src_x = (x as f32 / 960.0 * 320.0) as u32;
+        let v = ((src_x - pw / 2) * 255 / (pw / 2 - 1)) as f32 / 255.0;
+        let want = colour::sdr_to_hlg([v; 3]);
+        assert!(
+            (got[1] - want[1]).abs() < 0.02,
+            "x {x}: {got:?} vs {want:?}"
+        );
+    }
+    // The HLG video passes through: its ramp values arrive unchanged.
+    let f = g
+        .render_hlg(&p, Ticks::from_seconds(3), RenderQuality::Preview, &sources)
+        .unwrap();
+    for x in [100u32, 480, 860] {
+        let got = at(&f, x, 270)[0];
+        let want = x as f32 / 959.0;
+        assert!((got - want).abs() < 0.01, "x {x}: {got} vs {want}");
+    }
+    // Title backgrounds and texts are SDR too: a white card → 0.75.
+    Command::InsertClips {
+        entries: vec![(
+            2,
+            Clip::title(
+                clipforge_core::project::TitleBackground::White,
+                Ticks::SECOND,
+            ),
+        )],
+        media: vec![],
+    }
+    .apply(&mut p)
+    .unwrap();
+    let f = g
+        .render_hlg(
+            &p,
+            Ticks::from_millis(4_500),
+            RenderQuality::Preview,
+            &sources,
+        )
+        .unwrap();
+    let card = at(&f, 480, 270);
+    let want = colour::sdr_to_hlg([244.0 / 255.0, 242.0 / 255.0, 238.0 / 255.0]);
+    assert!(
+        card.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.01),
+        "{card:?} vs {want:?}"
+    );
+}

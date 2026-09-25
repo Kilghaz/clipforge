@@ -14,7 +14,57 @@ use clipforge_core::{FrameRate, Ticks};
 use crate::error::{MediaError, Result};
 use crate::ffmpeg_cli::FfmpegCli;
 use crate::info::MediaInfo;
+use crate::kind::ColorTransfer;
 use crate::probe::{DecodedImage, fit_within};
+
+/// A decoded video frame. SDR sources arrive as 8-bit RGBA ready to show;
+/// HDR sources (HLG, PQ) as 16-bit BT.2020 RGB in their own transfer, for
+/// the colour pipeline to tone map (SDR output) or keep (HDR output).
+#[derive(Clone, PartialEq, Eq)]
+pub enum VideoFrame {
+    Sdr(DecodedImage),
+    Hdr(HdrImage),
+}
+
+/// 16-bit RGB samples of an HDR frame, exactly as coded (BT.2020 primaries,
+/// full range, HLG or PQ transfer).
+#[derive(Clone, PartialEq, Eq)]
+pub struct HdrImage {
+    pub width: u32,
+    pub height: u32,
+    pub transfer: ColorTransfer,
+    /// Interleaved R, G, B; `width * height * 3` samples.
+    pub rgb48: Vec<u16>,
+}
+
+impl std::fmt::Debug for HdrImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HdrImage")
+            .field("size", &(self.width, self.height))
+            .field("transfer", &self.transfer)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for VideoFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (w, h) = self.size();
+        f.debug_struct("VideoFrame")
+            .field("size", &(w, h))
+            .field("hdr", &matches!(self, VideoFrame::Hdr(_)))
+            .finish()
+    }
+}
+
+impl VideoFrame {
+    #[must_use]
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            VideoFrame::Sdr(i) => (i.width, i.height),
+            VideoFrame::Hdr(i) => (i.width, i.height),
+        }
+    }
+}
 
 /// Sample rate every audio stream is converted to.
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -70,8 +120,10 @@ pub struct VideoReader {
     next: i64,
     /// Last frame read, kept for `frame_at` when the wanted time falls
     /// between frames.
-    last: Option<(Ticks, DecodedImage)>,
+    last: Option<(Ticks, VideoFrame)>,
     finished: bool,
+    /// HLG / PQ sources are read as 16-bit RGB.
+    hdr: Option<ColorTransfer>,
 }
 
 impl std::fmt::Debug for VideoReader {
@@ -116,6 +168,24 @@ impl VideoReader {
         // Even dimensions keep every downstream consumer (yuv420, encoders) happy.
         let (width, height) = (width.max(2) & !1, height.max(2) & !1);
         let frame_rate = info.frame_rate.unwrap_or(FrameRate::FPS_30);
+        // HDR video keeps its full precision and its own transfer: 16-bit
+        // RGB with the BT.2020 matrix, full range. Converting it for display
+        // is the colour pipeline's job (ffmpeg's default would flatten it).
+        let hdr = matches!(info.transfer, ColorTransfer::Hlg | ColorTransfer::Pq)
+            .then_some(info.transfer);
+        let (filter, pix_fmt) = if hdr.is_some() {
+            (
+                format!(
+                    "scale={width}:{height}:flags=bicubic:in_color_matrix=bt2020:in_range=tv:out_range=pc,format=rgb48le"
+                ),
+                "rgb48le",
+            )
+        } else {
+            (
+                format!("scale={width}:{height}:flags=bicubic,format=rgba"),
+                "rgba",
+            )
+        };
         let fps = format!("{}/{}", frame_rate.numerator(), frame_rate.denominator());
         let mut args: Vec<String> = vec!["-nostdin".into(), "-loglevel".into(), "error".into()];
         if let Some(hw) = hwaccel {
@@ -129,7 +199,7 @@ impl VideoReader {
             "-an".into(),
             "-sn".into(),
             "-vf".into(),
-            format!("scale={width}:{height}:flags=bicubic,format=rgba"),
+            filter,
             "-fps_mode".into(),
             "cfr".into(),
             "-r".into(),
@@ -137,7 +207,7 @@ impl VideoReader {
             "-f".into(),
             "rawvideo".into(),
             "-pix_fmt".into(),
-            "rgba".into(),
+            pix_fmt.into(),
             "pipe:1".into(),
         ]);
         let mut child = spawn(cli, &args, path)?;
@@ -156,6 +226,7 @@ impl VideoReader {
             next: 0,
             last: None,
             finished: false,
+            hdr,
         })
     }
 
@@ -194,21 +265,45 @@ impl VideoReader {
         self.start + Ticks::from_frames(self.next, self.frame_rate)
     }
 
+    /// Whether frames come as 16-bit HDR samples.
+    #[must_use]
+    pub fn is_hdr(&self) -> bool {
+        self.hdr.is_some()
+    }
+
     /// Reads the next frame. `None` at end of stream.
-    pub fn next_frame(&mut self) -> Result<Option<DecodedImage>> {
+    pub fn next_frame(&mut self) -> Result<Option<VideoFrame>> {
         if self.finished {
             return Ok(None);
         }
-        let len = self.width as usize * self.height as usize * 4;
-        let mut rgba = vec![0u8; len];
-        match self.out.read_exact(&mut rgba) {
+        let pixels = self.width as usize * self.height as usize;
+        let len = if self.hdr.is_some() {
+            pixels * 6
+        } else {
+            pixels * 4
+        };
+        let mut bytes = vec![0u8; len];
+        match self.out.read_exact(&mut bytes) {
             Ok(()) => {
                 let pts = self.next_pts();
                 self.next += 1;
-                let img = DecodedImage {
-                    width: self.width,
-                    height: self.height,
-                    rgba,
+                let img = match self.hdr {
+                    Some(transfer) => VideoFrame::Hdr(HdrImage {
+                        width: self.width,
+                        height: self.height,
+                        transfer,
+                        rgb48: bytes
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|b| u16::from_le_bytes(*b))
+                            .collect(),
+                    }),
+                    None => VideoFrame::Sdr(DecodedImage {
+                        width: self.width,
+                        height: self.height,
+                        rgba: bytes,
+                    }),
                 };
                 self.last = Some((pts, img.clone()));
                 Ok(Some(img))
@@ -230,7 +325,7 @@ impl VideoReader {
     /// The frame shown at source time `t` (>= the last request). Advances
     /// the stream, skipping frames as needed; returns the last frame when
     /// the stream ended before `t`.
-    pub fn frame_at(&mut self, t: Ticks) -> Result<Option<DecodedImage>> {
+    pub fn frame_at(&mut self, t: Ticks) -> Result<Option<VideoFrame>> {
         // Already have a frame that covers t?
         if let Some((pts, img)) = &self.last
             && *pts <= t
@@ -394,6 +489,9 @@ mod tests {
         assert_eq!(r.next_pts(), Ticks::from_millis(500));
         let mut n = 0;
         while let Some(f) = r.next_frame().unwrap() {
+            let VideoFrame::Sdr(f) = f else {
+                panic!("SDR source decodes to 8-bit")
+            };
             assert_eq!(f.rgba.len(), 96 * 54 * 4);
             n += 1;
         }
@@ -430,7 +528,7 @@ mod tests {
         let mut r = VideoReader::open(&cli, &path, &info, Ticks::ZERO, 64).unwrap();
         assert_eq!(r.size(), (36, 64));
         let f = r.next_frame().unwrap().unwrap();
-        assert_eq!((f.width, f.height), (36, 64));
+        assert_eq!(f.size(), (36, 64));
     }
 
     #[test]
@@ -498,5 +596,30 @@ mod tests {
             VideoReader::open(&cli, &fixture("audio_mono.wav"), &info, Ticks::ZERO, 64),
             Err(MediaError::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn hdr_video_decodes_to_16_bit_samples_in_its_own_transfer() {
+        let Some(cli) = cli() else { return };
+        let path = fixture("video_hlg_hevc.mp4");
+        let info = cli.probe(&path).unwrap();
+        let mut r = VideoReader::open(&cli, &path, &info, Ticks::ZERO, 96).unwrap();
+        assert!(r.is_hdr());
+        let f = r.frame_at(Ticks::from_millis(500)).unwrap().unwrap();
+        let VideoFrame::Hdr(img) = f else {
+            panic!("HLG source decodes to 16-bit")
+        };
+        assert_eq!(img.transfer, ColorTransfer::Hlg);
+        assert_eq!(img.rgb48.len(), (img.width * img.height * 3) as usize);
+        // Real 16-bit values: more distinct levels than 8 bits could hold
+        // in the (smooth) test pattern, and within range.
+        let mut levels: Vec<u16> = img.rgb48.iter().map(|v| v >> 4).collect();
+        levels.sort_unstable();
+        levels.dedup();
+        assert!(
+            levels.len() > 256,
+            "{} distinct 12-bit levels",
+            levels.len()
+        );
     }
 }
