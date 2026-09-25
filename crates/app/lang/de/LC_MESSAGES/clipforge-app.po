@@ -756,8 +756,6 @@ msgstr "Grün"
 msgid "Italic"
 msgstr "Kursiv"
 
-msgid "Left"
-msgstr "Links"
 
 msgid "Orange"
 msgstr "Orange"
@@ -771,14 +769,10 @@ msgstr "Text entfernen"
 msgid "Remove {} texts"
 msgstr "{} Texte entfernen"
 
-msgid "Right"
-msgstr "Rechts"
 
 msgid "Shadow"
 msgstr "Schatten"
 
-msgid "Size"
-msgstr "Größe"
 
 msgid "Text"
 msgstr "Text"
@@ -806,3 +800,21 @@ msgstr "Dein Text"
 
 msgid "{} texts selected"
 msgstr "{} Texte ausgewählt"
+
+msgid "Align left"
+msgstr "Linksbündig"
+
+msgid "Align right"
+msgstr "Rechtsbündig"
+
+msgid "Font size in points"
+msgstr "Schriftgröße in Punkt"
+
+msgid "No fonts match"
+msgstr "Keine passende Schrift"
+
+msgid "Underline"
+msgstr "Unterstrichen"
+
+msgid "pt"
+msgstr "pt"

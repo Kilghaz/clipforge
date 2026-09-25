@@ -1,4 +1,4 @@
-import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView, TextEdit } from "std-widgets.slint";
+import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView, TextEdit, SpinBox } from "std-widgets.slint";
 // The bundled text fonts, so the inline editor shows the same letters as
 // the rendered video (docs/ux/decisions/m5b-text-track.md).
 import "../../../assets/fonts/InterVariable.ttf";
@@ -10,7 +10,7 @@ import "../../../assets/fonts/Caveat.ttf";
 import { Shell } from "shell.slint";
 import { LibraryState } from "library.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow, FontPicker, IconChoiceGroup } from "components.slint";
 
 /// Where the timeline strip is on screen, for cross-panel drops.
 export struct StripRect {
@@ -146,8 +146,11 @@ export global EditorState {
     in-out property <int> text-selected-count;
     in-out property <string> text-content;
     in-out property <bool> text-mixed;
-    in-out property <int> text-font-index;
-    in-out property <float> text-size-percent: 6;
+    in-out property <string> text-font: "Inter Variable";
+    /// Families matching the font search, best first.
+    in-out property <[string]> font-matches;
+    in-out property <int> text-points: 64;
+    in-out property <bool> text-underline;
     in-out property <bool> text-bold;
     in-out property <bool> text-italic;
     in-out property <int> text-align-index: 1;
@@ -268,8 +271,10 @@ export global EditorState {
     callback text-typing-done();
     /// Arrow keys with texts selected: direction and Shift.
     callback text-nudge(int, int, bool);
-    callback text-font-changed(int);
-    callback text-size-changed(float);
+    callback text-font-search(string);
+    callback text-font-changed(string);
+    callback text-points-changed(int);
+    callback text-underline-changed(bool);
     callback text-bold-changed(bool);
     callback text-italic-changed(bool);
     callback text-align-changed(int);
@@ -1214,24 +1219,34 @@ component Inspector inherits Rectangle {
             }
             Section {
                 title: @tr("Font");
-                ComboBox {
-                    height: Theme.control-height;
-                    model: ["Inter", "Montserrat", "Playfair Display", "Bebas Neue", "Dancing Script", "Caveat"];
-                    current-index <=> EditorState.text-font-index;
-                    selected => { EditorState.text-font-changed(self.current-index); }
-                    accessible-label: @tr("Font");
-                }
-                ValueSlider {
-                    minimum: 1.5;
-                    maximum: 30;
-                    step: 0.5;
-                    value <=> EditorState.text-size-percent;
-                    value-text: round(EditorState.text-size-percent * 10) / 10 + " %";
-                    label: @tr("Size");
-                    released(v) => { EditorState.text-size-changed(v); }
+                FontPicker {
+                    label: @tr("Font");
+                    value: EditorState.text-font;
+                    matches: EditorState.font-matches;
+                    search(text) => { EditorState.text-font-search(text); }
+                    picked(name) => { EditorState.text-font-changed(name); }
                 }
                 HorizontalLayout {
                     spacing: Theme.space-s;
+                    // Size in points on a 1080-line frame.
+                    SpinBox {
+                        height: Theme.control-height;
+                        minimum: 8;
+                        maximum: 400;
+                        value <=> EditorState.text-points;
+                        edited(v) => { EditorState.text-points-changed(v); }
+                        accessible-label: @tr("Font size in points");
+                    }
+                    Text {
+                        text: @tr("pt");
+                        color: Theme.text-secondary;
+                        font-size: Theme.font-body;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-xs;
                     alignment: start;
                     IconButton {
                         icon: Icons.text-bold;
@@ -1247,12 +1262,21 @@ component Inspector inherits Rectangle {
                         checked <=> EditorState.text-italic;
                         clicked => { EditorState.text-italic-changed(self.checked); }
                     }
-                }
-                ChoiceGroup {
-                    label: @tr("Alignment");
-                    options: [@tr("Left"), @tr("Centre"), @tr("Right")];
-                    selected-index <=> EditorState.text-align-index;
-                    changed(i) => { EditorState.text-align-changed(i); }
+                    IconButton {
+                        icon: Icons.text-underline;
+                        tooltip: @tr("Underline");
+                        checkable: true;
+                        checked <=> EditorState.text-underline;
+                        clicked => { EditorState.text-underline-changed(self.checked); }
+                    }
+                    Rectangle { width: Theme.space-m; }
+                    IconChoiceGroup {
+                        label: @tr("Alignment");
+                        icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right];
+                        labels: [@tr("Align left"), @tr("Centre"), @tr("Align right")];
+                        selected-index <=> EditorState.text-align-index;
+                        changed(i) => { EditorState.text-align-changed(i); }
+                    }
                 }
             }
             Section {

@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clipforge_core::{
-    Clip, Command, Fit, Font, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
+    Clip, Command, Fit, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
     Quarter, RefKind, Song, TextItem, TextMotion, Ticks, Transition, TransitionKind,
     project::TitleBackground,
 };
@@ -258,7 +258,7 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
                 Ticks::from_seconds(i64::from(*start)),
                 Ticks::from_seconds(i64::from(*secs)),
             );
-            t.style.font = Font::from_index(usize::from(*font));
+            t.style.font = clipforge_core::BUNDLED_FONTS[usize::from(*font) % 6].to_owned();
             Command::InsertTexts {
                 entries: vec![(p.texts.len(), t)],
             }

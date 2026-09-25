@@ -390,8 +390,8 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_selected_count(0);
             editor.set_text_selected_count(1);
             editor.set_text_content("Summer in Italy".into());
-            editor.set_text_font_index(2);
-            editor.set_text_size_percent(9.0);
+            editor.set_text_font("Playfair Display".into());
+            editor.set_text_points(97);
             editor.set_text_bold(true);
             editor.set_text_color_index(0);
             editor.set_text_shadow(true);
@@ -404,11 +404,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             if editing {
                 editor.set_editing_index(0);
                 editor.set_editing_text("Summer in Italy".into());
-                editor.set_editing_family(
-                    clipforge_render::text::TextRenderer::new()
-                        .family_name(clipforge_core::Font::PlayfairDisplay)
-                        .into(),
-                );
+                editor.set_editing_family("Playfair Display".into());
                 editor.set_editing_size(0.09);
                 editor.set_editing_color(slint::Color::from_rgb_u8(255, 255, 255));
                 editor.set_editing_bold(true);
@@ -450,9 +446,7 @@ type BoxFrac = (f32, f32, f32, f32);
 /// two texts) and returns it with the texts' boxes as picture fractions.
 /// `hide_first` leaves the first text out, as while it is edited in place.
 fn render_preview(fixtures: &Path, hide_first: bool) -> Result<(slint::Image, Vec<BoxFrac>)> {
-    use clipforge_core::{
-        Clip, Command, Font, MediaId, MediaRef, Project, RefKind, TextItem, Ticks,
-    };
+    use clipforge_core::{Clip, Command, MediaId, MediaRef, Project, RefKind, TextItem, Ticks};
     use clipforge_render::source::MapProvider;
     use clipforge_render::{Compositor, RenderQuality, SourceImage};
     let img = image::open(fixtures.join("photo_landscape.jpg"))?.to_rgba8();
@@ -487,14 +481,14 @@ fn render_preview(fixtures: &Path, hide_first: bool) -> Result<(slint::Image, Ve
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut title = TextItem::new("Summer in Italy", Ticks::ZERO, Ticks::from_seconds(8));
     title.y = 4_200;
-    title.style.font = Font::PlayfairDisplay;
-    title.style.size = 900;
+    title.style.font = "Playfair Display".into();
+    title.style.points = 97;
     title.style.bold = true;
     let mut label = TextItem::new("Rome, the Colosseum", Ticks::ZERO, Ticks::from_seconds(8));
     label.y = 8_700;
     label.width = 5_000;
-    label.style.font = Font::Montserrat;
-    label.style.size = 420;
+    label.style.font = "Montserrat".into();
+    label.style.points = 45;
     label.style.background = Some([0, 0, 0, 170]);
     label.style.shadow = false;
     let texts = vec![title, label];

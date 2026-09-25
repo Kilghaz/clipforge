@@ -39,45 +39,38 @@ impl fmt::Display for TextId {
     }
 }
 
-/// The bundled fonts (all SIL Open Font License). Serialised names are
-/// stable; new fonts are appended.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Font {
-    /// Neutral sans serif.
-    #[default]
-    Inter,
-    /// Geometric sans, popular for video titles.
-    Montserrat,
-    /// High-contrast serif.
-    PlayfairDisplay,
-    /// Tall condensed capitals.
-    BebasNeue,
-    /// Flowing script.
-    DancingScript,
-    /// Casual handwriting.
-    Caveat,
+/// Font family used when none is chosen (bundled, so always available).
+pub const DEFAULT_FONT: &str = "Inter Variable";
+
+/// Fonts that ship with the app (SIL Open Font License); every machine has
+/// them, so a project using only these looks the same everywhere.
+pub const BUNDLED_FONTS: [&str; 6] = [
+    "Inter Variable",
+    "Montserrat",
+    "Playfair Display",
+    "Bebas Neue",
+    "Dancing Script",
+    "Caveat",
+];
+
+fn default_font() -> String {
+    DEFAULT_FONT.to_owned()
 }
 
-impl Font {
-    pub const ALL: [Font; 6] = [
-        Font::Inter,
-        Font::Montserrat,
-        Font::PlayfairDisplay,
-        Font::BebasNeue,
-        Font::DancingScript,
-        Font::Caveat,
-    ];
-
-    #[must_use]
-    pub fn index(self) -> usize {
-        Self::ALL.iter().position(|f| *f == self).unwrap_or(0)
+/// Reads a font family, accepting the identifiers of the first text-track
+/// format (`"playfair_display"` …) as the family names they stood for.
+fn font_family<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let name = String::deserialize(d)?;
+    Ok(match name.as_str() {
+        "inter" => "Inter Variable",
+        "montserrat" => "Montserrat",
+        "playfair_display" => "Playfair Display",
+        "bebas_neue" => "Bebas Neue",
+        "dancing_script" => "Dancing Script",
+        "caveat" => "Caveat",
+        other => other,
     }
-
-    #[must_use]
-    pub fn from_index(index: usize) -> Font {
-        Self::ALL.get(index).copied().unwrap_or_default()
-    }
+    .to_owned())
 }
 
 /// Horizontal alignment of the lines inside the text box.
@@ -107,15 +100,20 @@ impl TextAlign {
 /// How a text looks.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TextStyle {
-    #[serde(default)]
-    pub font: Font,
-    /// Font size in 1/10 000 of the frame's short side (600 = 6 %).
-    #[serde(default = "default_size")]
-    pub size: u16,
+    /// Font family name: a bundled font or one installed on this machine.
+    /// A missing family falls back to the default font.
+    #[serde(default = "default_font", deserialize_with = "font_family")]
+    pub font: String,
+    /// Font size in points on a 1080-line frame (scaled with the frame's
+    /// short side, so 64 pt is the same share of a 4K or a portrait frame).
+    #[serde(default = "default_points")]
+    pub points: u16,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
     pub italic: bool,
+    #[serde(default)]
+    pub underline: bool,
     /// Straight-alpha RGBA.
     #[serde(default = "white")]
     pub color: [u8; 4],
@@ -129,8 +127,8 @@ pub struct TextStyle {
     pub shadow: bool,
 }
 
-fn default_size() -> u16 {
-    TextStyle::DEFAULT_SIZE
+fn default_points() -> u16 {
+    TextStyle::DEFAULT_POINTS
 }
 
 fn white() -> [u8; 4] {
@@ -142,18 +140,21 @@ fn yes() -> bool {
 }
 
 impl TextStyle {
-    pub const DEFAULT_SIZE: u16 = 600;
-    pub const MIN_SIZE: u16 = 150;
-    pub const MAX_SIZE: u16 = 3000;
+    pub const DEFAULT_POINTS: u16 = 64;
+    pub const MIN_POINTS: u16 = 8;
+    pub const MAX_POINTS: u16 = 400;
+    /// Frame height the point size refers to.
+    pub const REFERENCE_LINES: u16 = 1080;
 }
 
 impl Default for TextStyle {
     fn default() -> Self {
         TextStyle {
-            font: Font::Inter,
-            size: Self::DEFAULT_SIZE,
+            font: default_font(),
+            points: Self::DEFAULT_POINTS,
             bold: false,
             italic: false,
+            underline: false,
             color: white(),
             align: TextAlign::Center,
             background: None,
@@ -310,7 +311,7 @@ impl TextItem {
         if self.width < Self::MIN_WIDTH || self.width > FRAME_UNITS * 2 {
             return Err("text box width out of range".to_owned());
         }
-        if !(TextStyle::MIN_SIZE..=TextStyle::MAX_SIZE).contains(&self.style.size) {
+        if !(TextStyle::MIN_POINTS..=TextStyle::MAX_POINTS).contains(&self.style.points) {
             return Err("font size out of range".to_owned());
         }
         if self.enter.duration < Ticks::ZERO || self.exit.duration < Ticks::ZERO {
@@ -369,7 +370,7 @@ mod tests {
         t.duration = Ticks::from_millis(10);
         assert!(t.validate().is_err());
         let mut t = ok.clone();
-        t.style.size = 5;
+        t.style.points = 2;
         assert!(t.validate().is_err());
         let mut t = ok;
         t.width = 10;
@@ -378,16 +379,13 @@ mod tests {
 
     #[test]
     fn catalogues_are_indexable_and_names_stable() {
-        for (i, f) in Font::ALL.iter().enumerate() {
-            assert_eq!(Font::from_index(i), *f);
-        }
         for (i, m) in TextMotion::ALL.iter().enumerate() {
             assert_eq!(TextMotion::from_index(i), *m);
         }
-        assert_eq!(
-            serde_json::to_string(&Font::PlayfairDisplay).unwrap(),
-            "\"playfair_display\""
-        );
+        let old: TextStyle = serde_json::from_str(r#"{"font":"playfair_display"}"#).unwrap();
+        assert_eq!(old.font, "Playfair Display");
+        let any: TextStyle = serde_json::from_str(r#"{"font":"Helvetica Neue"}"#).unwrap();
+        assert_eq!(any.font, "Helvetica Neue");
         assert_eq!(
             serde_json::to_string(&TextMotion::SlideUp).unwrap(),
             "\"slide_up\""

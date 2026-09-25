@@ -27,6 +27,10 @@ export component IconButton inherits Rectangle {
     in property <bool> checkable;
     /// Borderless until hovered (Fluent command-bar buttons).
     in property <bool> quiet;
+    /// False inside a group that is a single tab stop.
+    in property <bool> focusable: true;
+    /// Draw the focus ring on the group's behalf.
+    in property <bool> show-focus;
     in-out property <bool> checked;
     callback clicked;
     property <bool> accent: root.primary || root.checked;
@@ -62,7 +66,7 @@ export component IconButton inherits Rectangle {
     ]
 
     focus := FocusScope {
-        enabled: root.enabled;
+        enabled: root.enabled && root.focusable;
         key-pressed(event) => {
             if event.text == Key.Return || event.text == Key.Space { touch.clicked(); return accept; }
             return reject;
@@ -83,7 +87,7 @@ export component IconButton inherits Rectangle {
         y: (parent.height - self.height) / 2;
     }
     // Focus ring outside the control (Fluent "FocusBorder").
-    if focus.has-focus : Rectangle {
+    if focus.has-focus || root.show-focus : Rectangle {
         x: -2px;
         y: -2px;
         width: parent.width + 4px;
@@ -652,5 +656,180 @@ export component SongRow inherits Rectangle {
         IconButton { icon: Icons.arrow-up; tooltip: @tr("Move up"); quiet: true; enabled: !root.first; clicked => { root.move-up(); } }
         IconButton { icon: Icons.arrow-down; tooltip: @tr("Move down"); quiet: true; enabled: !root.last; clicked => { root.move-down(); } }
         IconButton { icon: Icons.dismiss; tooltip: @tr("Remove song"); quiet: true; clicked => { root.remove(); } }
+    }
+}
+
+/// Single choice among icons (Spectrum "ActionGroup", single selection):
+/// one tab stop, arrow keys move the selection, every icon has a tooltip and
+/// an accessible name. Text alignment.
+export component IconChoiceGroup inherits HorizontalLayout {
+    in property <[image]> icons;
+    in property <[string]> labels;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in-out property <int> selected-index;
+    callback changed(int);
+    spacing: Theme.space-xs;
+    alignment: start;
+    accessible-role: groupbox;
+    accessible-label: root.label;
+    forward-focus: group-focus;
+    function select(i: int) {
+        if i >= 0 && i < root.icons.length && i != root.selected-index {
+            root.selected-index = i;
+            root.changed(i);
+        }
+    }
+    group-focus := FocusScope {
+        enabled: root.enabled;
+        width: 0;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.UpArrow { root.select(max(0, root.selected-index - 1)); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.DownArrow { root.select(min(root.icons.length - 1, root.selected-index + 1)); return accept; }
+            if event.text == Key.Home { root.select(0); return accept; }
+            if event.text == Key.End { root.select(root.icons.length - 1); return accept; }
+            return reject;
+        }
+    }
+    for icon[i] in root.icons : IconButton {
+        icon: icon;
+        tooltip: i < root.labels.length ? root.labels[i] : "";
+        enabled: root.enabled;
+        focusable: false;
+        checked: i == root.selected-index;
+        show-focus: group-focus.has-focus && i == root.selected-index;
+        clicked => { root.select(i); group-focus.focus(); }
+    }
+}
+
+/// Font chooser with type-to-filter (Spectrum "ComboBox"): shows the current
+/// family; typing filters the list (the app does the matching), ↑/↓ move
+/// through it, Enter picks, Escape restores. Each entry is drawn in its own
+/// font so the list is a preview.
+export component FontPicker inherits Rectangle {
+    /// The chosen family.
+    in property <string> value;
+    /// Families matching the search, best first (set by the app).
+    in property <[string]> matches;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback search(string);
+    callback picked(string);
+    property <int> highlight: 0;
+    property <length> row-height: Theme.control-height;
+    height: Theme.control-height;
+    border-radius: Theme.radius-s;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.border;
+    background: Theme.surface-card;
+    accessible-role: combobox;
+    accessible-label: root.label;
+    accessible-value: root.value;
+    forward-focus: input;
+    function open() {
+        root.highlight = 0;
+        popup.show();
+    }
+    function pick(i: int) {
+        if i >= 0 && i < root.matches.length {
+            root.picked(root.matches[i]);
+        }
+        popup.close();
+        input.text = root.value;
+    }
+    HorizontalLayout {
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-xs;
+        spacing: Theme.space-xs;
+        input := TextInput {
+            text: root.value;
+            enabled: root.enabled;
+            color: root.enabled ? Theme.text : Theme.text-disabled;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+            single-line: true;
+            horizontal-stretch: 1;
+            accessible-label: root.label;
+            changed has-focus => {
+                if self.has-focus {
+                    self.select-all();
+                    root.search("");
+                    root.open();
+                }
+            }
+            edited => {
+                root.search(self.text);
+                root.open();
+            }
+            key-pressed(event) => {
+                if event.text == Key.DownArrow {
+                    root.highlight = min(root.matches.length - 1, root.highlight + 1);
+                    popup.show();
+                    return accept;
+                }
+                if event.text == Key.UpArrow { root.highlight = max(0, root.highlight - 1); return accept; }
+                if event.text == Key.Return { root.pick(root.highlight); return accept; }
+                if event.text == Key.Escape { popup.close(); self.text = root.value; return accept; }
+                return reject;
+            }
+        }
+        Icon {
+            source: Icons.chevron-down;
+            size: Theme.icon-s;
+            color: Theme.text-secondary;
+            y: (parent.height - self.height) / 2;
+            TouchArea { clicked => { input.focus(); root.search(""); root.open(); } }
+        }
+    }
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + Theme.space-xs;
+        width: root.width;
+        height: min(8, max(1, root.matches.length)) * root.row-height + 2 * Theme.space-xs;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.surface-card;
+            border-radius: Theme.radius-s;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: Theme.shadow;
+        }
+        if root.matches.length == 0 : Text {
+            x: Theme.space-s;
+            height: root.row-height;
+            text: @tr("No fonts match");
+            color: Theme.text-secondary;
+            font-size: Theme.font-secondary;
+            vertical-alignment: center;
+        }
+        list := Flickable {
+            y: Theme.space-xs;
+            height: parent.height - 2 * Theme.space-xs;
+            content-height: root.matches.length * root.row-height;
+            // Keep the highlighted row in view.
+            content-y: min(0px, self.height - (root.highlight + 1) * root.row-height);
+            for name[i] in root.matches : Rectangle {
+                y: i * root.row-height;
+                height: root.row-height;
+                width: parent.width;
+                background: i == root.highlight ? Theme.selection-tint : (row-touch.has-hover ? Theme.hover-tint : transparent);
+                accessible-role: list-item;
+                accessible-label: name;
+                accessible-item-selected: i == root.highlight;
+                Text {
+                    x: Theme.space-s;
+                    width: parent.width - 2 * Theme.space-s;
+                    height: parent.height;
+                    text: name;
+                    font-family: name;
+                    font-size: Theme.font-body;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                row-touch := TouchArea { clicked => { root.pick(i); } }
+            }
+        }
     }
 }

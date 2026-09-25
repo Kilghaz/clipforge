@@ -98,6 +98,11 @@ fn main() -> Result<()> {
     });
     let workers =
         std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(1).max(2));
+    // Reading the installed fonts takes a moment; do it while the window
+    // comes up so the first text does not wait.
+    let _ = std::thread::Builder::new()
+        .name("clipforge-fonts".into())
+        .spawn(clipforge_render::text::preload_fonts);
     let scheduler = Arc::new(Scheduler::new(workers));
     let backends = Backends::discover();
     if backends.has_ffmpeg() {

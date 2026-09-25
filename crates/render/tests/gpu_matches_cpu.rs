@@ -362,7 +362,7 @@ fn dump(name: &str, f: &Frame) {
 #[test]
 fn text_track_matches_through_its_animations() {
     use clipforge_core::project::TitleBackground;
-    use clipforge_core::{Font, TextAlign, TextItem, TextMotion};
+    use clipforge_core::{TextAlign, TextItem, TextMotion};
     let (mut p, provider) = scene(TransitionKind::CrossDissolve);
     Command::InsertClips {
         entries: vec![(
@@ -380,8 +380,8 @@ fn text_track_matches_through_its_animations() {
         Ticks::ZERO,
         Ticks::from_seconds(3),
     );
-    title.style.font = Font::PlayfairDisplay;
-    title.style.size = 1_000;
+    title.style.font = "Playfair Display".into();
+    title.style.points = 108;
     title.style.bold = true;
     title.enter.kind = TextMotion::Zoom;
     let mut caption = TextItem::new(
@@ -391,16 +391,17 @@ fn text_track_matches_through_its_animations() {
     );
     caption.y = 8_600;
     caption.style.background = Some([0, 0, 0, 150]);
-    caption.style.font = Font::Montserrat;
+    caption.style.font = "Montserrat".into();
     caption.enter.kind = TextMotion::SlideUp;
     caption.exit.kind = TextMotion::WipeRight;
     let mut label = TextItem::new("July 2024", Ticks::from_seconds(3), Ticks::from_seconds(8));
     label.x = 2_000;
     label.y = 1_200;
     label.width = 3_000;
-    label.style.font = Font::Caveat;
+    label.style.font = "Caveat".into();
     label.style.align = TextAlign::Left;
     label.style.italic = true;
+    label.style.underline = true;
     label.style.color = [255, 220, 120, 255];
     label.enter.kind = TextMotion::WipeLeft;
     Command::InsertTexts {

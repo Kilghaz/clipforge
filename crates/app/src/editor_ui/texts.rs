@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use clipforge_core::text::{FRAME_UNITS, Font, TextAlign, TextId, TextItem, TextMotion};
+use clipforge_core::text::{FRAME_UNITS, TextAlign, TextId, TextItem, TextMotion, TextStyle};
 use clipforge_core::timeline::total_duration;
 use clipforge_core::{Command, Ticks};
 use slint::{Color, ComponentHandle, SharedString};
@@ -247,10 +247,12 @@ impl Inner {
 
     pub(super) fn preview_text_dragged(&mut self, nx: f32, ny: f32) {
         let aspect = self.frame_aspect();
-        let Some(drag) = self.text_drag.as_mut() else {
+        // Taken out while computing (snapping needs `self`), put back below.
+        let Some(mut drag) = self.text_drag.take() else {
             return;
         };
         let DragKind::Preview(gesture) = drag.kind else {
+            self.text_drag = Some(drag);
             return;
         };
         drag.current = drag
@@ -269,7 +271,7 @@ impl Inner {
         {
             let frame =
                 clipforge_render::RenderQuality::Preview.frame_size(self.project.settings.aspect);
-            let b = self.text_measure.hit_box(primary, frame);
+            let b = self.measure().hit_box(primary, frame);
             #[allow(clippy::cast_possible_truncation)]
             let half = (
                 (b.width / 2.0 / f64::from(frame.0) * f64::from(FRAME_UNITS)) as i32,
@@ -291,6 +293,7 @@ impl Inner {
             }
             guides = g;
         }
+        self.text_drag = Some(drag);
         self.show_guides(guides);
         self.preview_dirty = true;
         self.refresh_texts();
@@ -508,18 +511,36 @@ impl Inner {
         self.preview_dirty = true;
     }
 
-    pub(super) fn text_font(&mut self, index: i32) {
-        let font = Font::from_index(usize::try_from(index).unwrap_or(0));
-        self.edit_texts(|t| t.style.font = font);
+    pub(super) fn text_font(&mut self, family: &str) {
+        let family = family.trim();
+        if family.is_empty() {
+            return;
+        }
+        self.edit_texts(|t| t.style.font = family.to_owned());
     }
 
-    pub(super) fn text_size(&mut self, percent: f32) {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let size = (percent * 100.0).round().clamp(
-            f32::from(clipforge_core::TextStyle::MIN_SIZE),
-            f32::from(clipforge_core::TextStyle::MAX_SIZE),
-        ) as u16;
-        self.edit_texts(|t| t.style.size = size);
+    /// Typing in the font picker: families containing the query, those
+    /// starting with it first; everything when the query is empty.
+    pub(super) fn text_font_search(&mut self, query: &str) {
+        let matches = text_view::font_matches(self.measure().families(), query);
+        if let Some(w) = self.state() {
+            let rows: Vec<SharedString> = matches.into_iter().map(SharedString::from).collect();
+            w.global::<EditorState>()
+                .set_font_matches(slint::ModelRc::new(slint::VecModel::from(rows)));
+        }
+    }
+
+    pub(super) fn text_points(&mut self, points: i32) {
+        let points = u16::try_from(points.clamp(
+            i32::from(TextStyle::MIN_POINTS),
+            i32::from(TextStyle::MAX_POINTS),
+        ))
+        .unwrap_or(TextStyle::DEFAULT_POINTS);
+        self.edit_texts(|t| t.style.points = points);
+    }
+
+    pub(super) fn text_underline(&mut self, on: bool) {
+        self.edit_texts(|t| t.style.underline = on);
     }
 
     pub(super) fn text_bold(&mut self, on: bool) {
@@ -607,6 +628,11 @@ impl Inner {
         texts
     }
 
+    fn measure(&self) -> &clipforge_render::text::TextRenderer {
+        self.text_measure
+            .get_or_init(clipforge_render::text::TextRenderer::new)
+    }
+
     fn frame_aspect(&self) -> f32 {
         #[allow(clippy::cast_possible_truncation)]
         let a = self.project.settings.aspect.ratio() as f32;
@@ -670,7 +696,7 @@ impl Inner {
             .enumerate()
             .filter(|(_, t)| t.visible_at(self.playhead))
             .map(|(i, t)| {
-                let b = self.text_measure.hit_box(t, frame);
+                let b = self.measure().hit_box(t, frame);
                 #[allow(clippy::cast_possible_truncation)]
                 PreviewText {
                     index: i32::try_from(i).unwrap_or(-1),
@@ -692,9 +718,8 @@ impl Inner {
         if let Some(t) = editing.and_then(|i| texts.get(i)) {
             let [r, g, b, a] = t.style.color;
             s.set_editing_text(SharedString::from(t.text.as_str()));
-            s.set_editing_family(self.text_measure.family_name(t.style.font).into());
-            #[allow(clippy::cast_precision_loss)]
-            s.set_editing_size(f32::from(t.style.size) / FRAME_UNITS as f32);
+            s.set_editing_family(t.style.font.as_str().into());
+            s.set_editing_size(f32::from(t.style.points) / f32::from(TextStyle::REFERENCE_LINES));
             s.set_editing_color(Color::from_argb_u8(a, r, g, b));
             s.set_editing_bold(t.style.bold);
             s.set_editing_italic(t.style.italic);
@@ -718,8 +743,9 @@ impl Inner {
             }
             s.set_text_mixed(mixed);
             let st = &first.style;
-            s.set_text_font_index(i32::try_from(st.font.index()).unwrap_or(0));
-            s.set_text_size_percent(f32::from(st.size) / 100.0);
+            s.set_text_font(st.font.as_str().into());
+            s.set_text_points(i32::from(st.points));
+            s.set_text_underline(st.underline);
             s.set_text_bold(st.bold);
             s.set_text_italic(st.italic);
             s.set_text_align_index(i32::try_from(st.align.index()).unwrap_or(1));

@@ -201,10 +201,14 @@ Things CI cannot verify. Run before tagging a milestone.
       preview space deselects.
 - [ ] On the text lane: drag a text block to move it in time, its edges to
       trim it; overlapping texts stack into rows.
-- [ ] Inspector: text, font (six fonts look different), size, bold, italic,
-      alignment, colour, shadow, box behind text and its colour, duration,
-      animation in and out (fade, slides, wipes, zoom) all update the preview
-      at once and apply to all selected texts.
+- [ ] Inspector: text; font field lists installed and bundled fonts, each in
+      its own font, filters while typing (↑/↓, Enter, Esc); size in pt
+      (number field); bold, italic, underline; alignment icons; colour,
+      shadow, box behind text and its colour, duration, animation in and out
+      (fade, slides, wipes, zoom) — all update the preview at once and apply
+      to all selected texts.
+- [ ] A project using a font that is not installed opens with the default
+      font instead (no crash, no missing text).
 - [ ] Texts animate in the export exactly as in the preview; texts stay on
       top of clip transitions.
 - [ ] Opening a project saved with captions shows them as texts.

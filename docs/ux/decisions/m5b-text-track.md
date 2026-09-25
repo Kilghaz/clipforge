@@ -110,3 +110,19 @@ cards become plain colour cards; the title text lives on the text track.
 - `corner_handle_scales_size_and_width`
 - `lane_drag_moves_and_trims_with_a_minimum_length`
 - `new_text_starts_at_the_playhead`
+
+## Revision (2026-09-25, user feedback)
+
+- **Moving / scaling / trimming did not work:** every sync replaced the
+  lane and overlay models, so Slint rebuilt the element under the pointer
+  and the drag never continued. The models are now updated in place.
+- **Fonts:** all installed fonts plus the bundled ones (the renderer loads
+  system fonts; a family missing on another machine falls back to Inter).
+  The font field is a combo box with type-to-filter (`FontPicker`, Spectrum
+  ComboBox) that previews each family in its own font.
+- **Size:** a number field in points (8–400 pt) instead of a percentage
+  slider. Points refer to a 1080-line frame and scale with the frame's
+  short side, so a 64 pt text is the same share of 1080p, 4K and portrait.
+- **Alignment:** icon buttons (`IconChoiceGroup`), next to Bold, Italic and
+  the new **Underline** toggle (drawn at the font's underline position; the
+  inline editor shows the text without the underline while typing).

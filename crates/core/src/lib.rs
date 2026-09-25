@@ -29,7 +29,9 @@ pub use project::{
     Transition, TransitionKind,
 };
 pub use settings::{Aspect, Resolution};
-pub use text::{Font, TextAlign, TextAnimation, TextId, TextItem, TextMotion, TextStyle};
+pub use text::{
+    BUNDLED_FONTS, DEFAULT_FONT, TextAlign, TextAnimation, TextId, TextItem, TextMotion, TextStyle,
+};
 pub use time::{FrameRate, Ticks};
 
 /// Version of the project file format written by this build.

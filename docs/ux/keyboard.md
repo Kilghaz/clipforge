@@ -35,6 +35,8 @@ Rationale for the grid and timeline keys:
 | Cmd/Ctrl+T | Add a text at the playhead (selected, typing replaces the placeholder) | M5 |
 | Tab to the text lane, ← / → | Move the focus between texts in time order (the playhead follows) | M5 |
 | Enter / Space (text lane) | Select the focused text; Enter again edits it in place | M5 |
+| Font field: type, ↑ / ↓, Enter, Esc | Filter the fonts, move through the list, pick, close and restore | M5 |
+| ← / → (alignment group) | Left / centre / right alignment | M5 |
 | ← → ↑ ↓ (texts selected) | Nudge the selected texts by 0.5 % of the frame; Shift: 5 % | M5 |
 | Enter (one text selected) | Edit the text in place on the preview | M5 |
 | Esc (editing / dragging a text) | End editing / put the dragged text back | M5 |

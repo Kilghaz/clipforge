@@ -520,9 +520,10 @@ Kept short; the ADRs hold the reasoning.
   closing card are a colour-card clip plus a text. (A first cut with
   per-clip caption presets was replaced on request, 2026-09-25.)
 - **M5, text rendering:** parley + swash (already in the tree via Slint)
-  instead of `cosmic-text`, with six bundled OFL fonts (Inter, Montserrat,
-  Playfair Display, Bebas Neue, Dancing Script, Caveat) and no system fonts,
-  so texts look the same on every machine and in the export.
+  instead of `cosmic-text`. All installed fonts can be used, plus six
+  bundled OFL fonts (Inter, Montserrat, Playfair Display, Bebas Neue,
+  Dancing Script, Caveat) that look the same everywhere; a family missing on
+  another machine falls back to Inter.
 - **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
   replaces the CPU compositor for preview and export; the CPU compositor is
   the fallback without a GPU and the reference in tests. Frames are still

@@ -1,6 +1,6 @@
-//! Text items: layout with `parley`, glyphs with `swash`, from the bundled
-//! fonts only (all SIL Open Font License), so every machine renders the
-//! same pixels.
+//! Text items: layout with `parley`, glyphs with `swash`. Fonts are the
+//! bundled ones (SIL Open Font License, the same everywhere) and the ones
+//! installed on the machine; a missing family falls back to the default.
 //!
 //! A text becomes a straight-alpha RGBA image of its block (glyphs plus
 //! shadow or background box) with the text box's position inside it. The
@@ -9,9 +9,9 @@
 //! finished frame with the item's entrance / exit movement.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use clipforge_core::text::{FRAME_UNITS, Font, TextAlign, TextItem, TextMotion, TextStyle};
+use clipforge_core::text::{DEFAULT_FONT, FRAME_UNITS, TextAlign, TextItem, TextMotion, TextStyle};
 use parley::fontique::{Blob, Collection, CollectionOptions, SourceCache};
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontStyle, FontWeight, Layout,
@@ -24,7 +24,7 @@ use swash::zeno::{Angle, Format, Transform, Vector};
 use crate::draw::RectF;
 use crate::frame::Frame;
 
-/// The bundled fonts, in `Font::ALL` order.
+/// The bundled fonts.
 static FONTS: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/InterVariable.ttf"),
     include_bytes!("../../../assets/fonts/Montserrat.ttf"),
@@ -92,8 +92,6 @@ struct Engine {
     fonts: FontContext,
     layouts: LayoutContext<[u8; 4]>,
     scaler: ScaleContext,
-    /// Family name per `Font`, from the font files themselves.
-    families: Vec<String>,
 }
 
 struct Cache {
@@ -104,7 +102,10 @@ struct Cache {
 /// Lays out and rasterises text items. Owned by each compositor (and by
 /// the editor, for hit boxes).
 pub struct TextRenderer {
-    engine: Mutex<Engine>,
+    system_fonts: bool,
+    /// Created on first use: reading the installed fonts takes a moment,
+    /// and frames without text never need it.
+    engine: OnceLock<(Mutex<Engine>, Vec<String>)>,
     cache: Mutex<Cache>,
 }
 
@@ -123,33 +124,16 @@ impl Default for TextRenderer {
 impl TextRenderer {
     #[must_use]
     pub fn new() -> TextRenderer {
-        // Only the bundled fonts: no system fonts, so output is identical
-        // on every machine.
-        let mut collection = Collection::new(CollectionOptions {
-            shared: false,
-            system_fonts: false,
-        });
-        let families = FONTS
-            .iter()
-            .zip(Font::ALL)
-            .map(|(data, font)| {
-                let registered = collection.register_fonts(Blob::new(Arc::new(*data)), None);
-                registered
-                    .first()
-                    .and_then(|(id, _)| collection.family_name(*id).map(str::to_owned))
-                    .unwrap_or_else(|| format!("{font:?}"))
-            })
-            .collect();
+        Self::with_system_fonts(true)
+    }
+
+    /// `system_fonts: false` limits the renderer to the bundled fonts (for
+    /// tests that must not depend on the machine).
+    #[must_use]
+    pub fn with_system_fonts(system_fonts: bool) -> TextRenderer {
         TextRenderer {
-            engine: Mutex::new(Engine {
-                fonts: FontContext {
-                    collection,
-                    source_cache: SourceCache::default(),
-                },
-                layouts: LayoutContext::new(),
-                scaler: ScaleContext::new(),
-                families,
-            }),
+            system_fonts,
+            engine: OnceLock::new(),
             cache: Mutex::new(Cache {
                 images: HashMap::new(),
                 order: Vec::new(),
@@ -157,14 +141,36 @@ impl TextRenderer {
         }
     }
 
-    /// Family name of a bundled font (as the UI toolkit knows it too).
+    fn engine(&self) -> &(Mutex<Engine>, Vec<String>) {
+        self.engine.get_or_init(|| {
+            let (collection, families) = if self.system_fonts {
+                let (c, f) = catalogue();
+                (c.clone(), f.clone())
+            } else {
+                build_collection(false)
+            };
+            let engine = Engine {
+                fonts: FontContext {
+                    collection,
+                    source_cache: SourceCache::default(),
+                },
+                layouts: LayoutContext::new(),
+                scaler: ScaleContext::new(),
+            };
+            (Mutex::new(engine), families)
+        })
+    }
+
+    /// Every font family available, sorted case-insensitively.
     #[must_use]
-    pub fn family_name(&self, font: Font) -> String {
-        self.engine
-            .lock()
-            .ok()
-            .and_then(|e| e.families.get(font.index()).cloned())
-            .unwrap_or_default()
+    pub fn families(&self) -> &[String] {
+        &self.engine().1
+    }
+
+    /// Whether `family` can be drawn as itself (not the fallback).
+    #[must_use]
+    pub fn has_family(&self, family: &str) -> bool {
+        self.families().iter().any(|f| f == family)
     }
 
     /// The rendered block of `item` for a `w × h` frame; `None` for empty
@@ -193,7 +199,7 @@ impl TextRenderer {
             return Some(hit);
         }
         let image = {
-            let mut engine = self.engine.lock().ok()?;
+            let mut engine = self.engine().0.lock().ok()?;
             Arc::new(render_block(
                 &mut engine,
                 &item.text,
@@ -220,7 +226,9 @@ impl TextRenderer {
         if let Some(img) = self.image(item, (w, h)) {
             return box_rect(item, &img, (w, h));
         }
-        let line = f64::from(item.style.size) / f64::from(FRAME_UNITS) * f64::from(w.min(h)) * 1.25;
+        let line = f64::from(item.style.points) / f64::from(TextStyle::REFERENCE_LINES)
+            * f64::from(w.min(h))
+            * 1.25;
         let bw = f64::from(item.width) / f64::from(FRAME_UNITS) * f64::from(w);
         let cx = f64::from(item.x) / f64::from(FRAME_UNITS) * f64::from(w);
         let cy = f64::from(item.y) / f64::from(FRAME_UNITS) * f64::from(h);
@@ -231,6 +239,37 @@ impl TextRenderer {
             height: line,
         }
     }
+}
+
+/// Installed and bundled fonts, read once per process: listing the system
+/// fonts takes a noticeable moment, so renderers share one catalogue.
+fn catalogue() -> &'static (Collection, Vec<String>) {
+    static CATALOGUE: OnceLock<(Collection, Vec<String>)> = OnceLock::new();
+    CATALOGUE.get_or_init(|| build_collection(true))
+}
+
+/// Reads the font catalogue now (call from a background thread at start-up
+/// so the first text does not wait for it).
+pub fn preload_fonts() {
+    let _ = catalogue();
+}
+
+fn build_collection(system_fonts: bool) -> (Collection, Vec<String>) {
+    let mut collection = Collection::new(CollectionOptions {
+        shared: false,
+        system_fonts,
+    });
+    for data in FONTS {
+        collection.register_fonts(Blob::new(Arc::new(data)), None);
+    }
+    let mut families: Vec<String> = collection
+        .family_names()
+        .filter(|n| !n.starts_with('.'))
+        .map(str::to_owned)
+        .collect();
+    families.sort_by_key(|n| n.to_lowercase());
+    families.dedup();
+    (collection, families)
 }
 
 #[allow(
@@ -246,17 +285,17 @@ fn render_block(
     box_width: u32,
     short_side: u32,
 ) -> Option<TextImage> {
-    let size = (f32::from(style.size) / FRAME_UNITS as f32 * short_side as f32).max(1.0);
+    let size = (f32::from(style.points) / f32::from(TextStyle::REFERENCE_LINES)
+        * short_side as f32)
+        .max(1.0);
     let text = text.trim_end();
-    let family = engine
-        .families
-        .get(style.font.index())
-        .cloned()
-        .unwrap_or_default();
+    // The chosen family, then the default font for anything it lacks (or
+    // when it is not installed on this machine).
+    let family = format!("\"{}\", \"{DEFAULT_FONT}\"", style.font.replace('"', ""));
     let mut builder = engine
         .layouts
         .ranged_builder(&mut engine.fonts, text, 1.0, true);
-    builder.push_default(StyleProperty::FontFamily(FontFamily::named(&family)));
+    builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
     builder.push_default(StyleProperty::FontSize(size));
     builder.push_default(StyleProperty::FontWeight(FontWeight::new(if style.bold {
         700.0
@@ -296,7 +335,10 @@ fn render_block(
     let (cw, ch) = (box_width + 2 * margin, box_height + 2 * margin);
     let (ox, oy) = (margin as f32, margin as f32);
 
-    let (mask, extent) = rasterise(engine, &layout, cw, ch, ox, oy, style.italic);
+    let (mut mask, extent) = rasterise(engine, &layout, cw, ch, ox, oy, style.italic);
+    if style.underline {
+        underline(&layout, &mut mask, cw, ch, ox, oy);
+    }
     let [r, g, b, a] = style.color;
     let mut rgba = vec![0u8; (cw * ch * 4) as usize];
     // Transparent pixels carry the text colour so bilinear sampling (moves,
@@ -444,6 +486,43 @@ fn rasterise(
         (min_x, max_x) = (0.0, 0.0);
     }
     (mask, (min_x, max_x))
+}
+
+/// Draws an underline under every glyph run, at the font's own underline
+/// position and thickness.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+fn underline(layout: &Layout<[u8; 4]>, mask: &mut [u8], cw: u32, ch: u32, ox: f32, oy: f32) {
+    for line in layout.lines() {
+        for item in line.items() {
+            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                continue;
+            };
+            let m = glyph_run.run().metrics();
+            let thickness = m.underline_size.max(1.0);
+            // Offsets are positive upwards (font convention).
+            let top = oy + glyph_run.baseline() - m.underline_offset - thickness / 2.0;
+            let (x0, x1) = (
+                ox + glyph_run.offset(),
+                ox + glyph_run.offset() + glyph_run.advance(),
+            );
+            let y0 = top.floor().max(0.0) as u32;
+            let y1 = ((top + thickness).ceil() as u32).min(ch);
+            for y in y0..y1 {
+                // Partial coverage on the top and bottom rows.
+                let cover =
+                    ((top + thickness).min(y as f32 + 1.0) - top.max(y as f32)).clamp(0.0, 1.0);
+                let a = (cover * 255.0).round() as u8;
+                for x in (x0.floor().max(0.0) as u32)..(x1.ceil() as u32).min(cw) {
+                    let px = &mut mask[(y * cw + x) as usize];
+                    *px = (*px).max(a);
+                }
+            }
+        }
+    }
 }
 
 /// Two passes of a separable box blur (close to a Gaussian).
@@ -714,7 +793,7 @@ mod tests {
 
     #[test]
     fn empty_text_renders_nothing_but_has_a_hit_box() {
-        let t = TextRenderer::new();
+        let t = TextRenderer::with_system_fonts(false);
         assert!(t.image(&item("  \n"), (1920, 1080)).is_none());
         let b = t.hit_box(&item(""), (1920, 1080));
         assert!((b.x + b.width / 2.0 - 960.0).abs() < 1.0 && b.height > 10.0);
@@ -722,19 +801,80 @@ mod tests {
 
     #[test]
     fn every_bundled_font_draws_glyphs() {
-        let t = TextRenderer::new();
+        let t = TextRenderer::with_system_fonts(false);
         let mut sizes = Vec::new();
-        for font in Font::ALL {
+        for font in clipforge_core::BUNDLED_FONTS {
+            assert!(t.has_family(font), "{font} registered");
             let mut i = item("Summer 2026");
-            i.style.font = font;
+            i.style.font = font.to_owned();
             i.style.shadow = false;
             let img = t.image(&i, (1920, 1080)).unwrap();
-            assert!(coverage(&img) > 300, "{font:?} drew glyphs");
+            assert!(coverage(&img) > 300, "{font} drew glyphs");
             sizes.push(coverage(&img));
-            assert!(!t.family_name(font).is_empty());
         }
         sizes.dedup();
         assert!(sizes.len() > 3, "fonts look different: {sizes:?}");
+    }
+
+    #[test]
+    fn a_missing_family_falls_back_to_the_default_font() {
+        let t = TextRenderer::with_system_fonts(false);
+        let mut i = item("Fallback");
+        i.style.shadow = false;
+        let default = t.image(&i, (1280, 720)).unwrap();
+        i.style.font = "No Such Font".into();
+        let missing = t.image(&i, (1280, 720)).unwrap();
+        assert_eq!(missing.rgba, default.rgba);
+        assert!(!t.has_family("No Such Font"));
+    }
+
+    #[test]
+    fn system_fonts_are_listed_with_the_bundled_ones() {
+        let t = TextRenderer::new();
+        let families = t.families();
+        for font in clipforge_core::BUNDLED_FONTS {
+            assert!(families.iter().any(|f| f == font), "{font}");
+        }
+        let lower: Vec<String> = families.iter().map(|f| f.to_lowercase()).collect();
+        let mut sorted = lower.clone();
+        sorted.sort();
+        assert_eq!(lower, sorted);
+    }
+
+    #[test]
+    fn underline_draws_a_line_under_the_text() {
+        let t = TextRenderer::with_system_fonts(false);
+        let mut i = item("underline");
+        i.style.shadow = false;
+        let plain = t.image(&i, (1280, 720)).unwrap();
+        i.style.underline = true;
+        let under = t.image(&i, (1280, 720)).unwrap();
+        assert!(coverage(&under) > coverage(&plain));
+        // A long unbroken run of opaque pixels below the middle: the line.
+        let longest_run = |img: &TextImage, y: u32| {
+            let w = img.width as usize;
+            let row = &img.rgba[(y as usize * w) * 4..(y as usize * w + w) * 4];
+            let (mut best, mut run) = (0usize, 0usize);
+            for p in row.as_chunks::<4>().0 {
+                run = if p[3] > 200 { run + 1 } else { 0 };
+                best = best.max(run);
+            }
+            best
+        };
+        let lower_half = under.height / 2..under.height;
+        let under_best = lower_half
+            .clone()
+            .map(|y| longest_run(&under, y))
+            .max()
+            .unwrap_or(0);
+        let plain_best = lower_half
+            .map(|y| longest_run(&plain, y))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            under_best > 150 && plain_best < 60,
+            "{under_best} vs {plain_best}"
+        );
     }
 
     #[test]
@@ -767,7 +907,7 @@ mod tests {
         let ratio = f64::from(big.box_height) / f64::from(small.box_height);
         assert!((ratio - 2.0).abs() < 0.15, "{ratio}");
         let mut larger = i.clone();
-        larger.style.size = 1_200;
+        larger.style.points = 128;
         assert!(t.image(&larger, (1920, 1080)).unwrap().box_height > big.box_height * 3 / 2);
     }
 

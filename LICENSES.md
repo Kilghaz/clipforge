@@ -35,7 +35,9 @@ Inter by Rasmus Andersson (`InterVariable.ttf`, v4.1, `OFL-inter.txt`),
 Montserrat, Playfair Display, Bebas Neue, Dancing Script and Caveat (from
 the Google Fonts repository, `OFL-<name>.txt`). The OFL allows bundling
 them with software as long as the licence travels with them and the fonts
-are not sold on their own.
+are not sold on their own. Texts may also use fonts installed on the
+user's machine; those are not shipped, and their licences (e.g. for
+embedding in rendered video) are the user's matter.
 
 ## FFmpeg
 

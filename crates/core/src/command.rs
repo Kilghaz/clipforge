@@ -1123,7 +1123,7 @@ mod tests {
     #[test]
     fn colour_cards_and_texts_survive_a_save() {
         use crate::project::TitleBackground;
-        use crate::text::{Font, TextItem};
+        use crate::text::TextItem;
         let mut p = project_with(1);
         Command::InsertClips {
             entries: vec![(1, Clip::title(TitleBackground::Red, Ticks::SECOND))],
@@ -1132,7 +1132,8 @@ mod tests {
         .apply(&mut p)
         .unwrap();
         let mut t = TextItem::new("Line one\nLine two", Ticks::ZERO, Ticks::SECOND);
-        t.style.font = Font::Caveat;
+        t.style.font = "Caveat".into();
+        t.style.underline = true;
         t.style.background = Some([0, 0, 0, 128]);
         Command::InsertTexts {
             entries: vec![(0, t)],

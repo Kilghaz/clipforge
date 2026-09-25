@@ -100,7 +100,9 @@ mod tests {
         for i in 0..50 {
             worker.request(Arc::clone(&project), Ticks::from_millis(i));
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // Generous: creating a GPU device while other GPU tests run in
+        // parallel can take seconds; the deadline only guards against a hang.
+        let deadline = Instant::now() + Duration::from_secs(20);
         let mut frame = None;
         while frame.is_none() && Instant::now() < deadline {
             frame = worker.take_frame();

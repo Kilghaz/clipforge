@@ -4,7 +4,7 @@
 // Not part of the app; nothing here is translated (labels are for us).
 import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palette } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow } from "components.slint";
+import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow, FontPicker, IconChoiceGroup } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
 import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState, MusicLane, TextLane, TextOverlay } from "editor.slint";
 
@@ -190,6 +190,25 @@ export component GalleryWindow inherits Window {
             title: "Timeline clips, M5: colour card (blue), colour card (white, selected with dissolve)";
             ClipView { width: 160px; height: 100px; item: { index: 0, id: "t1", is-title: true, title-bg: Theme.title-bg-blue, width: 160, duration-text: "0:04" }; }
             ClipView { width: 160px; height: 100px; item: { index: 1, id: "t2", is-title: true, title-bg: Theme.title-bg-white, selected: true, width: 160, overlap: 40, transition: 1, duration-text: "0:04" }; }
+        }
+        Row {
+            title: "FontPicker (value in its field; the list opens on focus, filtered by typing); IconChoiceGroup alignment: left / centre (selected) / right, disabled";
+            Rectangle {
+                width: 280px;
+                height: 120px;
+                background: Theme.surface-pane;
+                VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-s;
+                    alignment: start;
+                    FontPicker { label: "Font"; value: "Playfair Display"; matches: ["Playfair Display", "Montserrat", "Caveat"]; }
+                    HorizontalLayout {
+                        spacing: Theme.space-m;
+                        IconChoiceGroup { label: "Alignment"; icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right]; labels: ["Align left", "Centre", "Align right"]; selected-index: 1; }
+                        IconChoiceGroup { label: "Alignment"; enabled: false; icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right]; labels: ["Align left", "Centre", "Align right"]; selected-index: 0; }
+                    }
+                }
+            }
         }
         Row {
             title: "TextLane (28 px rows): texts, a selected one, overlaps stacked into a second row; empty lane with the double-click hint; keyboard focus ring";

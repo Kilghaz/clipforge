@@ -169,8 +169,9 @@ struct Inner {
     editing_text: Option<clipforge_core::TextId>,
     /// Keyboard focus on the text lane.
     text_focus: Option<clipforge_core::TextId>,
-    /// Lays texts out for hit boxes on the preview.
-    text_measure: clipforge_render::text::TextRenderer,
+    /// Lays texts out for hit boxes on the preview; created on first use
+    /// (the font catalogue loads in the background at start-up).
+    text_measure: std::cell::OnceCell<clipforge_render::text::TextRenderer>,
 }
 
 impl EditorController {
@@ -244,7 +245,7 @@ impl EditorController {
             text_drag: None,
             editing_text: None,
             text_focus: None,
-            text_measure: clipforge_render::text::TextRenderer::new(),
+            text_measure: std::cell::OnceCell::new(),
         }));
 
         macro_rules! on {
@@ -331,8 +332,10 @@ impl EditorController {
         on!(on_text_typing_done, |i| i.text_typing_done());
         on!(on_text_nudge, |i, dx, dy, large| i
             .text_nudge(dx, dy, large));
-        on!(on_text_font_changed, |i, idx| i.text_font(idx));
-        on!(on_text_size_changed, |i, v| i.text_size(v));
+        on!(on_text_font_changed, |i, name| i.text_font(&name));
+        on!(on_text_font_search, |i, query| i.text_font_search(&query));
+        on!(on_text_points_changed, |i, pt| i.text_points(pt));
+        on!(on_text_underline_changed, |i, on| i.text_underline(on));
         on!(on_text_bold_changed, |i, on| i.text_bold(on));
         on!(on_text_italic_changed, |i, on| i.text_italic(on));
         on!(on_text_align_changed, |i, idx| i.text_align(idx));

@@ -196,14 +196,13 @@ pub(crate) fn apply_gesture(
             let d0 = dist(start);
             if d0 > 1e-4 {
                 let s = dist(now) / d0;
-                let size = (f32::from(orig.style.size) * s).round();
-                let size = size.clamp(
-                    f32::from(TextStyle::MIN_SIZE),
-                    f32::from(TextStyle::MAX_SIZE),
+                let points = (f32::from(orig.style.points) * s).round().clamp(
+                    f32::from(TextStyle::MIN_POINTS),
+                    f32::from(TextStyle::MAX_POINTS),
                 );
                 // Keep width and size in proportion, limited like the size.
-                let s = size / f32::from(orig.style.size);
-                t.style.size = size as u16;
+                let s = points / f32::from(orig.style.points);
+                t.style.points = points as u16;
                 t.width = ((orig.width as f32 * s).round() as i32)
                     .clamp(TextItem::MIN_WIDTH, FRAME_UNITS * 2);
             }
@@ -259,6 +258,27 @@ pub(crate) fn lane_drag(orig: &TextItem, gesture: LaneGesture, dt: Ticks) -> Tex
         }
     }
     t
+}
+
+/// Font families for the picker's query: those starting with it first,
+/// then those containing it (case-insensitive), each group in list order.
+#[must_use]
+pub(crate) fn font_matches(families: &[String], query: &str) -> Vec<String> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return families.to_vec();
+    }
+    let (mut starts, mut contains) = (Vec::new(), Vec::new());
+    for f in families {
+        let lower = f.to_lowercase();
+        if lower.starts_with(&q) {
+            starts.push(f.clone());
+        } else if lower.contains(&q) {
+            contains.push(f.clone());
+        }
+    }
+    starts.extend(contains);
+    starts
 }
 
 /// A new text at the playhead (or at 0 past the end of the show).
@@ -417,7 +437,7 @@ mod tests {
     fn corner_handle_scales_size_and_width() {
         let t = text(0, 4); // size 600, width 8000, centre (0.5, 0.5)
         let (s, _) = apply_gesture(&t, TextGesture::Scale, (0.9, 0.5), (1.3, 0.5), 1.0);
-        assert_eq!((s.style.size, s.width), (1_200, 16_000));
+        assert_eq!((s.style.points, s.width), (128, 16_000));
         let (small, _) = apply_gesture(
             &t,
             TextGesture::Scale,
@@ -425,8 +445,8 @@ mod tests {
             (0.5 + 0.4 / 100.0, 0.5),
             1.0,
         );
-        assert_eq!(small.style.size, TextStyle::MIN_SIZE, "clamped");
-        assert_eq!(small.width, TextItem::MIN_WIDTH.max(8_000 * 150 / 600));
+        assert_eq!(small.style.points, TextStyle::MIN_POINTS, "clamped");
+        assert_eq!(small.width, TextItem::MIN_WIDTH.max(8_000 * 8 / 64));
     }
 
     #[test]
@@ -445,6 +465,27 @@ mod tests {
         assert_eq!((e.start, e.duration), (t.start, Ticks::from_seconds(3)));
         let e = lane_drag(&t, LaneGesture::End, Ticks::from_seconds(-9));
         assert_eq!(e.duration, TextItem::MIN_DURATION);
+    }
+
+    #[test]
+    fn font_search_puts_prefix_matches_first() {
+        let families: Vec<String> = [
+            "Arial",
+            "Avenir",
+            "Bebas Neue",
+            "Helvetica Neue",
+            "Neue Haas",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        assert_eq!(font_matches(&families, ""), families);
+        assert_eq!(
+            font_matches(&families, " neue"),
+            vec!["Neue Haas", "Bebas Neue", "Helvetica Neue"]
+        );
+        assert_eq!(font_matches(&families, "AV"), vec!["Avenir"]);
+        assert!(font_matches(&families, "zzz").is_empty());
     }
 
     #[test]

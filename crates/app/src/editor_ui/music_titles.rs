@@ -293,7 +293,7 @@ impl Inner {
         clips.insert(at, Clip::title(TitleBackground::Black, TITLE_DURATION));
         let place = clipforge_core::timeline::placements(&clips)[at];
         let mut item = TextItem::new(text, place.start, place.duration());
-        item.style.size = 900;
+        item.style.points = 97;
         item.style.bold = true;
         let id = item.id;
         commands.push(Command::InsertTexts {

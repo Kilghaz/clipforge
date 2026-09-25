@@ -177,6 +177,8 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | Panel divider (`main.slint`) | Fluent "SplitView" | 1 px line, 8 px grab area, accent on hover, double-click resets. |
 | `TextLane` (`editor.slint`) | Premiere text track, NN/G direct manipulation | Texts on the strip's time scale above the clips; drag to move, edges to trim, overlaps in up to three rows; double-click to add. |
 | `TextOverlay` (`editor.slint`) | Keynote / Canva on-canvas text, NN/G direct manipulation | Selection box with corner (size) and side (width) handles over the preview, centre snap guides, inline editor with the text's own font. |
+| `FontPicker` | Spectrum "ComboBox" | Font field with type-to-filter over all installed and bundled fonts; the list previews each family in its own font. |
+| `IconChoiceGroup` | Spectrum "ActionGroup" (single selection) | Icon-only single choice (text alignment) with tooltips; one tab stop, arrow keys. |
 | `MusicLane` (`editor.slint`) | Premiere / Clipchamp audio track, NN/G direct manipulation | 40 px lane under the clips: song blocks on the strip's time scale, looped repeats dimmed, fade-out ramp, empty state with "Add music…"; click / Enter selects the music. |
 | `SongRow` | Fluent list view item | Song name and length with quiet move up / down / remove buttons (Music inspector). |
 | `SwatchGroup` | Spectrum "ColorSwatchPicker" | Single choice from named colour swatches; one tab stop, arrow keys, names as tooltips. Title card backgrounds. |

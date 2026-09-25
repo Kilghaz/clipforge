@@ -44,8 +44,8 @@ cpal = "0.18"
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "vulkan", "wgsl"] }
 pollster = "1"
 bytemuck = { version = "1", features = ["derive"] }
-# Caption text: layout and glyph rasterising (both already in the tree via Slint).
-parley = { version = "0.11", default-features = false, features = ["std"] }
+# Text: layout, installed fonts and glyph rasterising (all already in the tree via Slint).
+parley = { version = "0.11", default-features = false, features = ["std", "system"] }
 swash = { version = "0.2", default-features = false, features = ["std", "scale", "render"] }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg", "software-renderer-systemfonts"] }
 slint-build = "1.18"

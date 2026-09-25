@@ -29,6 +29,7 @@ impl Project {
     pub fn from_json(json: &str) -> Result<Project, PersistError> {
         let mut value: serde_json::Value = serde_json::from_str(json)?;
         let captions = take_legacy_captions(&mut value);
+        sizes_to_points(&mut value);
         let mut project: Project = serde_json::from_value(value)?;
         captions_to_texts(&mut project, captions);
         if project.version > PROJECT_FORMAT_VERSION {
@@ -81,6 +82,27 @@ fn take_legacy_captions(value: &mut serde_json::Value) -> Vec<LegacyCaption> {
     out
 }
 
+/// The first text-track format stored the size as 1/10 000 of the short
+/// side (`size`); now it is points on a 1080-line frame (`points`).
+fn sizes_to_points(value: &mut serde_json::Value) {
+    let Some(texts) = value.get_mut("texts").and_then(|t| t.as_array_mut()) else {
+        return;
+    };
+    for text in texts {
+        let Some(style) = text.get_mut("style").and_then(|s| s.as_object_mut()) else {
+            continue;
+        };
+        if style.contains_key("points") {
+            continue;
+        }
+        if let Some(size) = style.remove("size").and_then(|v| v.as_u64()) {
+            let points =
+                (size * u64::from(crate::text::TextStyle::REFERENCE_LINES) + 5_000) / 10_000;
+            style.insert("points".to_owned(), serde_json::Value::from(points));
+        }
+    }
+}
+
 /// Turns old per-clip captions into text items over the same span, with a
 /// look close to the old preset.
 fn captions_to_texts(project: &mut Project, captions: Vec<LegacyCaption>) {
@@ -93,13 +115,13 @@ fn captions_to_texts(project: &mut Project, captions: Vec<LegacyCaption>) {
         let mut t = TextItem::new(c.text, place.start, place.duration());
         match c.style.as_str() {
             "headline" => {
-                t.style.size = 1_000;
+                t.style.points = 108;
                 t.style.bold = true;
             }
             "banner" => {
                 t.y = 8_600;
                 t.width = 9_000;
-                t.style.size = 440;
+                t.style.points = 48;
                 t.style.shadow = false;
                 t.style.background = Some([0, 0, 0, 150]);
             }
@@ -107,12 +129,12 @@ fn captions_to_texts(project: &mut Project, captions: Vec<LegacyCaption>) {
                 t.x = 2_800;
                 t.y = 9_000;
                 t.width = 5_000;
-                t.style.size = 340;
+                t.style.points = 37;
                 t.style.align = TextAlign::Left;
             }
             _ => {
                 t.y = 8_500;
-                t.style.size = 520;
+                t.style.points = 56;
                 t.style.bold = true;
             }
         }
@@ -230,5 +252,26 @@ mod tests {
         );
         assert!(t.style.background.is_some());
         assert_eq!(back.clips, p.clips);
+    }
+
+    #[test]
+    fn first_text_format_sizes_become_points() {
+        let mut p = sample();
+        Command::InsertTexts {
+            entries: vec![(
+                0,
+                crate::text::TextItem::new("Hi", Ticks::ZERO, Ticks::SECOND),
+            )],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&p.to_json().unwrap()).unwrap();
+        let style = value["texts"][0]["style"].as_object_mut().unwrap();
+        style.remove("points");
+        style.insert("size".into(), serde_json::json!(600));
+        style.insert("font".into(), serde_json::json!("caveat"));
+        let back = Project::from_json(&value.to_string()).unwrap();
+        assert_eq!(back.texts[0].style.points, 65);
+        assert_eq!(back.texts[0].style.font, "Caveat");
     }
 }
