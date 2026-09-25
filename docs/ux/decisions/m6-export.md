@@ -46,7 +46,9 @@ settings forms with several values.
 - **Completion:** the dialog (or, if closed, the toolbar button) shows
   success: check icon, "Saved movie.mp4 (240 MB)" and a "Show in
   Finder" / "Show in Explorer" button. The toolbar button shows a check
-  until the dialog is opened. No OS notification yet (deferred, PLAN
+  until the dialog is opened. Right after success "Close" becomes the
+  default button (Enter) and "Export again…" the secondary one, until an
+  option changes. No OS notification yet (deferred, PLAN
   deviations).
 - **Verification:** after encoding, ffprobe checks codec, size, duration,
   colour tags and audio. A mismatch keeps the file and shows a warning

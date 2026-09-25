@@ -23,7 +23,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | Scrim / underlay | Fluent: dialog blocks the window; Spectrum: underlay | full-window `Rectangle` `Theme.scrim` (black 65 %) with a swallowing `TouchArea` | ✅ | gallery "DialogFrame" |
 | Surface | Fluent ContentDialog; DESIGN.md: radius 8, dialog padding 24 | `surface-pane`, 1 px `border`, `radius-l`, padding 24, spacing 16 | ✅ | gallery "DialogFrame" |
 | Title (Heading) | Fluent: optional, short, relates to the buttons; Spectrum: Heading required, labels the dialog | `title` 20 px semibold (`font-dialog`) | ✅ | gallery "DialogFrame" |
-| Header / Divider / Footer | Spectrum: optional | footer: the button row is built into `DialogFrame` and stays fixed; a hairline appears above it when content scrolls | ✅ | gallery "DialogFrame …" (second frame) |
+| Header / Divider / Footer | Spectrum: optional | footer: the button row is built into `DialogFrame` and stays fixed; the body is a std `ScrollView` (scrollbar only when the content does not fit, in a 12 px gutter) with a hairline above the buttons while more content is below | ✅ | gallery "DialogFrame …" (second frame) |
 | Content | Fluent: required; Spectrum: Content required | `@children` in the padded column | ✅ | Settings, Export |
 | Button group | Fluent: CloseButton required + up to two "do it"; Spectrum: ButtonGroup | `DialogButtons`: one primary + optional secondary | ✅ | gallery "DialogButtons Windows / macOS" |
 | Third button | Fluent: SecondaryButton optional, "used sparingly" | — none needed | ➖ | |
@@ -39,7 +39,7 @@ and "… DialogButtons Windows / macOS" in `crates/app/ui/gallery.slint`
 | open | Fluent: modal, blocks window | conditional `if Shell.settings-open` / `if EditorState.export-open` | ✅ | manual-checks "Design guide pass" |
 | appearing / dismissing motion | DESIGN.md §2: 200–250 ms for panels appearing | none; pops in and out | ❌ | |
 | busy (export running) | Primer saving/loading; NN/G status | `ProgressIndicator` + "Exporting… 42 % · about 3 min left"; controls disabled; primary becomes "Keep editing" (closes, export continues), secondary "Cancel export" | ✅ | scene `export-running` |
-| success / failure result | Primer: say what happened | icon + "Saved movie.mp4 (153 MB)" + "Show in Finder / Explorer"; warning when verification finds a difference; "Export failed: …" | ✅ | scene `export-done` |
+| success / failure result | Primer: say what happened | icon (centred on the row) + "Saved movie.mp4 (153 MB)" + "Show in Finder / Explorer"; warning when verification finds a difference; "Export failed: …". Right after success "Close" is the default (Enter), "Export again…" secondary, until an option changes | ✅ | scene `export-done` |
 | single-button (informational) | Fluent: one safe button; Apple: "Done", not "Cancel" | Settings: "Close" as accent primary only | ✅ | none in gallery |
 | primary disabled | Fluent | `primary-enabled` prop, unused by callers | ✅ prop, no gallery row | |
 | focus (keyboard) | Fluent: default button focused unless content is focusable | `FocusScope.init => focus()` puts focus on the invisible scope, no control shows a ring | ❌ | |

@@ -136,7 +136,13 @@ pub(crate) fn summary(options: &ExportOptions, project: &Project) -> Summary {
         settings.frame_rate,
     );
     let seconds = clipforge_core::timeline::total_duration(&project.clips).as_seconds_f64();
-    let kbps = f64::from(plan.video_bitrate_kbps + plan.audio_bitrate_kbps);
+    // The audio track exists only if something makes sound.
+    let audio_kbps = if clipforge_export::audio::has_audio(project) {
+        plan.audio_bitrate_kbps
+    } else {
+        0
+    };
+    let kbps = f64::from(plan.video_bitrate_kbps + audio_kbps);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let bytes = (kbps * 1000.0 / 8.0 * seconds.max(0.0)) as u64;
     #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
@@ -277,6 +283,15 @@ mod tests {
         assert!((s.video_mbps - 12.0).abs() < 0.01, "chosen bitrate");
         assert!((s.auto_video_mbps - 8.0).abs() < 0.01, "HEVC ladder");
         assert_eq!(s.auto_audio_kbps, 384);
+    }
+
+    #[test]
+    fn a_silent_show_is_estimated_without_audio() {
+        let mut p = project(100, false);
+        p.clips[0].muted = true;
+        let s = summary(&options(&DialogState::default()), &p);
+        // Good 1080p: 8 000 kbit/s × 100 s / 8, no audio track.
+        assert_eq!(s.bytes, 100_000_000);
     }
 
     #[test]

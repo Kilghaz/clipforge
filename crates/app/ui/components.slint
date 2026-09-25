@@ -1,7 +1,7 @@
 // Shared ClipForge components (docs/ux/DESIGN.md §4). Each one copies the
 // states and behaviour of its Fluent / Spectrum reference and only uses
 // `Theme` tokens and `Palette` colours.
-import { Button } from "std-widgets.slint";
+import { Button, ScrollView } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 
 /// Single-colour icon, recoloured to the given brush (Fluent iconography).
@@ -540,11 +540,11 @@ export component DialogFrame inherits Rectangle {
             if event.text == Key.Return { root.accepted(); return accept; }
             return reject;
         }
-        Rectangle {
+        card := Rectangle {
             // Never taller than the window: the content scrolls, the title
             // and buttons stay (900 × 560 minimum window).
-            property <length> chrome: title.preferred-height + footer.preferred-height + 2 * Theme.space-xl + 2 * Theme.space-l;
-            property <length> wanted: root.dialog-height > 0 ? root.dialog-height : self.chrome + body.preferred-height;
+            property <length> wanted: root.dialog-height > 0 ? root.dialog-height : frame.preferred-height;
+            property <bool> scrolls: body.preferred-height > flick.height + 2px;
             width: root.dialog-width;
             height: min(self.wanted, root.height - 2 * Theme.space-l);
             border-radius: Theme.radius-l;
@@ -553,8 +553,10 @@ export component DialogFrame inherits Rectangle {
             background: Theme.surface-pane;
             clip: true;
             TouchArea { }
-            VerticalLayout {
+            frame := VerticalLayout {
                 padding: Theme.space-xl;
+                // The body keeps a scrollbar gutter on the right instead.
+                padding-right: Theme.space-xl - Theme.space-m;
                 spacing: Theme.space-l;
                 title := Text {
                     text: root.title;
@@ -562,19 +564,24 @@ export component DialogFrame inherits Rectangle {
                     font-size: Theme.font-dialog;
                     font-weight: Theme.weight-semibold;
                 }
-                flick := Flickable {
+                // std ScrollView: a visible scrollbar tells the content goes on.
+                flick := ScrollView {
                     vertical-stretch: 1;
-                    content-width: self.width;
-                    content-height: max(self.height, body.preferred-height);
-                    interactive: body.preferred-height > self.height;
+                    // Size to the content; the frame caps it at the window.
+                    preferred-height: body.preferred-height;
+                    horizontal-scrollbar-policy: always-off;
+                    // Sub-pixel overflow would otherwise show a bar on content that fits.
+                    vertical-scrollbar-policy: card.scrolls ? ScrollBarPolicy.as-needed : ScrollBarPolicy.always-off;
                     body := VerticalLayout {
-                        width: flick.content-width;
+                        // Gutter for the scrollbar so it never covers controls.
+                        padding-right: Theme.space-m;
                         spacing: Theme.space-l;
                         alignment: start;
                         @children
                     }
                 }
                 footer := DialogButtons {
+                    padding-right: Theme.space-m;
                     macos: root.macos;
                     primary-text: root.primary-text;
                     primary-enabled: root.primary-enabled;
@@ -585,7 +592,7 @@ export component DialogFrame inherits Rectangle {
                 }
             }
             // More content below: a hairline above the buttons.
-            if flick.content-y + body.preferred-height > flick.height + 1px : Rectangle {
+            if card.scrolls && -flick.content-y + flick.height < body.preferred-height - 1px : Rectangle {
                 x: 0;
                 y: flick.y + flick.height + Theme.space-l / 2;
                 width: parent.width;
@@ -914,6 +921,8 @@ export component FontPicker inherits Rectangle {
 export component Disclosure inherits Rectangle {
     in property <string> text;
     in-out property <bool> expanded;
+    /// Draw the focus ring without focus (gallery).
+    in property <bool> show-focus;
     callback toggled(bool);
     height: Theme.control-height;
     border-radius: Theme.radius-s;
@@ -941,11 +950,13 @@ export component Disclosure inherits Rectangle {
         padding-right: Theme.space-s;
         spacing: Theme.space-s;
         alignment: start;
-        Icon {
-            source: root.expanded ? Icons.chevron-up : Icons.chevron-down;
-            size: Theme.icon-s;
-            color: Theme.text-secondary;
-            y: (parent.height - self.height) / 2;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                source: root.expanded ? Icons.chevron-up : Icons.chevron-down;
+                size: Theme.icon-s;
+                color: Theme.text-secondary;
+            }
         }
         Text {
             text: root.text;
@@ -955,7 +966,7 @@ export component Disclosure inherits Rectangle {
             vertical-alignment: center;
         }
     }
-    if focus.has-focus : Rectangle {
+    if focus.has-focus || root.show-focus : Rectangle {
         x: -2px;
         y: -2px;
         width: parent.width + 4px;
@@ -975,6 +986,8 @@ export component ExportStatusButton inherits Rectangle {
     in property <float> progress;
     in property <string> text;
     in property <string> tooltip;
+    /// Draw the focus ring without focus (gallery).
+    in property <bool> show-focus;
     callback clicked;
     height: Theme.control-height;
     min-width: 96px;
@@ -999,11 +1012,13 @@ export component ExportStatusButton inherits Rectangle {
         padding-right: Theme.space-m;
         spacing: Theme.space-s;
         alignment: center;
-        if root.status != 1 : Icon {
-            source: root.status == 2 ? Icons.checkmark-circle : root.status == 4 ? Icons.warning : Icons.error-circle;
-            color: root.status == 2 ? Theme.success : root.status == 4 ? Theme.warning : Theme.danger;
-            size: Theme.icon-m;
-            y: (parent.height - self.height) / 2;
+        if root.status != 1 : VerticalLayout {
+            alignment: center;
+            Icon {
+                source: root.status == 2 ? Icons.checkmark-circle : root.status == 4 ? Icons.warning : Icons.error-circle;
+                color: root.status == 2 ? Theme.success : root.status == 4 ? Theme.warning : Theme.danger;
+                size: Theme.icon-m;
+            }
         }
         Text {
             text: root.text;
@@ -1028,7 +1043,7 @@ export component ExportStatusButton inherits Rectangle {
             background: Theme.accent;
         }
     }
-    if focus.has-focus : Rectangle {
+    if focus.has-focus || root.show-focus : Rectangle {
         x: -2px;
         y: -2px;
         width: parent.width + 4px;

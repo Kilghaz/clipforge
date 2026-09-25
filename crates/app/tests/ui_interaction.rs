@@ -381,4 +381,18 @@ fn the_export_dialog_discloses_advanced_and_gates_hdr() {
     press_key(&w, Key::Escape);
     assert!(!s.get_export_open());
     assert!(!*cancelled.borrow());
+
+    // Right after success, Enter closes instead of exporting again.
+    let started = Rc::new(RefCell::new(false));
+    let st = started.clone();
+    s.on_export_start(move || *st.borrow_mut() = true);
+    s.set_export_status(2);
+    s.set_export_open(true);
+    only(
+        ElementHandle::find_by_accessible_label(&w, "Advanced"),
+        "dialog open",
+    );
+    press_key(&w, Key::Return);
+    assert!(!s.get_export_open(), "Enter closes");
+    assert!(!*started.borrow(), "no second export");
 }

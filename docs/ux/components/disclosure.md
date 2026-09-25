@@ -18,7 +18,7 @@ Gallery rows: "Disclosure collapsed / expanded; ExportStatusButton …"
 | label | describes the hidden content | "Advanced" / "Erweitert", body semibold | ✅ | gallery, export scenes |
 | content | opens in place below | conditional `GridLayout` right under the row | ✅ | `export`, `narrow-export` |
 | hover | — | `control-hover` tint, radius S | ✅ | |
-| focus | visible ring | 2 px focus ring outside | ✅ | |
+| focus | visible ring | 2 px focus ring outside (`show-focus` for the gallery) | ✅ | gallery "… keyboard focus" |
 | disabled | — | none needed (Advanced stays reachable while exporting, controls inside disable) | ➖ | |
 
 ## Metrics

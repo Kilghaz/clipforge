@@ -229,9 +229,9 @@ export component GalleryWindow inherits Window {
             }
         }
         Row {
-            title: "Disclosure collapsed / expanded; ExportStatusButton running 42 %, done, done with warning, failed";
+            title: "Disclosure collapsed / expanded / keyboard focus; ExportStatusButton running 42 %, done, done with warning, failed, keyboard focus";
             Rectangle {
-                width: 560px;
+                width: 640px;
                 height: 96px;
                 background: Theme.surface-pane;
                 VerticalLayout {
@@ -242,6 +242,7 @@ export component GalleryWindow inherits Window {
                         alignment: start;
                         Disclosure { text: "Advanced"; width: 160px; }
                         Disclosure { text: "Advanced"; expanded: true; width: 160px; }
+                        Disclosure { text: "Advanced"; show-focus: true; width: 160px; }
                     }
                     HorizontalLayout {
                         spacing: Theme.space-s;
@@ -250,6 +251,7 @@ export component GalleryWindow inherits Window {
                         ExportStatusButton { status: 2; text: "Exported"; tooltip: "Show export"; }
                         ExportStatusButton { status: 4; text: "Exported"; tooltip: "Show export"; }
                         ExportStatusButton { status: 3; text: "Failed"; tooltip: "Show export"; }
+                        ExportStatusButton { status: 1; progress: 0.7; text: "70%"; tooltip: "Show export"; show-focus: true; }
                     }
                 }
             }

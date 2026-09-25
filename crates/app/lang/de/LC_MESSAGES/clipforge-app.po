@@ -912,3 +912,6 @@ msgstr "Exportiert"
 
 msgid "Show export"
 msgstr "Export anzeigen"
+
+msgid "Export again…"
+msgstr "Erneut exportieren…"

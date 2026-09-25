@@ -21,8 +21,8 @@ Gallery rows: "Disclosure …; ExportStatusButton running 42 %, done, done with 
 | done with warning | | warning icon + "Exported" (details in the dialog) | ✅ | gallery |
 | failed | | error icon + "Failed" | ✅ | gallery |
 | hover / pressed | | control hover / pressed tints | ✅ | |
-| focus | ring | 2 px focus ring | ✅ | |
-| time left | NN/G approximate | in the dialog only (toolbar space) | ➖ | `export-running` |
+| focus | ring | 2 px focus ring (`show-focus` for the gallery) | ✅ | gallery "… keyboard focus" |
+| time left | NN/G approximate | tooltip while running ("Exporting… 42 % · about 3 min left"); in full in the dialog | ✅ | `export-running` |
 | cancel | NN/G let users stop | in the dialog ("Cancel export"), one click away | ➖ | |
 
 ## Metrics

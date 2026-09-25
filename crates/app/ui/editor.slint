@@ -1601,17 +1601,35 @@ component Inspector inherits Rectangle {
 component ExportDialog inherits DialogFrame {
     property <bool> running: EditorState.export-status == 1;
     property <bool> hdr-on: EditorState.export-hdr && EditorState.export-hdr-availability == 0;
+    // Right after an export finishes, closing is the likely next step
+    // (Fluent default button); changing an option makes exporting it again.
+    property <bool> options-touched;
+    property <bool> close-is-default: EditorState.export-status >= 2 && !root.options-touched;
+    function touch() {
+        root.options-touched = true;
+        EditorState.export-refresh();
+    }
     title: @tr("Export video");
     dialog-width: 520px;
     macos: Shell.macos;
-    primary-text: root.running ? @tr("Keep editing") : @tr("Export…");
-    secondary-text: root.running ? @tr("Cancel export") : @tr("Close");
-    primary => { if root.running { EditorState.export-open = false; } else { EditorState.export-start(); } }
-    secondary => { if root.running { EditorState.export-cancel(); } else { EditorState.export-open = false; } }
+    primary-text: root.running ? @tr("Keep editing") : root.close-is-default ? @tr("Close") : @tr("Export…");
+    secondary-text: root.running ? @tr("Cancel export") : root.close-is-default ? @tr("Export again…") : @tr("Close");
+    primary => {
+        if root.running || root.close-is-default { EditorState.export-open = false; }
+        else { root.options-touched = false; EditorState.export-start(); }
+    }
+    secondary => {
+        if root.running { EditorState.export-cancel(); }
+        else if root.close-is-default { root.options-touched = false; EditorState.export-start(); }
+        else { EditorState.export-open = false; }
+    }
     init => { EditorState.export-refresh(); }
     // Esc closes; a running export keeps going (see m6-export.md).
     dismissed => { EditorState.export-open = false; }
-    accepted => { if !root.running { EditorState.export-start(); } }
+    accepted => {
+        if root.close-is-default { EditorState.export-open = false; }
+        else if !root.running { root.options-touched = false; EditorState.export-start(); }
+    }
     Section {
         title: @tr("Resolution");
         ChoiceGroup {
@@ -1619,7 +1637,7 @@ component ExportDialog inherits DialogFrame {
             options: [@tr("Full HD (1080p)"), @tr("4K (2160p)")];
             enabled: !root.running;
             selected-index <=> EditorState.export-resolution-index;
-            changed => { EditorState.export-refresh(); }
+            changed => { root.touch(); }
         }
     }
     Section {
@@ -1629,7 +1647,7 @@ component ExportDialog inherits DialogFrame {
             options: [@tr("Good"), @tr("Better"), @tr("Best")];
             enabled: !root.running;
             selected-index <=> EditorState.export-quality-index;
-            changed => { EditorState.export-refresh(); }
+            changed => { root.touch(); }
         }
         Caption {
             text: @tr("About {0} · {1} · {2} Mbit/s · {3}", EditorState.export-size-text, EditorState.export-codec-name, round(EditorState.export-video-mbps * 10) / 10, EditorState.export-extension == "mov" ? "MOV" : "MP4");
@@ -1642,13 +1660,13 @@ component ExportDialog inherits DialogFrame {
             text: @tr("Optimize for YouTube");
             checked <=> EditorState.export-youtube;
             enabled: !root.running;
-            toggled => { EditorState.export-refresh(); }
+            toggled => { root.touch(); }
         }
         Switch {
             text: @tr("HDR (for iPhone and YouTube HDR)");
             checked <=> EditorState.export-hdr;
             enabled: !root.running && EditorState.export-hdr-availability == 0;
-            toggled => { EditorState.export-refresh(); }
+            toggled => { root.touch(); }
         }
         Caption {
             text: EditorState.export-hdr-availability == 1 ? @tr("Available when an HDR video is on the timeline.")
@@ -1672,7 +1690,7 @@ component ExportDialog inherits DialogFrame {
                     model: root.hdr-on ? [@tr("HEVC (always for HDR)")] : [@tr("Automatic"), "H.264", "HEVC"];
                     current-index: root.hdr-on ? 0 : EditorState.export-codec-index;
                     enabled: !root.running && !root.hdr-on;
-                    selected => { EditorState.export-codec-index = self.current-index; EditorState.export-refresh(); }
+                    selected => { EditorState.export-codec-index = self.current-index; root.touch(); }
                     accessible-label: @tr("Codec");
                     horizontal-stretch: 1;
                 }
@@ -1683,7 +1701,7 @@ component ExportDialog inherits DialogFrame {
                     model: [@tr("Project ({0} fps)", round(EditorState.export-project-fps * 100) / 100), "24 fps", "25 fps", "30 fps", "50 fps", "60 fps"];
                     current-index <=> EditorState.export-frame-rate-index;
                     enabled: !root.running;
-                    selected => { EditorState.export-refresh(); }
+                    selected => { root.touch(); }
                     accessible-label: @tr("Frame rate");
                 }
             }
@@ -1693,7 +1711,7 @@ component ExportDialog inherits DialogFrame {
                     model: [@tr("Automatic ({0} Mbit/s)", round(EditorState.export-auto-video-mbps * 10) / 10), "8 Mbit/s", "12 Mbit/s", "16 Mbit/s", "20 Mbit/s", "35 Mbit/s", "50 Mbit/s", "80 Mbit/s"];
                     current-index <=> EditorState.export-video-bitrate-index;
                     enabled: !root.running;
-                    selected => { EditorState.export-refresh(); }
+                    selected => { root.touch(); }
                     accessible-label: @tr("Video bitrate");
                 }
             }
@@ -1703,7 +1721,7 @@ component ExportDialog inherits DialogFrame {
                     model: [@tr("Automatic ({0} kbit/s)", EditorState.export-auto-audio-kbps), "128 kbit/s", "192 kbit/s", "256 kbit/s", "320 kbit/s", "384 kbit/s"];
                     current-index <=> EditorState.export-audio-bitrate-index;
                     enabled: !root.running;
-                    selected => { EditorState.export-refresh(); }
+                    selected => { root.touch(); }
                     accessible-label: @tr("Audio bitrate");
                 }
             }
@@ -1713,7 +1731,7 @@ component ExportDialog inherits DialogFrame {
                     model: EditorState.export-youtube ? [@tr("MP4 (always for YouTube)")] : ["MP4", "MOV"];
                     current-index: EditorState.export-youtube ? 0 : EditorState.export-container-index;
                     enabled: !root.running && !EditorState.export-youtube;
-                    selected => { EditorState.export-container-index = self.current-index; EditorState.export-refresh(); }
+                    selected => { EditorState.export-container-index = self.current-index; root.touch(); }
                     accessible-label: @tr("File format");
                 }
             }
@@ -1732,9 +1750,12 @@ component ExportDialog inherits DialogFrame {
     }
     if EditorState.export-status >= 2 : HorizontalLayout {
         spacing: Theme.space-s;
-        Icon {
-            source: EditorState.export-status == 2 ? Icons.checkmark-circle : EditorState.export-status == 4 ? Icons.warning : Icons.error-circle;
-            color: EditorState.export-status == 2 ? Theme.success : EditorState.export-status == 4 ? Theme.warning : Theme.danger;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                source: EditorState.export-status == 2 ? Icons.checkmark-circle : EditorState.export-status == 4 ? Icons.warning : Icons.error-circle;
+                color: EditorState.export-status == 2 ? Theme.success : EditorState.export-status == 4 ? Theme.warning : Theme.danger;
+            }
         }
         SecondaryText {
             text: EditorState.export-status == 2 ? @tr("Saved {0} ({1})", EditorState.export-output-name, EditorState.export-size-text)
@@ -1743,6 +1764,7 @@ component ExportDialog inherits DialogFrame {
             color: Theme.text;
             wrap: word-wrap;
             overflow: clip;
+            vertical-alignment: center;
             horizontal-stretch: 1;
         }
         if EditorState.export-status != 3 : ActionButton {
@@ -1826,7 +1848,10 @@ export component EditorPage inherits Rectangle {
                             progress: EditorState.export-progress;
                             text: EditorState.export-status == 1 ? @tr("{0}%", round(EditorState.export-progress * 100))
                                 : EditorState.export-status == 3 ? @tr("Failed") : @tr("Exported");
-                            tooltip: @tr("Show export");
+                            tooltip: EditorState.export-status != 1 ? @tr("Show export")
+                                : EditorState.export-minutes-left < 0 ? @tr("Exporting… {0}%", round(EditorState.export-progress * 100))
+                                : EditorState.export-minutes-left == 0 ? @tr("Exporting… {0}% · less than a minute left", round(EditorState.export-progress * 100))
+                                : @tr("Exporting… {0}% · about {1} min left", round(EditorState.export-progress * 100), EditorState.export-minutes-left);
                             clicked => { EditorState.export-unseen = false; EditorState.export-open = true; }
                         }
                         if !(EditorState.export-status == 1 || EditorState.export-unseen) && root.editor-width >= 520px : ActionButton { text: @tr("Export…"); icon: Icons.share; primary: true; enabled: EditorState.clip-count > 0; clicked => { EditorState.export-open = true; } }
