@@ -14,6 +14,7 @@ pub mod ids;
 pub mod persist;
 pub mod project;
 pub mod settings;
+pub mod shuffle;
 pub mod time;
 pub mod timeline;
 
@@ -21,7 +22,7 @@ pub use command::{Command, CommandError, CommandLabel};
 pub use history::History;
 pub use ids::MediaId;
 pub use project::{
-    Clip, ClipId, ClipSource, Fit, MediaRef, Project, ProjectSettings, Quarter, RefKind,
+    Clip, ClipId, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, RefKind,
     Transition, TransitionKind,
 };
 pub use settings::{Aspect, Resolution};

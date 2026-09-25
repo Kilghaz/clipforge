@@ -35,6 +35,19 @@ pub fn effective_overlap(clips: &[Clip], i: usize) -> Ticks {
     wanted.min(cap).max(Ticks::ZERO)
 }
 
+/// How long the first clip's transition plays in from black (or white) at
+/// the very start of the show: its own transition, capped at half the clip
+/// like any other overlap.
+#[must_use]
+pub fn opening_overlap(clips: &[Clip]) -> Ticks {
+    clips.first().map_or(Ticks::ZERO, |c| {
+        c.transition_in
+            .overlap()
+            .min(c.duration() / 2)
+            .max(Ticks::ZERO)
+    })
+}
+
 /// Start/end of every clip, accounting for transition overlap.
 #[must_use]
 pub fn placements(clips: &[Clip]) -> Vec<Placement> {
@@ -176,6 +189,24 @@ mod tests {
             placements(&first_with_transition)[0].start,
             Ticks::ZERO,
             "first clip never shifts"
+        );
+    }
+
+    #[test]
+    fn opening_overlap_is_capped_like_any_overlap() {
+        assert_eq!(opening_overlap(&[]), Ticks::ZERO);
+        assert_eq!(
+            opening_overlap(&[photo(4)]),
+            Ticks::ZERO,
+            "a cut has no opening"
+        );
+        assert_eq!(
+            opening_overlap(&[with_dissolve(photo(4), 1000)]),
+            Ticks::SECOND
+        );
+        assert_eq!(
+            opening_overlap(&[with_dissolve(photo(1), 3000)]),
+            Ticks::from_millis(500)
         );
     }
 

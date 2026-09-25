@@ -483,11 +483,7 @@ impl Inner {
     }
 
     fn set_transition(&mut self, idx: i32, secs: f32) {
-        let kind = match idx {
-            1 => TransitionKind::CrossDissolve,
-            2 => TransitionKind::FadeThroughBlack,
-            _ => TransitionKind::Cut,
-        };
+        let kind = TransitionKind::from_index(usize::try_from(idx).unwrap_or(0));
         let transition = Transition {
             kind,
             duration: Ticks::from_seconds_f64(f64::from(secs.max(0.1))),
@@ -924,11 +920,7 @@ impl Inner {
                 overlap: b.overlap,
                 selected: self.selection.ids.contains(&clip.id),
                 duration_text: SharedString::from(format::duration(clip.duration())),
-                transition: match clip.transition_in.kind {
-                    TransitionKind::Cut => 0,
-                    TransitionKind::CrossDissolve => 1,
-                    TransitionKind::FadeThroughBlack => 2,
-                },
+                transition: i32::try_from(clip.transition_in.kind.index()).unwrap_or(0),
                 is_video: !clip.is_photo(),
                 muted: clip.muted,
             });
@@ -1000,11 +992,7 @@ impl Inner {
         #[allow(clippy::cast_possible_truncation)]
         s.set_duration_seconds(duration.as_seconds_f64() as f32);
         s.set_fit_index(if fit == Fit::Cover { 1 } else { 0 });
-        s.set_transition_index(match transition.kind {
-            TransitionKind::Cut => 0,
-            TransitionKind::CrossDissolve => 1,
-            TransitionKind::FadeThroughBlack => 2,
-        });
+        s.set_transition_index(i32::try_from(transition.kind.index()).unwrap_or(0));
         if transition.kind != TransitionKind::Cut {
             #[allow(clippy::cast_possible_truncation)]
             s.set_transition_seconds(transition.duration.as_seconds_f64() as f32);

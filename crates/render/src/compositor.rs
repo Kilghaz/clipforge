@@ -3,14 +3,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use clipforge_core::project::{Clip, ClipSource, Quarter, TransitionKind};
+use clipforge_core::project::{Clip, ClipSource, Motion, Quarter};
+use clipforge_core::timeline::opening_overlap;
 use clipforge_core::{Fit, MediaId, Project, Ticks};
-use fast_image_resize as fr;
 
+use crate::draw::{Filter, RectF, draw};
 use crate::frame::Frame;
 use crate::layout::place;
 use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
+use crate::transition;
 
 /// Colour drawn where a source is not available (yet).
 const PLACEHOLDER_RGB: [u8; 3] = [40, 42, 48];
@@ -28,9 +30,10 @@ struct CacheKey {
     rotate: Quarter,
 }
 
-/// Renders frames of a project. Cheap to clone-free share behind an `Arc`;
-/// keeps a small cache of scaled pictures so scrubbing over a still and
-/// exporting a still's many identical frames do not rescale every time.
+/// Renders frames of a project. Keeps a small cache of scaled pictures so
+/// scrubbing over a still and exporting a still's many identical frames do
+/// not rescale every time. Moving pictures (Ken Burns, video) bypass the
+/// cache for stills with motion.
 #[derive(Default)]
 pub struct Compositor {
     cache: Mutex<HashMap<CacheKey, Arc<Frame>>>,
@@ -63,38 +66,37 @@ impl Compositor {
         let Some(at) = clipforge_core::timeline::frame_at(&project.clips, t) else {
             return Frame::black(w, h);
         };
+        let filter = if quality.is_preview() {
+            Filter::Fast
+        } else {
+            Filter::Sharp
+        };
         let (cur_idx, cur_local) = at.current;
         let current = &project.clips[cur_idx];
-        let mut frame = self.render_clip(current, cur_local, w, h, quality, sources);
+        let frame = self.render_clip(current, cur_local, w, h, quality, sources);
+        let kind = current.transition_in.kind;
         if let Some((out_idx, out_local)) = at.outgoing {
-            let outgoing = &project.clips[out_idx];
-            match current.transition_in.kind {
-                TransitionKind::Cut => {}
-                TransitionKind::CrossDissolve => {
-                    let mut from = self.render_clip(outgoing, out_local, w, h, quality, sources);
-                    from.blend_towards(&frame, at.progress);
-                    frame = from;
-                }
-                TransitionKind::FadeThroughBlack => {
-                    // First half: outgoing fades to black; second half: incoming fades in.
-                    if at.progress < 0.5 {
-                        let mut from =
-                            self.render_clip(outgoing, out_local, w, h, quality, sources);
-                        from.darken(1.0 - at.progress * 2.0);
-                        frame = from;
-                    } else {
-                        frame.darken((at.progress - 0.5) * 2.0);
-                    }
-                }
-            }
-        } else if cur_idx == 0 && current.transition_in.kind == TransitionKind::FadeThroughBlack {
-            // Fade in from black at the very start.
-            let overlap = current.transition_in.overlap();
-            if overlap > Ticks::ZERO && at.current.1 < overlap {
-                #[allow(clippy::cast_precision_loss)]
-                let p = at.current.1.flicks() as f32 / overlap.flicks() as f32;
-                frame.darken(p);
-            }
+            let from = self.render_clip(&project.clips[out_idx], out_local, w, h, quality, sources);
+            return transition::apply(kind, &from, &frame, at.progress, filter);
+        }
+        // The first clip plays its transition in from black (white for the white fade).
+        let opening = if cur_idx == 0 {
+            opening_overlap(&project.clips)
+        } else {
+            Ticks::ZERO
+        };
+        if opening > Ticks::ZERO && cur_local < opening {
+            #[allow(clippy::cast_precision_loss)]
+            let p = cur_local.flicks() as f32 / opening.flicks() as f32;
+            let from = Frame::solid(w, h, transition::opening_colour(kind));
+            // Coming from a solid colour, a fade is simply a fade-in; movement
+            // transitions keep their movement.
+            let open_kind = if kind.is_fade() {
+                clipforge_core::TransitionKind::CrossDissolve
+            } else {
+                kind
+            };
+            return transition::apply(open_kind, &from, &frame, p, filter);
         }
         frame
     }
@@ -113,8 +115,18 @@ impl Compositor {
         let want_edge = quality
             .source_edge(clipforge_core::Aspect::Landscape16x9)
             .max(w.max(h));
+        let moving = clip.is_photo() && clip.motion != Motion::None;
         let (src, time_key) = match clip.source {
-            ClipSource::Photo { .. } => (sources.still(clip.media, want_edge), None),
+            ClipSource::Photo { .. } => {
+                // A zoomed photo needs more source pixels to stay sharp.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let edge = if moving {
+                    (f64::from(want_edge) * Motion::SCALE).ceil() as u32
+                } else {
+                    want_edge
+                };
+                (sources.still(clip.media, edge), None)
+            }
             ClipSource::Video { in_point, .. } => {
                 let t = in_point + local;
                 // Quantise to milliseconds so identical requests hit the cache.
@@ -125,6 +137,29 @@ impl Compositor {
         let Some(src) = src else {
             return Frame::solid(w, h, PLACEHOLDER_RGB);
         };
+        let filter = if quality.is_preview() {
+            Filter::Fast
+        } else {
+            Filter::Sharp
+        };
+        let rotated = rotate(&src, clip.rotate);
+        if moving {
+            let d = clip.duration();
+            #[allow(clippy::cast_precision_loss)]
+            let progress = if d > Ticks::ZERO {
+                local.flicks() as f64 / d.flicks() as f64
+            } else {
+                0.0
+            };
+            return compose(
+                &rotated,
+                w,
+                h,
+                clip.fit,
+                clip.motion.camera(progress),
+                filter,
+            );
+        }
         let key = CacheKey {
             media: clip.media,
             time_key,
@@ -136,8 +171,7 @@ impl Compositor {
         if let Some(hit) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
             return (*hit).clone();
         }
-        let rotated = rotate(&src, clip.rotate);
-        let frame = compose(&rotated, w, h, clip.fit, quality);
+        let frame = compose(&rotated, w, h, clip.fit, (1.0, 0.0, 0.0), filter);
         self.remember(key, &frame);
         frame
     }
@@ -155,88 +189,49 @@ impl Compositor {
     }
 }
 
-/// Scales `src` into a `w × h` black frame according to `fit`.
-fn compose(src: &SourceImage, w: u32, h: u32, fit: Fit, quality: RenderQuality) -> Frame {
+/// Places `src` into a `w × h` black frame according to `fit` and a camera
+/// `(zoom, x, y)` from [`Motion::camera`].
+fn compose(
+    src: &SourceImage,
+    w: u32,
+    h: u32,
+    fit: Fit,
+    camera: (f64, f64, f64),
+    filter: Filter,
+) -> Frame {
     let rect = place(src.width, src.height, w, h, fit);
     if rect.width == 0 || rect.height == 0 {
         return Frame::black(w, h);
     }
+    let (zoom, cx, cy) = camera;
     // Fast path: the source already has the frame's size (video decoded at
-    // preview size, or a still that matches). No resampling, one copy.
-    if (src.width, src.height) == (w, h) && (rect.width, rect.height) == (w, h) {
+    // preview size, or a still that matches) and nothing moves.
+    if zoom == 1.0 && (src.width, src.height) == (w, h) && (rect.width, rect.height) == (w, h) {
         return Frame {
             width: w,
             height: h,
             rgba: src.rgba.as_ref().clone(),
         };
     }
+    #[allow(clippy::cast_precision_loss)]
+    let base = RectF {
+        x: rect.x as f64,
+        y: rect.y as f64,
+        width: f64::from(rect.width),
+        height: f64::from(rect.height),
+    };
+    // The camera window moves by (cx, cy) of the zoomed picture; the picture
+    // moves the opposite way.
+    let target = base.zoomed(
+        zoom,
+        -cx * zoom * base.width,
+        -cy * zoom * base.height,
+        w,
+        h,
+    );
     let mut frame = Frame::black(w, h);
-    let filter = if quality.is_preview() {
-        fr::FilterType::Bilinear
-    } else {
-        fr::FilterType::Lanczos3
-    };
-    let scaled = match fit {
-        Fit::Contain => resize(src, rect.width, rect.height, None, filter),
-        Fit::Cover => {
-            // Crop the source to the visible region first, then resize to the frame.
-            let sx = f64::from(src.width) / f64::from(rect.width);
-            let sy = f64::from(src.height) / f64::from(rect.height);
-            let crop_w = f64::from(w) * sx;
-            let crop_h = f64::from(h) * sy;
-            let left = (f64::from(src.width) - crop_w) / 2.0;
-            let top = (f64::from(src.height) - crop_h) / 2.0;
-            resize(
-                src,
-                w,
-                h,
-                Some((
-                    left.max(0.0),
-                    top.max(0.0),
-                    crop_w.min(f64::from(src.width)),
-                    crop_h.min(f64::from(src.height)),
-                )),
-                filter,
-            )
-        }
-    };
-    match fit {
-        Fit::Contain => frame.blit(&scaled, rect.x, rect.y),
-        Fit::Cover => frame.blit(&scaled, 0, 0),
-    }
+    draw(&mut frame, src, target, filter);
     frame
-}
-
-fn resize(
-    src: &SourceImage,
-    w: u32,
-    h: u32,
-    crop: Option<(f64, f64, f64, f64)>,
-    filter: fr::FilterType,
-) -> Frame {
-    let Some(src_img) =
-        fr::images::ImageRef::new(src.width, src.height, &src.rgba, fr::PixelType::U8x4).ok()
-    else {
-        return Frame::solid(w, h, PLACEHOLDER_RGB);
-    };
-    let mut dst = fr::images::Image::new(w, h, fr::PixelType::U8x4);
-    let mut options = fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Convolution(filter));
-    if let Some((l, t, cw, ch)) = crop {
-        options = options.crop(l, t, cw, ch);
-    }
-    let mut resizer = fr::Resizer::new();
-    if resizer.resize(&src_img, &mut dst, &options).is_err() {
-        return Frame::solid(w, h, PLACEHOLDER_RGB);
-    }
-    let mut rgba = dst.into_vec();
-    for px in rgba.as_chunks_mut::<4>().0 {
-        px[3] = 255;
-    }
-    Frame {
-        width: w,
-        height: h,
-        rgba,
-    }
 }
 
 /// Applies a user rotation on top of the already display-rotated source.
@@ -271,7 +266,7 @@ fn rotate(src: &SourceImage, q: Quarter) -> SourceImage {
 mod tests {
     use super::*;
     use crate::source::MapProvider;
-    use clipforge_core::project::{MediaRef, RefKind, Transition};
+    use clipforge_core::project::{MediaRef, RefKind, Transition, TransitionKind};
     use clipforge_core::{Command, Resolution};
 
     fn media_ref(id: MediaId) -> MediaRef {
@@ -463,6 +458,152 @@ mod tests {
         );
         let px = rgb(&f, 480, 270);
         assert!(px[0] > 100 && px[0] < 156, "{px:?}");
+    }
+
+    #[test]
+    fn first_clip_plays_its_transition_in_from_black_or_white() {
+        let (mut p, provider, _, _) = scene();
+        let t = Transition {
+            kind: TransitionKind::FadeThroughWhite,
+            duration: Ticks::from_seconds(1),
+        };
+        Command::SetTransition {
+            indices: vec![0],
+            transition: t,
+        }
+        .apply(&mut p)
+        .unwrap();
+        let c = Compositor::new();
+        assert_eq!(
+            rgb(
+                &c.render(&p, Ticks::ZERO, RenderQuality::Preview, &provider),
+                480,
+                270
+            ),
+            [255, 255, 255]
+        );
+        let half = rgb(
+            &c.render(
+                &p,
+                Ticks::from_millis(500),
+                RenderQuality::Preview,
+                &provider,
+            ),
+            480,
+            270,
+        );
+        assert!(
+            half[0] == 255 && (120..=136).contains(&half[1]),
+            "half way from white to red: {half:?}"
+        );
+        // A slide pushes the first picture in over black from the right.
+        let t = Transition {
+            kind: TransitionKind::SlideLeft,
+            duration: Ticks::from_seconds(1),
+        };
+        Command::SetTransition {
+            indices: vec![0],
+            transition: t,
+        }
+        .apply(&mut p)
+        .unwrap();
+        let f = c.render(
+            &p,
+            Ticks::from_millis(500),
+            RenderQuality::Preview,
+            &provider,
+        );
+        assert_eq!(rgb(&f, 100, 270), [0, 0, 0], "left still black");
+        assert_eq!(
+            rgb(&f, 700, 270),
+            [255, 0, 0],
+            "picture coming in on the right"
+        );
+        assert_eq!(
+            rgb(
+                &c.render(
+                    &p,
+                    Ticks::from_seconds(2),
+                    RenderQuality::Preview,
+                    &provider
+                ),
+                480,
+                270
+            ),
+            [255, 0, 0]
+        );
+    }
+
+    #[test]
+    fn ken_burns_moves_the_camera_over_the_clip() {
+        // Horizontal gradient source: red channel encodes the x position.
+        let id = MediaId::new();
+        let mut rgba = Vec::new();
+        for _y in 0..90 {
+            for x in 0..160u32 {
+                #[allow(clippy::cast_possible_truncation)]
+                rgba.extend_from_slice(&[(x * 255 / 159) as u8, 0, 0, 255]);
+            }
+        }
+        let mut provider = MapProvider::default();
+        provider.images.insert(
+            id,
+            SourceImage {
+                width: 160,
+                height: 90,
+                rgba: Arc::new(rgba),
+            },
+        );
+        let mut p = Project::new();
+        Command::InsertClips {
+            entries: vec![(0, Clip::photo(id, Ticks::from_seconds(4)))],
+            media: vec![media_ref(id)],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let c = Compositor::new();
+        let left_edge = |p: &Project, t: Ticks| {
+            rgb(&c.render(p, t, RenderQuality::Preview, &provider), 0, 270)[0]
+        };
+        let right_edge = |p: &Project, t: Ticks| {
+            rgb(&c.render(p, t, RenderQuality::Preview, &provider), 959, 270)[0]
+        };
+
+        assert!(
+            left_edge(&p, Ticks::ZERO) < 5,
+            "no motion: whole picture visible"
+        );
+        Command::SetMotion {
+            indices: vec![0],
+            motion: Motion::ZoomIn,
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert!(left_edge(&p, Ticks::ZERO) < 5, "zoom in starts wide");
+        let late = left_edge(&p, Ticks::from_millis(3_999));
+        assert!(
+            (12..=30).contains(&late),
+            "zoomed in by ~15 %: left edge shows x≈7 %: {late}"
+        );
+
+        Command::SetMotion {
+            indices: vec![0],
+            motion: Motion::PanLeft,
+        }
+        .apply(&mut p)
+        .unwrap();
+        let start = left_edge(&p, Ticks::ZERO);
+        let end = left_edge(&p, Ticks::from_millis(3_999));
+        assert!(start > end + 10, "camera travels left: {start} -> {end}");
+        assert!(
+            right_edge(&p, Ticks::from_millis(3_999)) < 250,
+            "right part cropped at the end"
+        );
+        // Every moving frame is a fresh render (no stale cache hit).
+        assert_ne!(
+            left_edge(&p, Ticks::from_seconds(1)),
+            left_edge(&p, Ticks::from_seconds(3))
+        );
     }
 
     #[test]
