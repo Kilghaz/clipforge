@@ -62,6 +62,10 @@ export global Theme {
     out property <color> video: #a06cf5;
     out property <color> audio: #2fae7a;
     out property <color> title-clip: #e5a23a;
+    /// Text items on the text lane.
+    out property <color> text-track: #c05fd6;
+    /// Snap guide lines on the preview.
+    out property <color> guide: #ff4fa3;
     out property <color> warning: #e8a838;
     out property <color> danger: #e5484d;
     out property <color> success: #2fae7a;
@@ -95,6 +99,10 @@ export global Theme {
     out property <color> title-bg-red: #601820;
     out property <color> title-bg-white: #f4f2ee;
     out property <[color]> title-backgrounds: [self.title-bg-black, self.title-bg-charcoal, self.title-bg-blue, self.title-bg-red, self.title-bg-white];
+
+    // Text colours offered for texts and their boxes; must equal
+    // `editor_ui::texts::TEXT_COLORS` (checked by a test).
+    out property <[color]> text-colors: [#ffffff, #141416, #ffd60a, #ff9230, #eb4034, #ff69b4, #409cff, #34c759];
 }
 
 /// Fluent UI System Icons subset, fetched by `cargo xtask fluent-icons`.
@@ -136,6 +144,8 @@ export global Icons {
     out property <image> share: @image-url("../../../assets/fluent/share.svg");
     out property <image> speaker: @image-url("../../../assets/fluent/speaker_2.svg");
     out property <image> speaker-mute: @image-url("../../../assets/fluent/speaker_mute.svg");
+    out property <image> text-bold: @image-url("../../../assets/fluent/text_bold.svg");
+    out property <image> text-italic: @image-url("../../../assets/fluent/text_italic.svg");
     out property <image> text-t: @image-url("../../../assets/fluent/text_t.svg");
     out property <image> video: @image-url("../../../assets/fluent/video.svg");
     out property <image> warning: @image-url("../../../assets/fluent/warning.svg");

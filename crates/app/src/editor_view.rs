@@ -4,7 +4,6 @@
 use std::collections::BTreeSet;
 
 use clipforge_core::music::song_spans;
-use clipforge_core::project::{Caption, CaptionStyle};
 use clipforge_core::timeline::{effective_overlap, placements, total_duration};
 use clipforge_core::{Clip, ClipId, MediaRef, Project, RefKind, Ticks};
 use clipforge_library::{MediaRecord, ProbeState};
@@ -417,139 +416,6 @@ pub(crate) fn music_lane(project: &Project, clips: &[Clip], boxes: &[ClipBox]) -
         fade_x: x_at_time(clips, boxes, end - fade),
         end_x: x_at_time(clips, boxes, end),
     }
-}
-
-/// What the caption field shows for the targets.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaptionView {
-    /// The shared text ("" when none of the targets has a caption).
-    pub text: String,
-    /// The targets' captions differ; the field shows a placeholder.
-    pub mixed: bool,
-    /// Style of the first caption among the targets, else `fallback`.
-    pub style: CaptionStyle,
-    /// Some target has a caption (enables "Remove captions").
-    pub any: bool,
-}
-
-#[must_use]
-pub(crate) fn caption_view(
-    project: &Project,
-    targets: &[usize],
-    fallback: CaptionStyle,
-) -> CaptionView {
-    let texts: Vec<&str> = targets
-        .iter()
-        .map(|&i| {
-            project.clips[i]
-                .caption
-                .as_ref()
-                .map_or("", |c| c.text.as_str())
-        })
-        .collect();
-    let first = texts.first().copied().unwrap_or("");
-    let mixed = texts.iter().any(|t| *t != first);
-    let captions = || {
-        targets
-            .iter()
-            .filter_map(|&i| project.clips[i].caption.as_ref())
-    };
-    CaptionView {
-        text: if mixed {
-            String::new()
-        } else {
-            first.to_owned()
-        },
-        mixed,
-        style: captions().next().map_or(fallback, |c| c.style),
-        any: captions().next().is_some(),
-    }
-}
-
-/// Clips the caption controls act on: the selection, or with nothing
-/// selected every clip except title cards (their text is the title, so a
-/// bulk caption must not overwrite it).
-#[must_use]
-pub(crate) fn caption_targets(project: &Project, selected: &[usize]) -> Vec<usize> {
-    if selected.is_empty() {
-        (0..project.clips.len())
-            .filter(|&i| !project.clips[i].is_title())
-            .collect()
-    } else {
-        selected.to_vec()
-    }
-}
-
-/// Entries that give every target `text` (empty text removes the caption).
-/// Existing captions keep their style; new ones get `style`.
-#[must_use]
-pub(crate) fn caption_text_entries(
-    project: &Project,
-    targets: &[usize],
-    text: &str,
-    style: CaptionStyle,
-) -> Vec<(usize, Option<Caption>)> {
-    targets
-        .iter()
-        .map(|&i| {
-            let caption = (!text.is_empty()).then(|| {
-                let style = project.clips[i].caption.as_ref().map_or(style, |c| c.style);
-                Caption::new(text, style)
-            });
-            (i, caption)
-        })
-        .collect()
-}
-
-/// Entries that change the style of the targets' existing captions.
-#[must_use]
-pub(crate) fn caption_style_entries(
-    project: &Project,
-    targets: &[usize],
-    style: CaptionStyle,
-) -> Vec<(usize, Option<Caption>)> {
-    targets
-        .iter()
-        .filter_map(|&i| {
-            let c = project.clips[i].caption.as_ref()?;
-            (c.style != style).then(|| (i, Some(Caption::new(c.text.clone(), style))))
-        })
-        .collect()
-}
-
-/// Entries that fill captions from each target's media with `text_for`;
-/// title cards are left out (they have no media), clips for which it returns
-/// `None` (no date) are skipped. Returns the entries and how many clips were
-/// skipped.
-pub(crate) fn caption_fill_entries(
-    project: &Project,
-    targets: &[usize],
-    style: CaptionStyle,
-    text_for: impl Fn(&MediaRef) -> Option<String>,
-) -> (Vec<(usize, Option<Caption>)>, usize) {
-    let mut skipped = 0;
-    let entries = targets
-        .iter()
-        .filter(|&&i| !project.clips[i].is_title())
-        .filter_map(|&i| {
-            let clip = &project.clips[i];
-            let text = project.media_ref(clip.media).and_then(&text_for);
-            if text.is_none() {
-                skipped += 1;
-            }
-            let style = clip.caption.as_ref().map_or(style, |c| c.style);
-            text.map(|t| (i, Some(Caption::new(t, style))))
-        })
-        .collect();
-    (entries, skipped)
-}
-
-/// A caption from a file name: the name without its extension.
-#[must_use]
-pub(crate) fn caption_from_file_name(name: &str) -> String {
-    std::path::Path::new(name)
-        .file_stem()
-        .map_or_else(|| name.to_owned(), |s| s.to_string_lossy().into_owned())
 }
 
 /// Where a trim drag started: the clip's trim and its on-screen edges.
@@ -1090,54 +956,6 @@ mod tests {
     }
 
     #[test]
-    fn caption_for_multi_selection_is_shared_or_mixed() {
-        let mut p = photo_project(&[4, 4, 4]);
-        let v = caption_view(&p, &[0, 1], CaptionStyle::Banner);
-        assert_eq!(
-            v,
-            CaptionView {
-                text: String::new(),
-                mixed: false,
-                style: CaptionStyle::Banner,
-                any: false
-            }
-        );
-        Command::SetCaptions {
-            entries: caption_text_entries(&p, &[0, 1], "Rome", CaptionStyle::Corner),
-        }
-        .apply(&mut p)
-        .unwrap();
-        let v = caption_view(&p, &[0, 1], CaptionStyle::Classic);
-        assert_eq!(
-            (v.text.as_str(), v.mixed, v.style, v.any),
-            ("Rome", false, CaptionStyle::Corner, true)
-        );
-        let v = caption_view(&p, &[0, 1, 2], CaptionStyle::Classic);
-        assert!(v.mixed && v.text.is_empty() && v.any);
-        // Style changes only touch existing captions; empty text removes.
-        let e = caption_style_entries(&p, &[0, 1, 2], CaptionStyle::Banner);
-        assert_eq!(e.len(), 2);
-        let e = caption_text_entries(&p, &[0], "", CaptionStyle::Classic);
-        assert_eq!(e, vec![(0, None)]);
-    }
-
-    #[test]
-    fn caption_from_file_name_drops_the_extension() {
-        assert_eq!(caption_from_file_name("IMG_4021.jpg"), "IMG_4021");
-        assert_eq!(
-            caption_from_file_name("Rome at dusk.final.HEIC"),
-            "Rome at dusk.final"
-        );
-        assert_eq!(caption_from_file_name("noext"), "noext");
-        let p = photo_project(&[4, 4]);
-        let (entries, skipped) = caption_fill_entries(&p, &[0, 1], CaptionStyle::Classic, |m| {
-            Some(caption_from_file_name(&m.name))
-        });
-        assert_eq!(skipped, 0);
-        assert_eq!(entries[1].1.as_ref().unwrap().text, "IMG_1");
-    }
-
-    #[test]
     fn library_ids_split_into_clips_and_songs() {
         let p = photo_project(&[4]);
         let photo = p.media.values().next().unwrap().clone();
@@ -1160,35 +978,5 @@ mod tests {
             let rgb = [0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap());
             assert_eq!(rgb, clipforge_render::title_rgb(*bg), "{token}");
         }
-    }
-
-    #[test]
-    fn bulk_captions_leave_title_cards_alone() {
-        use clipforge_core::project::TitleBackground;
-        let mut p = photo_project(&[4, 4]);
-        Command::InsertClips {
-            entries: vec![(
-                0,
-                Clip::title("Summer", TitleBackground::Black, Ticks::SECOND),
-            )],
-            media: vec![],
-        }
-        .apply(&mut p)
-        .unwrap();
-        assert_eq!(
-            caption_targets(&p, &[]),
-            vec![1, 2],
-            "nothing selected: no titles"
-        );
-        assert_eq!(
-            caption_targets(&p, &[0, 2]),
-            vec![0, 2],
-            "an explicit selection keeps them"
-        );
-        let (entries, skipped) = caption_fill_entries(&p, &[0, 1, 2], CaptionStyle::Classic, |m| {
-            Some(m.name.clone())
-        });
-        assert_eq!(entries.len(), 2);
-        assert_eq!(skipped, 0, "title cards are not counted as missing a date");
     }
 }

@@ -243,41 +243,36 @@ mod tests {
     }
 
     #[test]
-    fn merged_caption_edits_undo_in_one_step() {
-        use crate::project::{Caption, CaptionStyle};
-        let m = MediaRef {
-            id: MediaId::new(),
-            kind: RefKind::Photo,
-            path: "/p".into(),
-            fingerprint_hash: 1,
-            size: 1,
-            pixel_size: None,
-            duration: None,
-            captured_at_ms: None,
-            name: "p".into(),
-        };
+    fn merged_text_edits_undo_in_one_step() {
+        use crate::text::TextItem;
         let mut p = Project::new();
         let mut h = History::new();
+        let item = TextItem::new("", Ticks::ZERO, Ticks::SECOND);
         h.apply(
             &mut p,
-            Command::InsertClips {
-                entries: vec![(0, Clip::photo(m.id, Ticks::SECOND))],
-                media: vec![m],
+            Command::InsertTexts {
+                entries: vec![(0, item.clone())],
             },
         )
         .unwrap();
         let before = p.clone();
-        let typed = |t: &str| Command::SetCaptions {
-            entries: vec![(0, Some(Caption::new(t, CaptionStyle::Classic)))],
+        let typed = |t: &str| Command::SetTexts {
+            entries: vec![(
+                0,
+                TextItem {
+                    text: t.to_owned(),
+                    ..item.clone()
+                },
+            )],
         };
         for t in ["R", "Ro", "Rom", "Rome"] {
             h.apply_merging(&mut p, typed(t), 7).unwrap();
         }
-        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        assert_eq!(p.texts[0].text, "Rome");
         h.undo(&mut p);
         assert_eq!(p, before, "one undo removes the whole typing session");
         h.redo(&mut p);
-        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        assert_eq!(p.texts[0].text, "Rome");
         // A sealed group, another group or a save starts a new step.
         h.seal();
         h.apply_merging(&mut p, typed("Rome!"), 7).unwrap();
@@ -285,8 +280,8 @@ mod tests {
         h.apply_merging(&mut p, typed("Rome!!"), 7).unwrap();
         assert!(h.is_dirty(), "edit after save counts");
         h.undo(&mut p);
-        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome!");
+        assert_eq!(p.texts[0].text, "Rome!");
         h.undo(&mut p);
-        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
+        assert_eq!(p.texts[0].text, "Rome");
     }
 }

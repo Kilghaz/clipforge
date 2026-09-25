@@ -1,127 +1,108 @@
-//! Captions and title text: layout with `parley`, glyphs with `swash`, one
-//! bundled font (Inter, OFL) so every machine renders the same pixels.
+//! Text items: layout with `parley`, glyphs with `swash`, from the bundled
+//! fonts only (all SIL Open Font License), so every machine renders the
+//! same pixels.
 //!
-//! A caption becomes a small straight-alpha RGBA image plus its position in
-//! the frame. Both compositors draw that image over the clip's picture, so
-//! the text moves with the clip through transitions. Images are cached; a
-//! caption is laid out once per frame size, not once per frame.
+//! A text becomes a straight-alpha RGBA image of its block (glyphs plus
+//! shadow or background box) with the text box's position inside it. The
+//! image depends on the text, style and box width, not on the position, so
+//! moving a text reuses the cached image. Both compositors draw it over the
+//! finished frame with the item's entrance / exit movement.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use clipforge_core::Fit;
-use clipforge_core::project::{Caption, CaptionStyle, Quarter};
+use clipforge_core::text::{FRAME_UNITS, Font, TextAlign, TextItem, TextMotion, TextStyle};
 use parley::fontique::{Blob, Collection, CollectionOptions, SourceCache};
 use parley::{
-    Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout, LayoutContext,
-    LineHeight, PositionedLayoutItem, StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontStyle, FontWeight, Layout,
+    LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
 use swash::FontRef;
 use swash::scale::{Render, ScaleContext, Source};
-use swash::zeno::{Format, Vector};
+use swash::zeno::{Angle, Format, Transform, Vector};
 
+use crate::draw::RectF;
 use crate::frame::Frame;
-use crate::layout::place;
 
-static FONT: &[u8] = include_bytes!("../../../assets/fonts/InterVariable.ttf");
+/// The bundled fonts, in `Font::ALL` order.
+static FONTS: [&[u8]; 6] = [
+    include_bytes!("../../../assets/fonts/InterVariable.ttf"),
+    include_bytes!("../../../assets/fonts/Montserrat.ttf"),
+    include_bytes!("../../../assets/fonts/PlayfairDisplay.ttf"),
+    include_bytes!("../../../assets/fonts/BebasNeue.ttf"),
+    include_bytes!("../../../assets/fonts/DancingScript.ttf"),
+    include_bytes!("../../../assets/fonts/Caveat.ttf"),
+];
 
-/// Captions kept rendered per compositor.
-const CACHE_ENTRIES: usize = 32;
+/// Rendered text blocks kept per renderer.
+const CACHE_ENTRIES: usize = 48;
 
-/// A rendered caption: straight-alpha RGBA placed at `(x, y)` in the frame.
+/// A rendered text block.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CaptionImage {
-    pub x: i32,
-    pub y: i32,
+pub struct TextImage {
     pub width: u32,
     pub height: u32,
+    /// Straight-alpha RGBA.
     pub rgba: Vec<u8>,
+    /// Top-left of the text box inside the image (the rest is room for the
+    /// shadow or the background box).
+    pub box_x: u32,
+    pub box_y: u32,
+    /// Size of the text box: the item's width × the laid-out height.
+    pub box_width: u32,
+    pub box_height: u32,
 }
 
-/// Where the picture is visible in the frame, in pixels. Captions are
-/// placed inside it so a letterboxed photo keeps its caption on the photo.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Area {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
-impl Area {
-    /// The whole `w × h` frame.
+impl TextImage {
+    /// Where the image goes in a `w × h` frame for `item` (no movement).
     #[must_use]
-    pub const fn full(w: u32, h: u32) -> Area {
-        Area {
-            x: 0,
-            y: 0,
-            width: w,
-            height: h,
+    pub fn rect(&self, item: &TextItem, (w, h): (u32, u32)) -> RectF {
+        let b = box_rect(item, self, (w, h));
+        RectF {
+            x: b.x - f64::from(self.box_x),
+            y: b.y - f64::from(self.box_y),
+            width: f64::from(self.width),
+            height: f64::from(self.height),
         }
     }
+}
 
-    /// Where a `src`-sized picture (before the user's rotation) shows in a
-    /// `w × h` frame with `fit`, ignoring any Ken Burns movement.
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn of_picture(src: (u32, u32), rotate: Quarter, (w, h): (u32, u32), fit: Fit) -> Area {
-        let (sw, sh) = if rotate.swaps_dimensions() {
-            (src.1, src.0)
-        } else {
-            src
-        };
-        let r = place(sw, sh, w, h, fit);
-        let x0 = r.x.clamp(0, i64::from(w));
-        let y0 = r.y.clamp(0, i64::from(h));
-        let x1 = (r.x + i64::from(r.width)).clamp(0, i64::from(w));
-        let y1 = (r.y + i64::from(r.height)).clamp(0, i64::from(h));
-        if x1 <= x0 || y1 <= y0 {
-            return Area::full(w, h);
-        }
-        Area {
-            x: x0 as u32,
-            y: y0 as u32,
-            width: (x1 - x0) as u32,
-            height: (y1 - y0) as u32,
-        }
+/// The text box of `item` in frame pixels.
+#[must_use]
+pub fn box_rect(item: &TextItem, img: &TextImage, (w, h): (u32, u32)) -> RectF {
+    let cx = f64::from(item.x) / f64::from(FRAME_UNITS) * f64::from(w);
+    let cy = f64::from(item.y) / f64::from(FRAME_UNITS) * f64::from(h);
+    RectF {
+        x: (cx - f64::from(img.box_width) / 2.0).round(),
+        y: (cy - f64::from(img.box_height) / 2.0).round(),
+        width: f64::from(img.box_width),
+        height: f64::from(img.box_height),
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
-    caption: Caption,
-    frame: (u32, u32),
-    area: Area,
-    on_light: bool,
-}
-
-/// Look of one style at a given frame size (all lengths in pixels).
-struct Look {
-    /// Font size and weight of the first line and of the others.
-    size: f32,
-    weight: f32,
-    rest_size: f32,
-    rest_weight: f32,
-    align: Alignment,
-    /// Widest text before it wraps.
-    max_width: f32,
-    shadow: bool,
-    band: bool,
+    text: String,
+    style: TextStyle,
+    box_width: u32,
+    short_side: u32,
 }
 
 struct Engine {
     fonts: FontContext,
     layouts: LayoutContext<[u8; 4]>,
     scaler: ScaleContext,
-    family: String,
+    /// Family name per `Font`, from the font files themselves.
+    families: Vec<String>,
 }
 
 struct Cache {
-    images: HashMap<Key, Arc<CaptionImage>>,
+    images: HashMap<Key, Arc<TextImage>>,
     order: Vec<Key>,
 }
 
-/// Lays out and rasterises captions. Owned by each compositor.
+/// Lays out and rasterises text items. Owned by each compositor (and by
+/// the editor, for hit boxes).
 pub struct TextRenderer {
     engine: Mutex<Engine>,
     cache: Mutex<Cache>,
@@ -142,17 +123,23 @@ impl Default for TextRenderer {
 impl TextRenderer {
     #[must_use]
     pub fn new() -> TextRenderer {
-        // Only the bundled font: no system fonts, so output is identical on
-        // every machine.
+        // Only the bundled fonts: no system fonts, so output is identical
+        // on every machine.
         let mut collection = Collection::new(CollectionOptions {
             shared: false,
             system_fonts: false,
         });
-        let families = collection.register_fonts(Blob::new(Arc::new(FONT)), None);
-        let family = families
-            .first()
-            .and_then(|(id, _)| collection.family_name(*id).map(str::to_owned))
-            .unwrap_or_else(|| "Inter Variable".to_owned());
+        let families = FONTS
+            .iter()
+            .zip(Font::ALL)
+            .map(|(data, font)| {
+                let registered = collection.register_fonts(Blob::new(Arc::new(*data)), None);
+                registered
+                    .first()
+                    .and_then(|(id, _)| collection.family_name(*id).map(str::to_owned))
+                    .unwrap_or_else(|| format!("{font:?}"))
+            })
+            .collect();
         TextRenderer {
             engine: Mutex::new(Engine {
                 fonts: FontContext {
@@ -161,7 +148,7 @@ impl TextRenderer {
                 },
                 layouts: LayoutContext::new(),
                 scaler: ScaleContext::new(),
-                family,
+                families,
             }),
             cache: Mutex::new(Cache {
                 images: HashMap::new(),
@@ -170,27 +157,32 @@ impl TextRenderer {
         }
     }
 
-    /// The caption rendered for a `w × h` frame, placed inside `area`;
-    /// `None` for empty text. Text size follows the frame, so it stays the
-    /// same from clip to clip. `on_light` switches to dark text without
-    /// effects (light title cards).
+    /// Family name of a bundled font (as the UI toolkit knows it too).
     #[must_use]
-    pub fn caption(
-        &self,
-        caption: &Caption,
-        (w, h): (u32, u32),
-        area: Area,
-        on_light: bool,
-    ) -> Option<Arc<CaptionImage>> {
-        if caption.text.trim().is_empty() || w == 0 || h == 0 {
+    pub fn family_name(&self, font: Font) -> String {
+        self.engine
+            .lock()
+            .ok()
+            .and_then(|e| e.families.get(font.index()).cloned())
+            .unwrap_or_default()
+    }
+
+    /// The rendered block of `item` for a `w × h` frame; `None` for empty
+    /// text.
+    #[must_use]
+    pub fn image(&self, item: &TextItem, (w, h): (u32, u32)) -> Option<Arc<TextImage>> {
+        if item.text.trim().is_empty() || w == 0 || h == 0 {
             return None;
         }
-        let area = clamp_area(area, w, h);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let box_width = (f64::from(item.width.max(1)) / f64::from(FRAME_UNITS) * f64::from(w))
+            .round()
+            .max(1.0) as u32;
         let key = Key {
-            caption: caption.clone(),
-            frame: (w, h),
-            area,
-            on_light,
+            text: item.text.clone(),
+            style: item.style.clone(),
+            box_width,
+            short_side: w.min(h),
         };
         if let Some(hit) = self
             .cache
@@ -202,12 +194,12 @@ impl TextRenderer {
         }
         let image = {
             let mut engine = self.engine.lock().ok()?;
-            Arc::new(render_caption(
+            Arc::new(render_block(
                 &mut engine,
-                caption,
-                (w, h),
-                area,
-                on_light,
+                &item.text,
+                &item.style,
+                box_width,
+                w.min(h),
             )?)
         };
         if let Ok(mut cache) = self.cache.lock() {
@@ -220,70 +212,24 @@ impl TextRenderer {
         }
         Some(image)
     }
-}
 
-/// `area` limited to the frame, never empty.
-fn clamp_area(a: Area, w: u32, h: u32) -> Area {
-    let x = a.x.min(w.saturating_sub(1));
-    let y = a.y.min(h.saturating_sub(1));
-    Area {
-        x,
-        y,
-        width: a.width.min(w - x).max(1),
-        height: a.height.min(h - y).max(1),
-    }
-}
-
-fn look(style: CaptionStyle, w: u32, h: u32, area: Area) -> Look {
-    // Sizes are designed at 1080 px on the short side and scale with it,
-    // so portrait and landscape frames get the same text size.
-    #[allow(clippy::cast_precision_loss)]
-    let u = w.min(h) as f32 / 1080.0;
-    // Wrap inside the picture, but never narrower than 40 % of the frame
-    // (a portrait photo in a landscape frame would wrap every word).
-    #[allow(clippy::cast_precision_loss)]
-    let width = (area.width as f32).max(w as f32 * 0.4);
-    match style {
-        CaptionStyle::Classic => Look {
-            size: 52.0 * u,
-            weight: 600.0,
-            rest_size: 52.0 * u,
-            rest_weight: 600.0,
-            align: Alignment::Center,
-            max_width: width * 0.8,
-            shadow: true,
-            band: false,
-        },
-        CaptionStyle::Banner => Look {
-            size: 44.0 * u,
-            weight: 500.0,
-            rest_size: 44.0 * u,
-            rest_weight: 500.0,
-            align: Alignment::Center,
-            max_width: width * 0.86,
-            shadow: false,
-            band: true,
-        },
-        CaptionStyle::Headline => Look {
-            size: 104.0 * u,
-            weight: 700.0,
-            rest_size: 46.0 * u,
-            rest_weight: 400.0,
-            align: Alignment::Center,
-            max_width: width * 0.84,
-            shadow: true,
-            band: false,
-        },
-        CaptionStyle::Corner => Look {
-            size: 34.0 * u,
-            weight: 500.0,
-            rest_size: 34.0 * u,
-            rest_weight: 500.0,
-            align: Alignment::Start,
-            max_width: width * 0.5,
-            shadow: true,
-            band: false,
-        },
+    /// The text box of `item` in a `w × h` frame (pixels), for hit testing
+    /// and selection handles. Empty text gets a box one line high.
+    #[must_use]
+    pub fn hit_box(&self, item: &TextItem, (w, h): (u32, u32)) -> RectF {
+        if let Some(img) = self.image(item, (w, h)) {
+            return box_rect(item, &img, (w, h));
+        }
+        let line = f64::from(item.style.size) / f64::from(FRAME_UNITS) * f64::from(w.min(h)) * 1.25;
+        let bw = f64::from(item.width) / f64::from(FRAME_UNITS) * f64::from(w);
+        let cx = f64::from(item.x) / f64::from(FRAME_UNITS) * f64::from(w);
+        let cy = f64::from(item.y) / f64::from(FRAME_UNITS) * f64::from(h);
+        RectF {
+            x: cx - bw / 2.0,
+            y: cy - line / 2.0,
+            width: bw,
+            height: line,
+        }
     }
 }
 
@@ -293,142 +239,130 @@ fn look(style: CaptionStyle, w: u32, h: u32, area: Area) -> Look {
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss
 )]
-fn render_caption(
+fn render_block(
     engine: &mut Engine,
-    caption: &Caption,
-    (w, h): (u32, u32),
-    area: Area,
-    on_light: bool,
-) -> Option<CaptionImage> {
-    let look = look(caption.style, w, h, area);
-    let band_w = area.width;
-    let text = caption.text.trim_end();
-    let first_end = text.find('\n').unwrap_or(text.len());
-
-    let family = engine.family.clone();
+    text: &str,
+    style: &TextStyle,
+    box_width: u32,
+    short_side: u32,
+) -> Option<TextImage> {
+    let size = (f32::from(style.size) / FRAME_UNITS as f32 * short_side as f32).max(1.0);
+    let text = text.trim_end();
+    let family = engine
+        .families
+        .get(style.font.index())
+        .cloned()
+        .unwrap_or_default();
     let mut builder = engine
         .layouts
         .ranged_builder(&mut engine.fonts, text, 1.0, true);
     builder.push_default(StyleProperty::FontFamily(FontFamily::named(&family)));
-    builder.push_default(StyleProperty::FontSize(look.rest_size));
-    builder.push_default(StyleProperty::FontWeight(FontWeight::new(look.rest_weight)));
+    builder.push_default(StyleProperty::FontSize(size));
+    builder.push_default(StyleProperty::FontWeight(FontWeight::new(if style.bold {
+        700.0
+    } else {
+        400.0
+    })));
+    if style.italic {
+        builder.push_default(StyleProperty::FontStyle(FontStyle::Italic));
+    }
     builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(
         1.25,
     )));
-    builder.push(StyleProperty::FontSize(look.size), 0..first_end);
-    builder.push(
-        StyleProperty::FontWeight(FontWeight::new(look.weight)),
-        0..first_end,
-    );
     let mut layout: Layout<[u8; 4]> = builder.build(text);
-    layout.break_all_lines(Some(look.max_width));
-    // Alignment happens within the wrap width; re-break at the text's own
-    // width (same line breaks) so centred lines centre inside the text box.
-    let natural = layout.width().ceil();
-    layout.break_all_lines(Some(natural));
-    layout.align(look.align, AlignmentOptions::default());
+    layout.break_all_lines(Some(box_width as f32));
+    let align = match style.align {
+        TextAlign::Left => Alignment::Left,
+        TextAlign::Center => Alignment::Center,
+        TextAlign::Right => Alignment::Right,
+    };
+    layout.align(align, AlignmentOptions::default());
 
-    let text_w = layout.width().ceil().max(1.0) as u32;
-    let text_h = layout.height().ceil().max(1.0) as u32;
-    let u = w.min(h) as f32 / 1080.0;
-    // Room around the text for the shadow, or the band's padding.
+    let box_height = layout.height().ceil().max(1.0) as u32;
+    let u = short_side as f32 / 1080.0;
     let blur = (6.0 * u).round().max(1.0) as u32;
     let shadow_dy = (3.0 * u).round() as u32;
-    let pad_x = if look.band {
-        (32.0 * u).round() as u32
+    // Background padding around the lines, and room for the shadow.
+    let pad_bg = if style.background.is_some() {
+        (size * 0.3).round() as u32
     } else {
-        blur * 2
+        0
     };
-    let pad_y = if look.band {
-        (20.0 * u).round() as u32
-    } else {
+    let margin = pad_bg.max(if style.shadow {
         blur * 2 + shadow_dy
-    };
-    let (cw, ch) = if look.band {
-        (band_w, text_h + 2 * pad_y)
     } else {
-        (text_w + 2 * pad_x, text_h + 2 * pad_y)
-    };
-    // Where the layout's origin sits inside the canvas.
-    let origin_x = if look.band {
-        ((band_w - text_w.min(band_w)) / 2) as f32
-    } else {
-        pad_x as f32
-    };
-    let origin_y = pad_y as f32;
+        1
+    });
+    let (cw, ch) = (box_width + 2 * margin, box_height + 2 * margin);
+    let (ox, oy) = (margin as f32, margin as f32);
 
-    let mask = rasterise(engine, &layout, cw, ch, origin_x, origin_y);
-
-    let colour: [u8; 3] = if on_light {
-        [26, 26, 30]
-    } else {
-        [255, 255, 255]
-    };
+    let (mask, extent) = rasterise(engine, &layout, cw, ch, ox, oy, style.italic);
+    let [r, g, b, a] = style.color;
     let mut rgba = vec![0u8; (cw * ch * 4) as usize];
-    if look.band && !on_light {
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px.copy_from_slice(&[0, 0, 0, 150]);
-        }
+    // Transparent pixels carry the text colour so bilinear sampling (moves,
+    // zooms) never pulls in a dark fringe.
+    for px in rgba.as_chunks_mut::<4>().0 {
+        *px = [r, g, b, 0];
     }
-    if look.shadow && !on_light {
+    if let Some(bg) = style.background {
+        // A box around the lines actually drawn, not the whole text box.
+        let (x0, x1) = extent;
+        let bx0 = (ox + x0 - pad_bg as f32).floor().max(0.0) as u32;
+        let bx1 = ((ox + x1 + pad_bg as f32).ceil() as u32).min(cw);
+        let by0 = margin - pad_bg;
+        let by1 = (margin + box_height + pad_bg).min(ch);
+        for y in by0..by1 {
+            for x in bx0..bx1 {
+                let i = ((y * cw + x) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&bg);
+            }
+        }
+    } else if style.shadow {
         let blurred = box_blur(&mask, cw, ch, blur);
         for y in 0..ch {
             for x in 0..cw {
                 let sy = y.checked_sub(shadow_dy);
-                let a = sy.map_or(0, |sy| blurred[(sy * cw + x) as usize]);
+                let sa = sy.map_or(0, |sy| blurred[(sy * cw + x) as usize]);
                 let i = ((y * cw + x) * 4) as usize;
-                // Soft black at up to 70 % opacity.
-                rgba[i + 3] = (u32::from(a) * 180 / 255) as u8;
+                rgba[i..i + 4].copy_from_slice(&[0, 0, 0, (u32::from(sa) * 180 / 255) as u8]);
             }
         }
     }
-    // Text over whatever is there (straight alpha "over").
-    for (i, &a) in mask.iter().enumerate() {
-        if a == 0 {
+    // Glyphs over the shadow / box (straight-alpha "over").
+    let text_alpha = f32::from(a) / 255.0;
+    for (i, &m) in mask.iter().enumerate() {
+        if m == 0 {
             continue;
         }
         let px = &mut rgba[i * 4..i * 4 + 4];
-        let sa = f32::from(a) / 255.0;
+        let sa = f32::from(m) / 255.0 * text_alpha;
         let da = f32::from(px[3]) / 255.0;
         let out_a = sa + da * (1.0 - sa);
-        for c in 0..3 {
-            let s = f32::from(colour[c]);
+        for (c, s) in [r, g, b].into_iter().enumerate() {
+            let s = f32::from(s);
             let d = f32::from(px[c]);
             px[c] = ((s * sa + d * da * (1.0 - sa)) / out_a).round() as u8;
         }
         px[3] = (out_a * 255.0).round() as u8;
     }
-
-    // Placement inside the visible picture; margins follow the frame.
-    let (ax, ay) = (area.x as i32, area.y as i32);
-    let (aw, ah) = (area.width as i32, area.height as i32);
-    let (cw_i, ch_i) = (cw as i32, ch as i32);
-    let short = w.min(h) as f32;
-    let margin = (short * 0.05) as i32;
-    let bottom = ay + ah - (short * 0.07) as i32;
-    let (x, y) = match caption.style {
-        CaptionStyle::Classic => (ax + (aw - cw_i) / 2, bottom - ch_i),
-        CaptionStyle::Banner => (ax, ay + ah - ch_i - (short * 0.06) as i32),
-        CaptionStyle::Headline => (ax + (aw - cw_i) / 2, ay + (ah - ch_i) / 2),
-        CaptionStyle::Corner => (
-            ax + margin - pad_x as i32,
-            ay + ah - margin - ch_i + pad_y as i32,
-        ),
-    };
-    Some(CaptionImage {
-        x,
-        y,
+    Some(TextImage {
         width: cw,
         height: ch,
         rgba,
+        box_x: margin,
+        box_y: margin,
+        box_width,
+        box_height,
     })
 }
 
-/// Coverage mask (0–255) of the layout's glyphs on a `cw × ch` canvas.
+/// Coverage mask (0–255) of the layout on a `cw × ch` canvas, and the
+/// horizontal extent of the lines (relative to the layout origin).
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    clippy::too_many_arguments
 )]
 fn rasterise(
     engine: &mut Engine,
@@ -437,9 +371,14 @@ fn rasterise(
     ch: u32,
     origin_x: f32,
     origin_y: f32,
-) -> Vec<u8> {
+    want_italic: bool,
+) -> (Vec<u8>, (f32, f32)) {
     let mut mask = vec![0u8; (cw * ch) as usize];
+    let (mut min_x, mut max_x) = (f32::MAX, f32::MIN);
     for line in layout.lines() {
+        let m = line.metrics();
+        min_x = min_x.min(m.offset);
+        max_x = max_x.max(m.offset + m.advance - m.trailing_whitespace);
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
                 continue;
@@ -450,6 +389,7 @@ fn rasterise(
             else {
                 continue;
             };
+            let synthesis = run.synthesis();
             let mut scaler = engine
                 .scaler
                 .builder(font_ref)
@@ -457,14 +397,26 @@ fn rasterise(
                 .hint(false)
                 .normalized_coords(run.normalized_coords())
                 .build();
+            // Fonts without an italic get a slant; without a bold, a thicker
+            // outline.
+            let skew = synthesis
+                .skew()
+                .or(want_italic.then_some(14.0))
+                .filter(|a| *a != 0.0);
+            let transform =
+                skew.map(|deg| Transform::skew(Angle::from_degrees(deg), Angle::from_degrees(0.0)));
             for glyph in glyph_run.positioned_glyphs() {
                 let gx = origin_x + glyph.x;
                 let gy = origin_y + glyph.y;
-                let Some(image) = Render::new(&[Source::Outline])
+                let mut render = Render::new(&[Source::Outline]);
+                render
                     .format(Format::Alpha)
-                    .offset(Vector::new(gx.fract(), gy.fract()))
-                    .render(&mut scaler, glyph.id as u16)
-                else {
+                    .transform(transform)
+                    .offset(Vector::new(gx.fract(), gy.fract()));
+                if synthesis.embolden() {
+                    render.embolden(run.font_size() / 30.0);
+                }
+                let Some(image) = render.render(&mut scaler, glyph.id as u16) else {
                     continue;
                 };
                 let p = image.placement;
@@ -488,7 +440,10 @@ fn rasterise(
             }
         }
     }
-    mask
+    if min_x > max_x {
+        (min_x, max_x) = (0.0, 0.0);
+    }
+    (mask, (min_x, max_x))
 }
 
 /// Two passes of a separable box blur (close to a Gaussian).
@@ -528,35 +483,212 @@ fn box_blur(mask: &[u8], w: u32, h: u32, radius: u32) -> Vec<u8> {
     a.into_iter().map(|v| v.min(255) as u8).collect()
 }
 
-/// Draws a caption over a frame (straight-alpha "over"), clipped to the
-/// frame.
+/// How a text is drawn at one instant: where, how opaque, what part.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct TextDraw {
+    /// Destination of the whole image (after movement and zoom).
+    pub dst: RectF,
+    pub alpha: f32,
+    /// Only this part of the frame shows the text (wipes), frame pixels.
+    pub clip: Option<RectF>,
+}
+
+/// Smoothstep, as for clip transitions.
+fn ease(p: f32) -> f32 {
+    let p = p.clamp(0.0, 1.0);
+    p * p * (3.0 - 2.0 * p)
+}
+
+/// Applies the item's entrance and exit at `t` to its resting rectangle.
+/// `None` when the item is not visible.
+#[must_use]
+pub fn text_draw(
+    item: &TextItem,
+    img: &TextImage,
+    t: clipforge_core::Ticks,
+    (w, h): (u32, u32),
+) -> Option<TextDraw> {
+    if !item.visible_at(t) {
+        return None;
+    }
+    let phase = item.phase_at(t);
+    let rest = img.rect(item, (w, h));
+    let bx = box_rect(item, img, (w, h));
+    let mut draw = TextDraw {
+        dst: rest,
+        alpha: 1.0,
+        clip: None,
+    };
+    // Slides travel 8 % of the short side.
+    let dist = f64::from(w.min(h)) * 0.08;
+    for (kind, p, entering) in [
+        (phase.enter.0, phase.enter.1, true),
+        (phase.exit.0, phase.exit.1, false),
+    ] {
+        if p >= 1.0 {
+            continue;
+        }
+        let e = ease(p);
+        let away = f64::from(1.0 - e) * dist;
+        // Entering moves *towards* the named direction and arrives; exiting
+        // continues in the named direction and leaves.
+        let sign = if entering { 1.0 } else { -1.0 };
+        match kind {
+            TextMotion::Cut => {}
+            TextMotion::Fade => draw.alpha *= e,
+            TextMotion::SlideLeft => {
+                draw.dst.x += sign * away;
+                draw.alpha *= e;
+            }
+            TextMotion::SlideRight => {
+                draw.dst.x -= sign * away;
+                draw.alpha *= e;
+            }
+            TextMotion::SlideUp => {
+                draw.dst.y += sign * away;
+                draw.alpha *= e;
+            }
+            TextMotion::SlideDown => {
+                draw.dst.y -= sign * away;
+                draw.alpha *= e;
+            }
+            TextMotion::WipeLeft
+            | TextMotion::WipeRight
+            | TextMotion::WipeUp
+            | TextMotion::WipeDown => {
+                // The visible part of the block grows (entering) or shrinks
+                // (exiting) with the edge moving in the named direction.
+                let full = rest;
+                let f = f64::from(e);
+                let c = match (kind, entering) {
+                    (TextMotion::WipeLeft, true) | (TextMotion::WipeRight, false) => RectF {
+                        x: full.x + full.width * (1.0 - f),
+                        width: full.width * f,
+                        ..full
+                    },
+                    (TextMotion::WipeRight, true) | (TextMotion::WipeLeft, false) => RectF {
+                        width: full.width * f,
+                        ..full
+                    },
+                    (TextMotion::WipeUp, true) | (TextMotion::WipeDown, false) => RectF {
+                        y: full.y + full.height * (1.0 - f),
+                        height: full.height * f,
+                        ..full
+                    },
+                    _ => RectF {
+                        height: full.height * f,
+                        ..full
+                    },
+                };
+                draw.clip = Some(match draw.clip {
+                    Some(prev) => intersect(prev, c),
+                    None => c,
+                });
+            }
+            TextMotion::Zoom => {
+                let s = 0.7 + 0.3 * f64::from(e);
+                let (cx, cy) = (bx.x + bx.width / 2.0, bx.y + bx.height / 2.0);
+                draw.dst = RectF {
+                    x: cx + (draw.dst.x - cx) * s,
+                    y: cy + (draw.dst.y - cy) * s,
+                    width: draw.dst.width * s,
+                    height: draw.dst.height * s,
+                };
+                draw.alpha *= e;
+            }
+        }
+    }
+    Some(draw)
+}
+
+fn intersect(a: RectF, b: RectF) -> RectF {
+    let x0 = a.x.max(b.x);
+    let y0 = a.y.max(b.y);
+    let x1 = (a.x + a.width).min(b.x + b.width);
+    let y1 = (a.y + a.height).min(b.y + b.height);
+    RectF {
+        x: x0,
+        y: y0,
+        width: (x1 - x0).max(0.0),
+        height: (y1 - y0).max(0.0),
+    }
+}
+
+/// Draws a text image over a frame (CPU): bilinear sampling into `d.dst`,
+/// straight-alpha "over", limited to `d.clip`.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss
 )]
-pub fn draw_caption(frame: &mut Frame, image: &CaptionImage) {
-    let (fw, fh) = (frame.width as i32, frame.height as i32);
-    for row in 0..image.height as i32 {
-        let y = image.y + row;
-        if y < 0 || y >= fh {
-            continue;
-        }
-        for col in 0..image.width as i32 {
-            let x = image.x + col;
-            if x < 0 || x >= fw {
-                continue;
+pub fn draw_text(frame: &mut Frame, img: &TextImage, d: &TextDraw) {
+    if d.alpha <= 0.0 || d.dst.width <= 0.0 || d.dst.height <= 0.0 {
+        return;
+    }
+    let (fw, fh) = (i64::from(frame.width), i64::from(frame.height));
+    let area = match d.clip {
+        Some(c) => intersect(d.dst, c),
+        None => d.dst,
+    };
+    let x0 = area.x.floor().max(0.0) as i64;
+    let y0 = area.y.floor().max(0.0) as i64;
+    let x1 = ((area.x + area.width).ceil() as i64).min(fw);
+    let y1 = ((area.y + area.height).ceil() as i64).min(fh);
+    let (iw, ih) = (i64::from(img.width), i64::from(img.height));
+    let sx = f64::from(img.width) / d.dst.width;
+    let sy = f64::from(img.height) / d.dst.height;
+    let texel = |x: i64, y: i64| -> [f32; 4] {
+        let x = x.clamp(0, iw - 1);
+        let y = y.clamp(0, ih - 1);
+        let i = ((y * iw + x) * 4) as usize;
+        let a = f32::from(img.rgba[i + 3]) / 255.0;
+        // Premultiply for filtering.
+        [
+            f32::from(img.rgba[i]) * a,
+            f32::from(img.rgba[i + 1]) * a,
+            f32::from(img.rgba[i + 2]) * a,
+            a,
+        ]
+    };
+    for y in y0..y1 {
+        let v = (y as f64 + 0.5 - d.dst.y) * sy - 0.5;
+        let vy = v.floor();
+        let fy = (v - vy) as f32;
+        for x in x0..x1 {
+            // Hard wipe edge: pixel centres decide.
+            if let Some(c) = d.clip {
+                let px = x as f64 + 0.5;
+                let py = y as f64 + 0.5;
+                if px < c.x || px >= c.x + c.width || py < c.y || py >= c.y + c.height {
+                    continue;
+                }
             }
-            let si = ((row * image.width as i32 + col) * 4) as usize;
-            let a = u32::from(image.rgba[si + 3]);
-            if a == 0 {
+            let u = (x as f64 + 0.5 - d.dst.x) * sx - 0.5;
+            let ux = u.floor();
+            let fx = (u - ux) as f32;
+            let (ix, iy) = (ux as i64, vy as i64);
+            let q = [
+                texel(ix, iy),
+                texel(ix + 1, iy),
+                texel(ix, iy + 1),
+                texel(ix + 1, iy + 1),
+            ];
+            let mut s = [0.0f32; 4];
+            for (k, v) in s.iter_mut().enumerate() {
+                let top = q[0][k] + (q[1][k] - q[0][k]) * fx;
+                let bottom = q[2][k] + (q[3][k] - q[2][k]) * fx;
+                *v = top + (bottom - top) * fy;
+            }
+            let alpha = s[3] * d.alpha;
+            if alpha <= 0.0 {
                 continue;
             }
             let di = ((y * fw + x) * 4) as usize;
-            for c in 0..3 {
-                let s = u32::from(image.rgba[si + c]);
-                let d = u32::from(frame.rgba[di + c]);
-                frame.rgba[di + c] = ((s * a + d * (255 - a) + 127) / 255) as u8;
+            // `s` is premultiplied by the texel alpha.
+            for (out, src) in frame.rgba[di..di + 3].iter_mut().zip(&s[..3]) {
+                let blended = src * d.alpha + f32::from(*out) * (1.0 - alpha);
+                *out = blended.round().clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -565,8 +697,13 @@ pub fn draw_caption(frame: &mut Frame, image: &CaptionImage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clipforge_core::Ticks;
 
-    fn coverage(img: &CaptionImage) -> usize {
+    fn item(text: &str) -> TextItem {
+        TextItem::new(text, Ticks::ZERO, Ticks::from_seconds(4))
+    }
+
+    fn coverage(img: &TextImage) -> usize {
         img.rgba
             .as_chunks::<4>()
             .0
@@ -576,211 +713,174 @@ mod tests {
     }
 
     #[test]
-    fn empty_text_renders_nothing() {
+    fn empty_text_renders_nothing_but_has_a_hit_box() {
         let t = TextRenderer::new();
-        assert!(
-            t.caption(
-                &Caption::new("  \n", CaptionStyle::Classic),
-                (1920, 1080),
-                Area::full(1920, 1080),
-                false
-            )
-            .is_none()
-        );
+        assert!(t.image(&item("  \n"), (1920, 1080)).is_none());
+        let b = t.hit_box(&item(""), (1920, 1080));
+        assert!((b.x + b.width / 2.0 - 960.0).abs() < 1.0 && b.height > 10.0);
     }
 
     #[test]
-    fn captions_sit_where_their_style_says() {
+    fn every_bundled_font_draws_glyphs() {
         let t = TextRenderer::new();
-        let (w, h) = (1920u32, 1080u32);
-        let classic = t
-            .caption(
-                &Caption::new("Rome, 2024", CaptionStyle::Classic),
-                (w, h),
-                Area::full(w, h),
-                false,
-            )
-            .unwrap();
-        assert!(coverage(&classic) > 500, "glyphs were drawn");
-        let centre_x = classic.x + classic.width as i32 / 2;
-        assert!((centre_x - 960).abs() <= 2, "centred: {centre_x}");
-        assert!(classic.y > 800, "near the bottom: {}", classic.y);
-
-        let banner = t
-            .caption(
-                &Caption::new("Rome", CaptionStyle::Banner),
-                (w, h),
-                Area::full(w, h),
-                false,
-            )
-            .unwrap();
-        assert_eq!((banner.x, banner.width), (0, w), "full-width band");
-        assert!(banner.rgba[3] > 100, "band is tinted");
-
-        let headline = t
-            .caption(
-                &Caption::new("Summer\nItaly 2024", CaptionStyle::Headline),
-                (w, h),
-                Area::full(w, h),
-                false,
-            )
-            .unwrap();
-        let mid_y = headline.y + headline.height as i32 / 2;
-        assert!((mid_y - 540).abs() <= 2, "vertically centred: {mid_y}");
-        assert!(headline.height > classic.height, "two lines, larger");
-
-        let corner = t
-            .caption(
-                &Caption::new("Rome", CaptionStyle::Corner),
-                (w, h),
-                Area::full(w, h),
-                false,
-            )
-            .unwrap();
-        assert!(
-            corner.x < 100 && corner.y > 900,
-            "{} {}",
-            corner.x,
-            corner.y
-        );
+        let mut sizes = Vec::new();
+        for font in Font::ALL {
+            let mut i = item("Summer 2026");
+            i.style.font = font;
+            i.style.shadow = false;
+            let img = t.image(&i, (1920, 1080)).unwrap();
+            assert!(coverage(&img) > 300, "{font:?} drew glyphs");
+            sizes.push(coverage(&img));
+            assert!(!t.family_name(font).is_empty());
+        }
+        sizes.dedup();
+        assert!(sizes.len() > 3, "fonts look different: {sizes:?}");
     }
 
     #[test]
-    fn captions_stay_on_a_letterboxed_picture() {
+    fn position_and_width_come_from_the_item() {
         let t = TextRenderer::new();
-        // A portrait photo in the middle third of a landscape frame.
-        let area = Area {
-            x: 640,
-            y: 0,
-            width: 640,
-            height: 1080,
-        };
-        let corner = t
-            .caption(
-                &Caption::new("Rome", CaptionStyle::Corner),
-                (1920, 1080),
-                area,
-                false,
-            )
-            .unwrap();
-        assert!(corner.x > 600 && corner.x < 720, "{}", corner.x);
-        let banner = t
-            .caption(
-                &Caption::new("Rome", CaptionStyle::Banner),
-                (1920, 1080),
-                area,
-                false,
-            )
-            .unwrap();
-        assert_eq!((banner.x, banner.width), (640, 640));
-        let classic = t
-            .caption(
-                &Caption::new("Rome", CaptionStyle::Classic),
-                (1920, 1080),
-                area,
-                false,
-            )
-            .unwrap();
-        assert!((classic.x + classic.width as i32 / 2 - 960).abs() <= 2);
+        let mut i = item("Rome");
+        i.x = 2_500;
+        i.y = 8_000;
+        i.width = 4_000;
+        let img = t.image(&i, (1920, 1080)).unwrap();
+        assert_eq!(img.box_width, 768);
+        let b = box_rect(&i, &img, (1920, 1080));
+        assert!((b.x + b.width / 2.0 - 480.0).abs() <= 1.0);
+        assert!((b.y + b.height / 2.0 - 864.0).abs() <= 1.0);
+        // Moving reuses the cached image.
+        i.x = 7_000;
+        assert!(Arc::ptr_eq(&img, &t.image(&i, (1920, 1080)).unwrap()));
+        // Long text wraps inside the box: taller box.
+        i.text = "A caption long enough to wrap onto several lines in a narrow box".into();
+        let tall = t.image(&i, (1920, 1080)).unwrap();
+        assert!(tall.box_height > img.box_height * 2);
     }
 
     #[test]
-    fn long_text_wraps_inside_the_frame() {
+    fn size_scales_with_the_short_side() {
         let t = TextRenderer::new();
-        let long =
-            "A very long caption that keeps going and going well past the width of the frame";
-        let img = t
-            .caption(
-                &Caption::new(long, CaptionStyle::Classic),
-                (1280, 720),
-                Area::full(1280, 720),
-                false,
-            )
-            .unwrap();
-        assert!(img.x >= 0 && img.x as u32 + img.width <= 1280);
-        let one_line = t
-            .caption(
-                &Caption::new("A", CaptionStyle::Classic),
-                (1280, 720),
-                Area::full(1280, 720),
-                false,
-            )
-            .unwrap();
-        assert!(
-            img.height > one_line.height * 3 / 2,
-            "wrapped onto more lines"
-        );
-    }
-
-    #[test]
-    fn text_scales_with_the_short_side_and_is_cached() {
-        let t = TextRenderer::new();
-        let c = Caption::new("Hello", CaptionStyle::Classic);
-        let big = t
-            .caption(&c, (1920, 1080), Area::full(1920, 1080), false)
-            .unwrap();
-        let small = t
-            .caption(&c, (960, 540), Area::full(960, 540), false)
-            .unwrap();
-        let ratio = f64::from(big.height) / f64::from(small.height);
+        let i = item("Hello");
+        let big = t.image(&i, (1920, 1080)).unwrap();
+        let small = t.image(&i, (960, 540)).unwrap();
+        let ratio = f64::from(big.box_height) / f64::from(small.box_height);
         assert!((ratio - 2.0).abs() < 0.15, "{ratio}");
-        let portrait = t
-            .caption(&c, (1080, 1920), Area::full(1080, 1920), false)
-            .unwrap();
-        assert!(portrait.height.abs_diff(big.height) <= 2);
-        let again = t
-            .caption(&c, (1920, 1080), Area::full(1920, 1080), false)
-            .unwrap();
-        assert!(Arc::ptr_eq(&big, &again));
+        let mut larger = i.clone();
+        larger.style.size = 1_200;
+        assert!(t.image(&larger, (1920, 1080)).unwrap().box_height > big.box_height * 3 / 2);
     }
 
     #[test]
-    fn light_backgrounds_get_dark_text() {
+    fn bold_italic_colour_and_background_change_the_pixels() {
         let t = TextRenderer::new();
-        let img = t
-            .caption(
-                &Caption::new("The end", CaptionStyle::Headline),
-                (960, 540),
-                Area::full(960, 540),
-                true,
-            )
-            .unwrap();
-        let opaque: Vec<&[u8; 4]> = img
+        let mut i = item("Style");
+        i.style.shadow = false;
+        let plain = t.image(&i, (1280, 720)).unwrap();
+        let mut bold = i.clone();
+        bold.style.bold = true;
+        assert!(coverage(&t.image(&bold, (1280, 720)).unwrap()) > coverage(&plain));
+        let mut italic = i.clone();
+        italic.style.italic = true;
+        assert_ne!(t.image(&italic, (1280, 720)).unwrap().rgba, plain.rgba);
+        let mut red = i.clone();
+        red.style.color = [255, 0, 0, 255];
+        let img = t.image(&red, (1280, 720)).unwrap();
+        assert!(
+            img.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[3] == 255 && p[0] == 255 && p[1] == 0)
+        );
+        let mut boxed = i;
+        boxed.style.background = Some([0, 0, 0, 200]);
+        let img = t.image(&boxed, (1280, 720)).unwrap();
+        let tinted = img
             .rgba
             .as_chunks::<4>()
             .0
             .iter()
-            .filter(|p| p[3] > 250)
-            .collect();
-        assert!(!opaque.is_empty());
-        assert!(opaque.iter().all(|p| p[0] < 60), "dark glyphs");
+            .filter(|p| p[3] >= 200)
+            .count();
+        assert!(tinted > coverage(&plain) * 2, "box behind the text");
     }
 
     #[test]
-    fn drawing_blends_over_the_frame() {
-        let mut frame = Frame::solid(100, 50, [0, 0, 255]);
-        let img = CaptionImage {
-            x: 90,
-            y: 40,
+    fn entrances_and_exits_move_fade_and_reveal() {
+        let t = TextRenderer::new();
+        let mut i = item("Hi");
+        let img = t.image(&i, (1920, 1080)).unwrap();
+        let rest = img.rect(&i, (1920, 1080));
+        let at = |i: &TextItem, ms: i64| {
+            text_draw(i, &img, Ticks::from_millis(ms), (1920, 1080)).unwrap()
+        };
+        assert!(text_draw(&i, &img, Ticks::from_seconds(4), (1920, 1080)).is_none());
+        // Fade in / out.
+        assert!(at(&i, 0).alpha < 0.01);
+        assert!((at(&i, 2_000).alpha - 1.0).abs() < 1e-6);
+        assert!(at(&i, 3_999).alpha < 0.01);
+        // Slide left: arrives from the right, leaves to the left.
+        i.enter.kind = TextMotion::SlideLeft;
+        i.exit.kind = TextMotion::SlideLeft;
+        assert!(at(&i, 100).dst.x > rest.x);
+        assert!((at(&i, 2_000).dst.x - rest.x).abs() < 1e-9);
+        assert!(at(&i, 3_900).dst.x < rest.x);
+        // Wipe right: the visible part grows from the left edge.
+        i.enter.kind = TextMotion::WipeRight;
+        let c = at(&i, 250).clip.unwrap();
+        assert!((c.x - rest.x).abs() < 1e-9 && c.width < rest.width && c.width > 0.0);
+        // Zoom: smaller at the start, centred on the box.
+        i.enter.kind = TextMotion::Zoom;
+        let z = at(&i, 100);
+        assert!(z.dst.width < rest.width);
+        let (zc, rc) = (z.dst.x + z.dst.width / 2.0, rest.x + rest.width / 2.0);
+        assert!((zc - rc).abs() < 1.0);
+    }
+
+    #[test]
+    fn drawing_blends_over_the_frame_and_respects_the_clip() {
+        let img = TextImage {
             width: 20,
             height: 20,
             rgba: [255, 255, 255, 255].repeat(400),
+            box_x: 0,
+            box_y: 0,
+            box_width: 20,
+            box_height: 20,
         };
-        draw_caption(&mut frame, &img);
-        fn px(f: &Frame, x: usize, y: usize) -> [u8; 3] {
+        let px = |f: &Frame, x: usize, y: usize| {
             let i = (y * 100 + x) * 4;
             [f.rgba[i], f.rgba[i + 1], f.rgba[i + 2]]
-        }
-        assert_eq!(px(&frame, 95, 45), [255, 255, 255]);
-        assert_eq!(px(&frame, 10, 10), [0, 0, 255]);
-        let half = CaptionImage {
-            x: 0,
-            y: 0,
-            width: 1,
-            height: 1,
-            rgba: vec![255, 0, 0, 128],
         };
-        draw_caption(&mut frame, &half);
-        assert_eq!(px(&frame, 0, 0), [128, 0, 127]);
+        let d = TextDraw {
+            dst: RectF {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            alpha: 1.0,
+            clip: Some(RectF {
+                x: 10.0,
+                y: 10.0,
+                width: 10.0,
+                height: 20.0,
+            }),
+        };
+        let mut frame = Frame::solid(100, 50, [0, 0, 255]);
+        draw_text(&mut frame, &img, &d);
+        assert_eq!(px(&frame, 15, 20), [255, 255, 255]);
+        assert_eq!(px(&frame, 25, 20), [0, 0, 255], "clipped away");
+        assert_eq!(px(&frame, 50, 20), [0, 0, 255]);
+        let half = TextDraw {
+            alpha: 0.5,
+            clip: None,
+            ..d
+        };
+        let mut frame = Frame::solid(100, 50, [0, 0, 255]);
+        draw_text(&mut frame, &img, &half);
+        let p = px(&frame, 20, 20);
+        assert!(p[0].abs_diff(128) <= 1 && p[2] == 255, "{p:?}");
     }
 }

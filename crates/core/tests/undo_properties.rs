@@ -4,9 +4,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clipforge_core::{
-    Clip, Command, Fit, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
-    Quarter, RefKind, Song, Ticks, Transition, TransitionKind,
-    project::{Caption, CaptionStyle, TitleBackground},
+    Clip, Command, Fit, Font, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
+    Quarter, RefKind, Song, TextItem, TextMotion, Ticks, Transition, TransitionKind,
+    project::TitleBackground,
 };
 use proptest::prelude::*;
 
@@ -63,7 +63,9 @@ enum Op {
     ShuffleMotion(Vec<u8>, u64),
     Music(u8, u8, bool, bool),
     InsertTitle(u8, u8),
-    Captions(Vec<u8>, u8),
+    InsertText(u8, u8, u8),
+    EditText(u8, u8, u8),
+    RemoveText(u8),
     TitleBackground(u8),
 }
 
@@ -85,7 +87,9 @@ fn op() -> impl Strategy<Value = Op> {
         (0u8..4, 0u8..=200, any::<bool>(), any::<bool>())
             .prop_map(|(n, v, l, d)| Op::Music(n, v, l, d)),
         (0u8..8, 0u8..5).prop_map(|(i, b)| Op::InsertTitle(i, b)),
-        (proptest::collection::vec(0u8..8, 1..4), 0u8..6).prop_map(|(i, s)| Op::Captions(i, s)),
+        (0u8..20, 1u8..10, 0u8..6).prop_map(|(s, d, f)| Op::InsertText(s, d, f)),
+        (0u8..4, 0u8..100, 0u8..11).prop_map(|(i, x, m)| Op::EditText(i, x, m)),
+        (0u8..4).prop_map(Op::RemoveText),
         (0u8..5).prop_map(Op::TitleBackground),
     ]
 }
@@ -242,27 +246,42 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
             entries: vec![(
                 usize::from(*at) % (len + 1),
                 Clip::title(
-                    "Title",
                     TitleBackground::from_index(usize::from(*bg)),
                     Ticks::from_seconds(3),
                 ),
             )],
             media: vec![],
         },
-        Op::Captions(i, style) => {
-            let idx = pick(i, len);
-            if idx.is_empty() {
+        Op::InsertText(start, secs, font) => {
+            let mut t = TextItem::new(
+                "text",
+                Ticks::from_seconds(i64::from(*start)),
+                Ticks::from_seconds(i64::from(*secs)),
+            );
+            t.style.font = Font::from_index(usize::from(*font));
+            Command::InsertTexts {
+                entries: vec![(p.texts.len(), t)],
+            }
+        }
+        Op::EditText(i, x, motion) => {
+            if p.texts.is_empty() {
                 return None;
             }
-            // Style 5 removes the captions.
-            let caption = (*style < 4).then(|| {
-                Caption::new(
-                    format!("caption {style}"),
-                    CaptionStyle::from_index(usize::from(*style)),
-                )
-            });
-            Command::SetCaptions {
-                entries: idx.into_iter().map(|k| (k, caption.clone())).collect(),
+            let k = usize::from(*i) % p.texts.len();
+            let mut t = p.texts[k].clone();
+            t.x = i32::from(*x) * 100;
+            t.text.push('!');
+            t.enter.kind = TextMotion::from_index(usize::from(*motion));
+            Command::SetTexts {
+                entries: vec![(k, t)],
+            }
+        }
+        Op::RemoveText(i) => {
+            if p.texts.is_empty() {
+                return None;
+            }
+            Command::RemoveTexts {
+                indices: vec![usize::from(*i) % p.texts.len()],
             }
         }
         Op::TitleBackground(bg) => {

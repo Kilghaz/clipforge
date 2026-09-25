@@ -6,21 +6,18 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use clipforge_core::music::playlist_length;
-use clipforge_core::project::{CaptionStyle, TitleBackground};
+use clipforge_core::project::TitleBackground;
 use clipforge_core::timeline::{fit_photo_duration, total_duration};
-use clipforge_core::{Clip, Command, MediaRef, Music, Song, Ticks};
+use clipforge_core::{Clip, Command, MediaRef, Music, Song, TextItem, Ticks};
 use clipforge_library::ProbeState;
 use clipforge_media::MediaKind;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use tracing::warn;
 
 use super::Inner;
 use crate::editor_view::{self, media_ref_for};
 use crate::format;
 use crate::ui::{EditorState, SongBlockView, SongItem, Strings};
 
-/// Undo group for typing into the caption field (one step per session).
-const CAPTION_GROUP: u64 = 1;
 /// Songs picked with "Add music…" are given up on after this long.
 const PENDING_SONG_TIMEOUT: Duration = Duration::from_secs(120);
 /// Length of a new title card.
@@ -42,6 +39,7 @@ impl Inner {
         if self.cancel_trim() {
             return;
         }
+        self.leave_texts();
         self.selection.clear();
         self.music_selected = true;
         self.sync_timeline();
@@ -247,129 +245,6 @@ impl Inner {
         }
     }
 
-    // ----- captions ---------------------------------------------------------
-
-    /// What the caption controls act on (never title cards in bulk).
-    fn caption_targets(&self) -> Vec<usize> {
-        editor_view::caption_targets(&self.project, &self.selection.indices(&self.project.clips))
-    }
-
-    /// Typing into the caption field; one undo step per editing session.
-    pub(super) fn caption_edited(&mut self, text: &str) {
-        let targets = self.caption_targets();
-        if targets.is_empty() {
-            return;
-        }
-        let entries =
-            editor_view::caption_text_entries(&self.project, &targets, text, self.caption_style);
-        match self.history.apply_merging(
-            &mut self.project,
-            Command::SetCaptions { entries },
-            CAPTION_GROUP,
-        ) {
-            Ok(()) => {
-                self.dirty_since.get_or_insert_with(Instant::now);
-                self.preview_dirty = true;
-                self.sync_all();
-            }
-            Err(e) => warn!(error = %e, "caption rejected"),
-        }
-    }
-
-    /// The caption field lost focus: the next edit is a new undo step.
-    pub(super) fn caption_committed(&mut self) {
-        self.history.seal();
-    }
-
-    pub(super) fn caption_style_changed(&mut self, index: i32) {
-        self.caption_style = CaptionStyle::from_index(usize::try_from(index).unwrap_or(0));
-        let entries = editor_view::caption_style_entries(
-            &self.project,
-            &self.caption_targets(),
-            self.caption_style,
-        );
-        if entries.is_empty() {
-            self.sync_inspector();
-            return;
-        }
-        self.apply(Command::SetCaptions { entries });
-        self.preview_dirty = true;
-    }
-
-    pub(super) fn caption_fill_date(&mut self) {
-        let Some(w) = self.state() else { return };
-        let strings = w.global::<Strings>();
-        let months: Vec<String> = strings
-            .get_month_names()
-            .split(',')
-            .map(|m| m.trim().to_owned())
-            .collect();
-        let (entries, skipped) = editor_view::caption_fill_entries(
-            &self.project,
-            &self.caption_targets(),
-            self.caption_style,
-            |m| {
-                let (d, month, y) = format::civil_date(m.captured_at_ms?);
-                strings.set_date_day(d.to_string().into());
-                strings.set_date_month(
-                    months
-                        .get(month as usize - 1)
-                        .cloned()
-                        .unwrap_or_else(|| month.to_string())
-                        .into(),
-                );
-                strings.set_date_year(y.to_string().into());
-                Some(strings.get_caption_date().to_string())
-            },
-        );
-        self.apply_fill(entries, skipped);
-    }
-
-    pub(super) fn caption_fill_name(&mut self) {
-        let (entries, skipped) = editor_view::caption_fill_entries(
-            &self.project,
-            &self.caption_targets(),
-            self.caption_style,
-            |m| Some(editor_view::caption_from_file_name(&m.name)),
-        );
-        self.apply_fill(entries, skipped);
-    }
-
-    fn apply_fill(
-        &mut self,
-        entries: Vec<(usize, Option<clipforge_core::project::Caption>)>,
-        skipped: usize,
-    ) {
-        let filled = entries.len();
-        if filled > 0 {
-            self.apply(Command::SetCaptions { entries });
-            self.preview_dirty = true;
-        }
-        self.status_text(|s| {
-            if skipped > 0 {
-                s.set_count(count(skipped));
-                s.get_captions_skipped()
-            } else {
-                s.set_count(count(filled));
-                s.get_filled_captions()
-            }
-        });
-    }
-
-    pub(super) fn caption_remove(&mut self) {
-        let entries: Vec<_> = self
-            .caption_targets()
-            .into_iter()
-            .filter(|&i| self.project.clips[i].caption.is_some())
-            .map(|i| (i, None))
-            .collect();
-        if entries.is_empty() {
-            return;
-        }
-        self.apply(Command::SetCaptions { entries });
-        self.preview_dirty = true;
-    }
-
     // ----- title cards ------------------------------------------------------
 
     pub(super) fn title_background_changed(&mut self, index: i32) {
@@ -389,6 +264,8 @@ impl Inner {
         self.preview_dirty = true;
     }
 
+    /// A black colour card at the start (or end) with a large text over
+    /// it; the text is selected with its inline editor open.
     pub(super) fn add_title(&mut self, closing: bool) {
         let Some(w) = self.state() else { return };
         let strings = w.global::<Strings>();
@@ -402,25 +279,33 @@ impl Inner {
                 .map(|s| s.trim_end_matches(".clipforge").to_owned())
                 .unwrap_or_else(|| strings.get_opening_title().to_string())
         };
-        let mut clip = Clip::title(text, TitleBackground::Black, TITLE_DURATION);
-        clip.transition_in = self.project.settings.default_transition;
+        let mut card = Clip::title(TitleBackground::Black, TITLE_DURATION);
+        card.transition_in = self.project.settings.default_transition;
         let at = if closing { self.project.clips.len() } else { 0 };
-        let id = clip.id;
         self.leave_music();
-        self.apply(Command::InsertClips {
-            entries: vec![(at, clip)],
+        self.leave_texts();
+        let mut commands = vec![Command::InsertClips {
+            entries: vec![(at, card)],
             media: Vec::new(),
+        }];
+        // The card's place after insertion.
+        let mut clips = self.project.clips.clone();
+        clips.insert(at, Clip::title(TitleBackground::Black, TITLE_DURATION));
+        let place = clipforge_core::timeline::placements(&clips)[at];
+        let mut item = TextItem::new(text, place.start, place.duration());
+        item.style.size = 900;
+        item.style.bold = true;
+        let id = item.id;
+        commands.push(Command::InsertTexts {
+            entries: vec![(self.project.texts.len(), item)],
         });
-        // Select the new card so its text is ready to edit.
-        if let Some(index) = self.project.index_of(id) {
-            self.selection
-                .click(&self.project.clips, index, false, false);
-            if let Some(p) = clipforge_core::timeline::placements(&self.project.clips).get(index) {
-                self.playhead = p.start;
-            }
-        }
+        self.apply(Command::Batch { commands });
+        self.selection.clear();
+        self.text_selection = vec![id];
+        self.editing_text = Some(id);
+        self.playhead = place.start;
         self.preview_dirty = true;
-        self.sync_timeline();
+        self.sync_all();
     }
 
     // ----- sync -------------------------------------------------------------
@@ -479,19 +364,11 @@ impl Inner {
         );
     }
 
-    /// Caption and title-card controls in the clip inspector.
-    pub(super) fn sync_captions(&self) {
+    /// Colour-card controls in the clip inspector.
+    pub(super) fn sync_title_target(&self) {
         let Some(w) = self.state() else { return };
         let s = w.global::<EditorState>();
-        let targets = self.caption_targets();
         let all = self.targets();
-        let view = editor_view::caption_view(&self.project, &targets, self.caption_style);
-        if s.get_caption_text() != view.text.as_str() {
-            s.set_caption_text(view.text.into());
-        }
-        s.set_caption_mixed(view.mixed);
-        s.set_caption_any(view.any);
-        s.set_caption_style_index(i32::try_from(view.style.index()).unwrap_or(0));
         let titles: Vec<&Clip> = all
             .iter()
             .map(|&i| &self.project.clips[i])

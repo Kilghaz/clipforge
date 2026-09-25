@@ -30,7 +30,7 @@ use clipforge_core::{Project, Ticks};
 /// Colour drawn where a source is not available (yet).
 pub const PLACEHOLDER_RGB: [u8; 3] = [40, 42, 48];
 
-/// Colour of a title card's background.
+/// Colour of a colour card's background.
 #[must_use]
 pub const fn title_rgb(background: clipforge_core::project::TitleBackground) -> [u8; 3] {
     use clipforge_core::project::TitleBackground;
@@ -41,12 +41,6 @@ pub const fn title_rgb(background: clipforge_core::project::TitleBackground) -> 
         TitleBackground::Red => [96, 24, 32],
         TitleBackground::White => [244, 242, 238],
     }
-}
-
-/// Whether a clip's caption needs dark text (on a light title card).
-#[must_use]
-pub fn caption_on_light(clip: &clipforge_core::Clip) -> bool {
-    matches!(clip.source, clipforge_core::ClipSource::Title { background, .. } if background.is_light())
 }
 
 /// Anything that turns a project and a time into a frame. Implemented by

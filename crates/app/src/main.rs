@@ -18,6 +18,7 @@ mod library_view;
 mod player;
 mod preview_worker;
 mod settings;
+mod text_view;
 
 use anyhow::{Context, Result};
 use std::sync::Arc;

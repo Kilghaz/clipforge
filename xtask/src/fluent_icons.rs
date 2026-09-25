@@ -51,6 +51,8 @@ const ICONS: &[(&str, &str, bool)] = &[
     ("Share", "share", false),
     ("Speaker 2", "speaker_2", false),
     ("Speaker Mute", "speaker_mute", false),
+    ("Text Bold", "text_bold", false),
+    ("Text Italic", "text_italic", false),
     ("Text T", "text_t", false),
     ("Video", "video", false),
     ("Warning", "warning", false),

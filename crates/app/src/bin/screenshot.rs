@@ -41,8 +41,8 @@ use slint::platform::{Platform, PlatformError, WindowAdapter, WindowEvent};
 use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
 
 use ui::{
-    EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell,
-    SongBlockView, SongItem, Strings, TimelineClip,
+    EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell,
+    PreviewText, Shell, SongBlockView, SongItem, Strings, TextBlockView, TimelineClip,
 };
 
 const SCENES: &[&str] = &[
@@ -53,6 +53,8 @@ const SCENES: &[&str] = &[
     "narrow",
     "music",
     "title",
+    "text",
+    "text-edit",
     "gallery",
 ];
 
@@ -243,7 +245,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     let mut x = 8.0;
     for i in 0..6 {
         let is_video = i == 2 || i == 4;
-        // The show opens with a title card; the third photo has a caption.
+        // The show opens with a colour card.
         let is_title = i == 0;
         let width = if is_video { 240.0 } else { 160.0 };
         clips.push(TimelineClip {
@@ -278,13 +280,6 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             focused: false,
             is_title,
             title_bg: slint::Color::from_rgb_u8(22, 44, 84),
-            title_text: if is_title {
-                "Summer in Italy".into()
-            } else {
-                "".into()
-            },
-            title_light: false,
-            has_caption: is_title || i == 3,
         });
         x += width - 40.0 + 4.0;
     }
@@ -325,7 +320,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     editor.set_music_length_text("0:15".into());
     editor.set_show_length_text("0:26".into());
     editor.set_can_fit_music(true);
-    editor.set_caption_text("".into());
+
     editor.set_clip_count(6);
     editor.set_selected_count(1);
     // The selected clip (index 1) is a photo with a dissolve and a zoom-in.
@@ -339,7 +334,46 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     editor.set_playhead_x(300.0);
     editor.set_time_text("00:00:07".into());
     editor.set_total_text("00:00:26".into());
-    editor.set_preview(landscape);
+    // The preview is rendered by the real compositor, so the text on it
+    // and the overlay's boxes can be checked against each other.
+    let editing = scene == "text-edit";
+    let (preview, boxes) = render_preview(fixtures, editing)?;
+    editor.set_preview(preview);
+    editor.set_frame_aspect(16.0 / 9.0);
+    let text_selected = scene == "text" || editing;
+    editor.set_preview_texts(ModelRc::new(VecModel::from(
+        boxes
+            .iter()
+            .enumerate()
+            .map(|(i, b)| PreviewText {
+                index: i32::try_from(i).unwrap_or(0),
+                x: b.0,
+                y: b.1,
+                width: b.2,
+                height: b.3,
+                selected: text_selected && i == 0,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    editor.set_text_blocks(ModelRc::new(VecModel::from(vec![
+        TextBlockView {
+            index: 0,
+            x: 8.0,
+            width: 300.0,
+            row: 0,
+            title: "Summer in Italy".into(),
+            selected: text_selected,
+        },
+        TextBlockView {
+            index: 1,
+            x: 330.0,
+            width: 360.0,
+            row: 0,
+            title: "Rome, the Colosseum".into(),
+            selected: false,
+        },
+    ])));
+    editor.set_text_rows(1);
     editor.set_can_undo(true);
     editor.set_dirty(true);
 
@@ -350,19 +384,44 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_export_progress(0.42);
         }
         "settings" => app.global::<Shell>().set_settings_open(true),
+        "text" | "text-edit" => {
+            editor.set_selected_count(0);
+            editor.set_text_selected_count(1);
+            editor.set_text_content("Summer in Italy".into());
+            editor.set_text_font_index(2);
+            editor.set_text_size_percent(9.0);
+            editor.set_text_bold(true);
+            editor.set_text_color_index(0);
+            editor.set_text_shadow(true);
+            editor.set_text_duration(4.0);
+            editor.set_text_enter_index(10);
+            editor.set_text_enter_seconds(0.8);
+            editor.set_text_exit_index(1);
+            editor.set_text_exit_seconds(0.5);
+            editor.set_guide_vertical(scene == "text");
+            if editing {
+                editor.set_editing_index(0);
+                editor.set_editing_text("Summer in Italy".into());
+                editor.set_editing_family(
+                    clipforge_render::text::TextRenderer::new()
+                        .family_name(clipforge_core::Font::PlayfairDisplay)
+                        .into(),
+                );
+                editor.set_editing_size(0.09);
+                editor.set_editing_color(slint::Color::from_rgb_u8(255, 255, 255));
+                editor.set_editing_bold(true);
+            }
+        }
         "music" => {
             editor.set_music_selected(true);
             editor.set_selected_count(0);
             editor.set_music_fade_out(3.0);
         }
         "title" => {
-            // The opening title card is selected: caption, background, duration.
+            // The opening colour card is selected: background, duration.
             editor.set_only_title_target(true);
             editor.set_has_title_target(true);
             editor.set_has_photo_target(false);
-            editor.set_caption_text("Summer in Italy\nJuly 2026".into());
-            editor.set_caption_any(true);
-            editor.set_caption_style_index(2);
             editor.set_title_background_index(2);
             editor.set_transition_index(0);
         }
@@ -380,4 +439,96 @@ fn save_png(path: &Path, w: u32, h: u32, pixels: &[Rgb8Pixel]) -> Result<()> {
         image::ImageBuffer::from_raw(w, h, bytes).context("buffer size mismatch")?;
     img.save(path)
         .with_context(|| format!("writing {}", path.display()))
+}
+
+/// A text box as fractions of the picture: x, y, width, height.
+type BoxFrac = (f32, f32, f32, f32);
+
+/// Renders the preview frame of a small project (the landscape fixture with
+/// two texts) and returns it with the texts' boxes as picture fractions.
+/// `hide_first` leaves the first text out, as while it is edited in place.
+fn render_preview(
+    fixtures: &Path,
+    hide_first: bool,
+) -> Result<(slint::Image, Vec<BoxFrac>)> {
+    use clipforge_core::{
+        Clip, Command, Font, MediaId, MediaRef, Project, RefKind, TextItem, Ticks,
+    };
+    use clipforge_render::source::MapProvider;
+    use clipforge_render::{Compositor, RenderQuality, SourceImage};
+    let img = image::open(fixtures.join("photo_landscape.jpg"))?.to_rgba8();
+    let (w, h) = img.dimensions();
+    let id = MediaId::new();
+    let mut provider = MapProvider::default();
+    provider.images.insert(
+        id,
+        SourceImage {
+            width: w,
+            height: h,
+            rgba: std::sync::Arc::new(img.into_raw()),
+        },
+    );
+    let mut project = Project::new();
+    let media = MediaRef {
+        id,
+        kind: RefKind::Photo,
+        path: "/fixture".into(),
+        fingerprint_hash: 1,
+        size: 1,
+        pixel_size: Some((w, h)),
+        duration: None,
+        captured_at_ms: None,
+        name: "photo_landscape.jpg".into(),
+    };
+    Command::InsertClips {
+        entries: vec![(0, Clip::photo(id, Ticks::from_seconds(8)))],
+        media: vec![media],
+    }
+    .apply(&mut project)
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut title = TextItem::new("Summer in Italy", Ticks::ZERO, Ticks::from_seconds(8));
+    title.y = 4_200;
+    title.style.font = Font::PlayfairDisplay;
+    title.style.size = 900;
+    title.style.bold = true;
+    let mut label = TextItem::new("Rome, the Colosseum", Ticks::ZERO, Ticks::from_seconds(8));
+    label.y = 8_700;
+    label.width = 5_000;
+    label.style.font = Font::Montserrat;
+    label.style.size = 420;
+    label.style.background = Some([0, 0, 0, 170]);
+    label.style.shadow = false;
+    let texts = vec![title, label];
+    let measure = clipforge_render::text::TextRenderer::new();
+    let frame_size = RenderQuality::Preview.frame_size(project.settings.aspect);
+    #[allow(clippy::cast_possible_truncation)]
+    let boxes = texts
+        .iter()
+        .map(|t| {
+            let b = measure.hit_box(t, frame_size);
+            let (fw, fh) = (f64::from(frame_size.0), f64::from(frame_size.1));
+            (
+                (b.x / fw) as f32,
+                (b.y / fh) as f32,
+                (b.width / fw) as f32,
+                (b.height / fh) as f32,
+            )
+        })
+        .collect();
+    project.texts = texts;
+    if hide_first {
+        project.texts.remove(0);
+    }
+    let frame = Compositor::new().render(
+        &project,
+        Ticks::from_seconds(2),
+        RenderQuality::Preview,
+        &provider,
+    );
+    let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+    );
+    Ok((slint::Image::from_rgba8(buffer), boxes))
 }

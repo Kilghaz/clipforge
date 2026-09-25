@@ -6,7 +6,7 @@ Redrawn from the code after each milestone. Last update: Milestone 5 (music and 
 
 | Crate | Purpose | Key types today |
 |---|---|---|
-| `clipforge-core` | Model, commands, undo, time | `Project`, `Clip` (photo / video / title card, `Caption`), `TransitionKind`, `Motion`, `Music` (`Song`, `song_spans`, `MusicEnvelope`), `Command`, `History` (with merge groups), `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
+| `clipforge-core` | Model, commands, undo, time | `Project`, `Clip` (photo / video / colour card), `TextItem` (text track), `TransitionKind`, `Motion`, `Music` (`Song`, `song_spans`, `MusicEnvelope`), `Command`, `History` (with merge groups), `shuffle`, `timeline::{placements, frame_at, opening_overlap}`, `Ticks`, `FrameRate` |
 | `clipforge-media` | Probing, stills, streaming decode | `MediaInfo`, `Prober`, `StillDecoder`, `ImageBackend`, `FfmpegCli` (+`frame_at`), `VideoReader`, `AudioReader`, `Backends` |
 | `clipforge-library` | Catalogue, cache, import jobs | `Catalogue`, `Query`, `MediaRecord`, `ThumbCache`, `Library`, `LibraryEvent` |
 | `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010), caption text | `FrameRenderer`, `best_renderer`, `GpuCompositor`, `Compositor`, `text::TextRenderer`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
@@ -124,13 +124,18 @@ export::audio::Mixer(project, sources, from)
    voices = video clips (transition cross-fades) + song spans (envelope), opened lazily
    ├─ export: write_mix → WAV (streamed, cancellable) → ffmpeg
    └─ preview: player feed thread → cpal ring buffer
-Clip.caption: Option<Caption { text, style }>;  ClipSource::Title { duration, background }
-render::text::TextRenderer (parley + swash, bundled Inter, no system fonts)
-   caption → cached straight-alpha image placed inside the picture's visible area
-   CPU: draw_caption over the clip frame;  GPU: caption texture quad in the clip's pass
+ClipSource::Title { duration, background }   colour card on the video track
+Project.texts: [TextItem { text, start, duration, x, y, width, style, enter, exit }]
+render::text::TextRenderer (parley + swash, six bundled OFL fonts, no system fonts)
+   text block image cached by (text, style, box width, frame size); position applied at draw
+   text_draw(item, t) → rect, alpha, clip (fade / slide / wipe / zoom in and out)
+   both compositors draw the text track over the finished frame (after transitions)
+app: TextLane (time), TextOverlay (WYSIWYG on the preview), text_view (pure gestures)
 ```
 
-Commands: `SetMusic` (songs and settings in one), `SetCaptions` (text, style,
-fill and removal), `SetTitleBackground`; title cards are clips inserted
-with `InsertClips` and count as stills for `SetPhotoDuration`. Typing a
-caption uses `History::apply_merging`, so a typing session is one undo step.
+Commands: `SetMusic` (songs and settings in one), `InsertTexts`,
+`RemoveTexts`, `SetTexts` (move, resize, restyle, retime any number of texts
+in one step), `SetTitleBackground`; colour cards are clips inserted with
+`InsertClips` and count as stills for `SetPhotoDuration`. Typing a text uses
+`History::apply_merging`, so a typing session is one undo step. Projects
+saved with the earlier per-clip captions are converted to texts on load.

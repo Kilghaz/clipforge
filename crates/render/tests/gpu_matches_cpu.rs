@@ -360,75 +360,100 @@ fn dump(name: &str, f: &Frame) {
 }
 
 #[test]
-fn titles_and_captions_match() {
-    use clipforge_core::project::{Caption, CaptionStyle, TitleBackground};
+fn text_track_matches_through_its_animations() {
+    use clipforge_core::project::TitleBackground;
+    use clipforge_core::{Font, TextAlign, TextItem, TextMotion};
     let (mut p, provider) = scene(TransitionKind::CrossDissolve);
     Command::InsertClips {
         entries: vec![(
             0,
-            Clip::title(
-                "Summer in Italy\nJuly 2024",
-                TitleBackground::Blue,
-                Ticks::from_seconds(3),
-            ),
+            Clip::title(TitleBackground::Blue, Ticks::from_seconds(3)),
         )],
         media: vec![],
     }
     .apply(&mut p)
     .unwrap();
-    let t_title = Ticks::SECOND;
-    let t_photo = Ticks::from_seconds(4);
-    for style in CaptionStyle::ALL {
-        Command::SetCaptions {
-            entries: vec![(1, Some(Caption::new("Rome, the Colosseum at dusk", style)))],
-        }
-        .apply(&mut p)
-        .unwrap();
+    // A title over the colour card, a boxed caption over the photos, and a
+    // corner label; each with a different entrance.
+    let mut title = TextItem::new(
+        "Summer in Italy\nJuly 2024",
+        Ticks::ZERO,
+        Ticks::from_seconds(3),
+    );
+    title.style.font = Font::PlayfairDisplay;
+    title.style.size = 1_000;
+    title.style.bold = true;
+    title.enter.kind = TextMotion::Zoom;
+    let mut caption = TextItem::new(
+        "Rome, the Colosseum at dusk",
+        Ticks::from_seconds(3),
+        Ticks::from_seconds(5),
+    );
+    caption.y = 8_600;
+    caption.style.background = Some([0, 0, 0, 150]);
+    caption.style.font = Font::Montserrat;
+    caption.enter.kind = TextMotion::SlideUp;
+    caption.exit.kind = TextMotion::WipeRight;
+    let mut label = TextItem::new("July 2024", Ticks::from_seconds(3), Ticks::from_seconds(8));
+    label.x = 2_000;
+    label.y = 1_200;
+    label.width = 3_000;
+    label.style.font = Font::Caveat;
+    label.style.align = TextAlign::Left;
+    label.style.italic = true;
+    label.style.color = [255, 220, 120, 255];
+    label.enter.kind = TextMotion::WipeLeft;
+    Command::InsertTexts {
+        entries: vec![(0, title), (1, caption), (2, label)],
+    }
+    .apply(&mut p)
+    .unwrap();
+    for ms in [150, 1_500, 3_200, 4_000, 6_500, 7_800, 10_500] {
         for q in [
             RenderQuality::Preview,
             RenderQuality::Full(Resolution::FullHd),
         ] {
-            assert_same(&format!("caption {style:?}"), &p, t_photo, q, &provider);
+            assert_same(
+                &format!("texts at {ms} ms"),
+                &p,
+                Ticks::from_millis(ms),
+                q,
+                &provider,
+            );
         }
         dump(
-            &format!("caption_{style:?}"),
-            &Compositor::new().render(&p, t_photo, RenderQuality::Preview, &provider),
+            &format!("texts_{ms}"),
+            &Compositor::new().render(
+                &p,
+                Ticks::from_millis(ms),
+                RenderQuality::Preview,
+                &provider,
+            ),
         );
         if let Some(g) = gpu() {
             dump(
-                &format!("caption_{style:?}_gpu"),
-                &g.render(&p, t_photo, RenderQuality::Preview, &provider),
+                &format!("texts_{ms}_gpu"),
+                &g.render(
+                    &p,
+                    Ticks::from_millis(ms),
+                    RenderQuality::Preview,
+                    &provider,
+                ),
             );
         }
     }
-    assert_same("title", &p, t_title, RenderQuality::Preview, &provider);
-    // The caption travels with its clip through the transition into photo 2.
-    assert_same(
-        "caption in a dissolve",
-        &p,
-        Ticks::from_millis(6_500),
-        RenderQuality::Preview,
-        &provider,
-    );
-    dump(
-        "title",
-        &Compositor::new().render(&p, t_title, RenderQuality::Preview, &provider),
-    );
-    Command::SetTitleBackground {
-        indices: vec![0],
-        background: TitleBackground::White,
+    // A text past the last clip still shows (over black).
+    let tail = TextItem::new("The end", Ticks::from_seconds(10), Ticks::from_seconds(3));
+    Command::InsertTexts {
+        entries: vec![(3, tail)],
     }
     .apply(&mut p)
     .unwrap();
     assert_same(
-        "light title",
+        "text past the clips",
         &p,
-        t_title,
+        Ticks::from_millis(12_000),
         RenderQuality::Preview,
         &provider,
-    );
-    dump(
-        "title_white",
-        &Compositor::new().render(&p, t_title, RenderQuality::Preview, &provider),
     );
 }

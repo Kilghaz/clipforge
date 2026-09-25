@@ -12,7 +12,7 @@ use crate::frame::Frame;
 use crate::layout::place;
 use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
-use crate::text::{Area, TextRenderer, draw_caption};
+use crate::text::{TextRenderer, draw_text, text_draw};
 use crate::transition;
 
 use crate::PLACEHOLDER_RGB;
@@ -69,10 +69,30 @@ impl Compositor {
         Self::default()
     }
 
-    /// Renders the frame at timeline time `t`. Beyond the end (or for an
-    /// empty project) the frame is black.
+    /// Renders the frame at timeline time `t`: clips, then the text track
+    /// on top. Beyond the clips (or for an empty project) the picture is
+    /// black.
     #[must_use]
     pub fn render(
+        &self,
+        project: &Project,
+        t: Ticks,
+        quality: RenderQuality,
+        sources: &dyn SourceProvider,
+    ) -> Frame {
+        let mut frame = self.render_clips(project, t, quality, sources);
+        let size = (frame.width, frame.height);
+        for item in project.texts.iter().filter(|i| i.visible_at(t)) {
+            if let Some(img) = self.text.image(item, size)
+                && let Some(d) = text_draw(item, &img, t, size)
+            {
+                draw_text(&mut frame, &img, &d);
+            }
+        }
+        frame
+    }
+
+    fn render_clips(
         &self,
         project: &Project,
         t: Ticks,
@@ -118,8 +138,7 @@ impl Compositor {
         frame
     }
 
-    /// Renders a single clip (picture and caption, no transitions) at
-    /// `local` time within the clip.
+    /// Renders a single clip (no transitions) at `local` time within it.
     fn render_clip(
         &self,
         clip: &Clip,
@@ -129,24 +148,15 @@ impl Compositor {
         quality: RenderQuality,
         sources: &dyn SourceProvider,
     ) -> Frame {
-        let (mut frame, area) = match clip.source {
-            ClipSource::Title { background, .. } => (
-                Frame::solid(w, h, crate::title_rgb(background)),
-                Area::full(w, h),
-            ),
+        match clip.source {
+            ClipSource::Title { background, .. } => {
+                Frame::solid(w, h, crate::title_rgb(background))
+            }
             _ => self.render_picture(clip, local, w, h, quality, sources),
-        };
-        if let Some(caption) = &clip.caption
-            && let Some(image) =
-                self.text
-                    .caption(caption, (w, h), area, crate::caption_on_light(clip))
-        {
-            draw_caption(&mut frame, &image);
         }
-        frame
     }
 
-    /// Renders a photo or video clip's picture and where it is visible.
+    /// Renders a photo or video clip's picture.
     fn render_picture(
         &self,
         clip: &Clip,
@@ -155,7 +165,7 @@ impl Compositor {
         h: u32,
         quality: RenderQuality,
         sources: &dyn SourceProvider,
-    ) -> (Frame, Area) {
+    ) -> Frame {
         let want_edge = quality
             .source_edge(clipforge_core::Aspect::Landscape16x9)
             .max(w.max(h));
@@ -180,9 +190,8 @@ impl Compositor {
             ClipSource::Title { .. } => (None, None),
         };
         let Some(src) = src else {
-            return (Frame::solid(w, h, PLACEHOLDER_RGB), Area::full(w, h));
+            return Frame::solid(w, h, PLACEHOLDER_RGB);
         };
-        let area = Area::of_picture((src.width, src.height), clip.rotate, (w, h), clip.fit);
         let filter = if quality.is_preview() {
             Filter::Fast
         } else {
@@ -197,7 +206,7 @@ impl Compositor {
             } else {
                 0.0
             };
-            let frame = compose(
+            return compose(
                 &rotated,
                 w,
                 h,
@@ -205,7 +214,6 @@ impl Compositor {
                 clip.motion.camera(progress),
                 filter,
             );
-            return (frame, area);
         }
         let key = CacheKey {
             media: clip.media,
@@ -216,11 +224,11 @@ impl Compositor {
             rotate: clip.rotate,
         };
         if let Some(hit) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
-            return ((*hit).clone(), area);
+            return (*hit).clone();
         }
         let frame = compose(&rotated, w, h, clip.fit, (1.0, 0.0, 0.0), filter);
         self.remember(key, &frame);
-        (frame, area)
+        frame
     }
 
     fn remember(&self, key: CacheKey, frame: &Frame) {

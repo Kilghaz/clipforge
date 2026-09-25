@@ -6,7 +6,7 @@ import { Button, ComboBox, CheckBox, Slider, LineEdit, ProgressIndicator, Palett
 import { Theme, Icons } from "theme.slint";
 import { Icon, IconButton, ActionButton, ChoiceButton, ChoiceGroup, SearchField, Bar, Section, SectionLabel, Caption, BodyText, Title, SecondaryText, Divider, VDivider, Badge, EmptyState, DialogFrame, DialogButtons, SwatchGroup, SongRow } from "components.slint";
 import { CellView, KindBadge, MediaCell } from "library.slint";
-import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState, MusicLane } from "editor.slint";
+import { ClipView, ValueSlider, TimelineClip, TimelineStrip, EditorState, MusicLane, TextLane, TextOverlay } from "editor.slint";
 
 component Row inherits VerticalLayout {
     in property <string> title;
@@ -187,12 +187,45 @@ export component GalleryWindow inherits Window {
             ClipView { width: 160px; height: 100px; item: { index: 3, id: "i", title: "IMG_4104.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, transition: 12, moving: true, selected: true, duration-text: "4.0 s" }; }
         }
         Row {
-            title: "Timeline clips, M5: title card (dark), title card (white, selected), photo with caption, moving photo with caption, muted video with caption";
-            ClipView { width: 160px; height: 100px; item: { index: 0, id: "t1", is-title: true, title-bg: Theme.title-bg-blue, title-text: "Summer in Italy", has-caption: true, width: 160, duration-text: "0:04" }; }
-            ClipView { width: 160px; height: 100px; item: { index: 1, id: "t2", is-title: true, title-bg: Theme.title-bg-white, title-light: true, title-text: "The end", has-caption: true, selected: true, width: 160, overlap: 40, transition: 1, duration-text: "0:04" }; }
-            ClipView { width: 160px; height: 100px; item: { index: 2, id: "c1", title: "IMG_4101.jpg", thumb: root.sample, has-thumb: true, has-caption: true, width: 160, duration-text: "0:04" }; }
-            ClipView { width: 160px; height: 100px; item: { index: 3, id: "c2", title: "IMG_4102.jpg", thumb: root.sample, has-thumb: true, has-caption: true, moving: true, width: 160, duration-text: "0:04" }; }
-            ClipView { width: 220px; height: 100px; item: { index: 4, id: "c3", title: "Clip 7.mov", thumb: root.sample, has-thumb: true, has-caption: true, is-video: true, muted: true, width: 220, duration-text: "0:06" }; }
+            title: "Timeline clips, M5: colour card (blue), colour card (white, selected with dissolve)";
+            ClipView { width: 160px; height: 100px; item: { index: 0, id: "t1", is-title: true, title-bg: Theme.title-bg-blue, width: 160, duration-text: "0:04" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 1, id: "t2", is-title: true, title-bg: Theme.title-bg-white, selected: true, width: 160, overlap: 40, transition: 1, duration-text: "0:04" }; }
+        }
+        Row {
+            title: "TextLane (28 px rows): texts, a selected one, overlaps stacked into a second row; empty lane with the double-click hint";
+            VerticalLayout {
+                spacing: Theme.space-s;
+                TextLane {
+                    width: 560px; viewport-width: 560px; rows: 2;
+                    blocks: [
+                        { index: 0, x: 0, width: 200, row: 0, title: "Summer in Italy" },
+                        { index: 1, x: 220, width: 180, row: 0, title: "Rome, the Colosseum at dusk", selected: true },
+                        { index: 2, x: 300, width: 200, row: 1, title: "July 2024" },
+                    ];
+                }
+                TextLane { width: 560px; viewport-width: 560px; rows: 1; blocks: []; }
+            }
+        }
+        Row {
+            title: "TextOverlay over a 16:9 picture: a selected text with corner (size) and side (width) handles, snap guides, an unselected text's hover target";
+            Rectangle {
+                width: 480px;
+                height: 270px;
+                background: Theme.surface-canvas;
+                Image { source: root.sample; image-fit: contain; width: parent.width; height: parent.height; }
+                TextOverlay {
+                    width: parent.width;
+                    height: parent.height;
+                    init => {
+                        EditorState.frame-aspect = 16 / 9;
+                        EditorState.guide-vertical = true;
+                        EditorState.preview-texts = [
+                            { index: 0, x: 0.2, y: 0.4, width: 0.6, height: 0.16, selected: true },
+                            { index: 1, x: 0.05, y: 0.82, width: 0.3, height: 0.08 },
+                        ];
+                    }
+                }
+            }
         }
         Row {
             title: "MusicLane (40 px): songs with a looped repeat and fade-out; selected + keyboard focus; empty; songs but no clips";

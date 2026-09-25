@@ -1,4 +1,12 @@
 import { Button, ComboBox, Switch, Slider, ProgressIndicator, ScrollView, TextEdit } from "std-widgets.slint";
+// The bundled text fonts, so the inline editor shows the same letters as
+// the rendered video (docs/ux/decisions/m5b-text-track.md).
+import "../../../assets/fonts/InterVariable.ttf";
+import "../../../assets/fonts/Montserrat.ttf";
+import "../../../assets/fonts/PlayfairDisplay.ttf";
+import "../../../assets/fonts/BebasNeue.ttf";
+import "../../../assets/fonts/DancingScript.ttf";
+import "../../../assets/fonts/Caveat.ttf";
 import { Shell } from "shell.slint";
 import { LibraryState } from "library.slint";
 import { Theme, Icons } from "theme.slint";
@@ -34,13 +42,29 @@ export struct TimelineClip {
     moving: bool,
     /// Keyboard focus (drawn only while the strip has keyboard focus).
     focused: bool,
-    /// Title card: drawn as its background colour with the first text line.
+    /// Colour card: drawn as its background colour.
     is-title: bool,
     title-bg: color,
-    title-text: string,
-    title-light: bool,
-    /// Carries a caption (badge).
-    has-caption: bool,
+}
+
+/// One text on the text lane (strip x scale).
+export struct TextBlockView {
+    index: int,
+    x: float,
+    width: float,
+    row: int,
+    title: string,
+    selected: bool,
+}
+
+/// A text visible at the playhead: its box as fractions of the picture.
+export struct PreviewText {
+    index: int,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    selected: bool,
 }
 
 /// One song block on the music lane (strip x scale).
@@ -94,12 +118,42 @@ export global EditorState {
     in-out property <bool> has-title-target;
     in-out property <int> title-background-index;
 
-    // Caption of the targets.
-    in-out property <string> caption-text;
-    /// Targets' captions differ (field shows a placeholder).
-    in-out property <bool> caption-mixed;
-    in-out property <int> caption-style-index;
-    in-out property <bool> caption-any;
+    // Text track (docs/ux/decisions/m5b-text-track.md).
+    in-out property <[TextBlockView]> text-blocks;
+    in-out property <int> text-rows: 1;
+    /// Width / height of the video frame (for the preview overlay).
+    in-out property <float> frame-aspect: 1.7778;
+    in-out property <[PreviewText]> preview-texts;
+    in-out property <bool> guide-vertical;
+    in-out property <bool> guide-horizontal;
+    /// Text being edited in place (-1: none) and how it looks.
+    in-out property <int> editing-index: -1;
+    in-out property <string> editing-text;
+    in-out property <string> editing-family;
+    /// Font size as a fraction of the picture's short side.
+    in-out property <float> editing-size: 0.06;
+    in-out property <color> editing-color;
+    in-out property <bool> editing-bold;
+    in-out property <bool> editing-italic;
+    in-out property <int> editing-align: 1;
+    // Text inspector (first selected text).
+    in-out property <int> text-selected-count;
+    in-out property <string> text-content;
+    in-out property <bool> text-mixed;
+    in-out property <int> text-font-index;
+    in-out property <float> text-size-percent: 6;
+    in-out property <bool> text-bold;
+    in-out property <bool> text-italic;
+    in-out property <int> text-align-index: 1;
+    in-out property <int> text-color-index;
+    in-out property <bool> text-box;
+    in-out property <int> text-box-color-index: 1;
+    in-out property <bool> text-shadow: true;
+    in-out property <float> text-duration: 4;
+    in-out property <int> text-enter-index: 1;
+    in-out property <float> text-enter-seconds: 0.5;
+    in-out property <int> text-exit-index: 1;
+    in-out property <float> text-exit-seconds: 0.5;
 
     // Music.
     in-out property <[SongBlockView]> song-blocks;
@@ -185,13 +239,37 @@ export global EditorState {
     callback save-project-as();
     callback export-start();
     callback export-cancel();
-    // Captions and titles.
-    callback caption-edited(string);
-    callback caption-committed();
-    callback caption-style-changed(int);
-    callback caption-fill-date();
-    callback caption-fill-name();
-    callback caption-remove();
+    // Texts.
+    callback add-text();
+    /// Lane press: text index, shift, ctrl/cmd, part (0 body, 1 left edge, 2 right edge), strip x.
+    callback text-lane-pressed(int, bool, bool, int, float);
+    callback text-lane-dragged(float);
+    callback text-lane-double-clicked(float);
+    /// End of a lane or preview drag.
+    callback text-released();
+    /// Preview press on a text or a handle (0 move, 1 left side, 2 right side, 3 corner) at picture fractions.
+    callback preview-text-pressed(int, int, float, float);
+    callback preview-text-dragged(float, float);
+    callback preview-background-pressed();
+    callback preview-text-double-clicked(int);
+    callback edit-selected-text();
+    callback inline-edit-finished();
+    callback text-typed(string);
+    callback text-typing-done();
+    /// Arrow keys with texts selected: direction and Shift.
+    callback text-nudge(int, int, bool);
+    callback text-font-changed(int);
+    callback text-size-changed(float);
+    callback text-bold-changed(bool);
+    callback text-italic-changed(bool);
+    callback text-align-changed(int);
+    callback text-color-changed(int);
+    callback text-box-changed(bool);
+    callback text-box-color-changed(int);
+    callback text-shadow-changed(bool);
+    callback text-duration-changed(float);
+    callback text-enter-changed(int, float);
+    callback text-exit-changed(int, float);
     callback title-background-changed(int);
     callback add-opening-title();
     callback add-closing-card();
@@ -224,7 +302,7 @@ export component ClipView inherits Rectangle {
     clip: true;
     animate background { duration: Theme.motion-fast; }
     accessible-role: list-item;
-    accessible-label: (root.item.is-title ? @tr("Title card: {}", root.item.title-text) : root.item.title) + ", " + root.item.duration-text + (root.item.muted ? ", " + @tr("Muted") : "") + (root.item.has-caption && !root.item.is-title ? ", " + @tr("Has a caption") : "");
+    accessible-label: (root.item.is-title ? @tr("Colour card") : root.item.title) + ", " + root.item.duration-text + (root.item.muted ? ", " + @tr("Muted") : "");
     accessible-item-selectable: true;
     accessible-item-selected: root.item.selected;
 
@@ -249,20 +327,6 @@ export component ClipView inherits Rectangle {
             vertical-stretch: 1;
             background: root.item.is-title ? root.item.title-bg : Theme.surface-canvas;
             clip: true;
-            // Title card: its colour and the first line of its text.
-            if root.item.is-title : Text {
-                x: Theme.space-s;
-                width: parent.width - 2 * Theme.space-s;
-                height: parent.height;
-                text: root.item.title-text;
-                color: root.item.title-light ? Theme.title-bg-black : Theme.title-bg-white;
-                font-size: Theme.font-secondary;
-                font-weight: Theme.weight-semibold;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                wrap: word-wrap;
-                overflow: elide;
-            }
             if root.item.has-thumb && !root.item.is-title : Image {
                 source: root.item.thumb;
                 image-fit: cover;
@@ -285,7 +349,7 @@ export component ClipView inherits Rectangle {
                 padding-left: Theme.space-s;
                 padding-right: Theme.space-s;
                 spacing: Theme.space-xs;
-                Text { text: root.item.is-title ? @tr("Title card") : root.item.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                Text { text: root.item.is-title ? @tr("Colour card") : root.item.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
                 Caption { text: root.item.duration-text; }
             }
         }
@@ -324,13 +388,6 @@ export component ClipView inherits Rectangle {
         y: Theme.space-s;
         icon: Icons.speaker-mute;
         label: @tr("Muted");
-    }
-    // Caption badge: next to the motion / mute badge (one slot further).
-    if root.item.has-caption && !root.item.is-title : Badge {
-        x: root.badge-x + ((root.item.moving || (root.item.is-video && root.item.muted)) ? Theme.control-height-s + Theme.space-xs : 0px);
-        y: Theme.space-s;
-        icon: Icons.closed-caption;
-        label: @tr("Has a caption");
     }
     // Trim handles (videos only): drag the edges to change in/out points.
     // Shown on hover so the affordance is discoverable without clutter.
@@ -404,6 +461,211 @@ export component ValueSlider inherits HorizontalLayout {
         width: 48px;
         horizontal-alignment: right;
         vertical-alignment: center;
+    }
+}
+
+/// Text lane above the clips (Premiere text track): one block per text on
+/// the strip's time scale; overlapping texts stack into rows. Drag a block
+/// to move it in time, its edges to trim; double-click empty space to add.
+export component TextLane inherits Rectangle {
+    in property <[TextBlockView]> blocks;
+    in property <int> rows: 1;
+    in property <length> row-height: 28px;
+    /// Visible width of the strip, so the empty hint stays in view.
+    in property <length> viewport-width;
+    height: root.rows * root.row-height;
+    background: Theme.surface-pane;
+    border-radius: Theme.radius-m;
+    border-width: 1px;
+    border-color: Theme.border;
+    accessible-role: list;
+    accessible-label: @tr("Text track");
+    // Empty space: a press scrubs (the strip handles it), a double-click adds.
+    TouchArea {
+        double-clicked => { EditorState.text-lane-double-clicked(self.mouse-x / 1px); }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                EditorState.scrub(self.mouse-x / 1px);
+            }
+        }
+    }
+    if root.blocks.length == 0 : HorizontalLayout {
+        x: 0;
+        width: min(parent.width, root.viewport-width);
+        padding-left: Theme.space-s;
+        spacing: Theme.space-s;
+        alignment: start;
+        Icon { source: Icons.text-t; size: Theme.icon-s; color: Theme.text-secondary; y: (parent.height - self.height) / 2; }
+        Caption { text: @tr("Double-click to add text"); vertical-alignment: center; }
+    }
+    for b in root.blocks : Rectangle {
+        x: b.x * 1px + 1px;
+        y: b.row * root.row-height + 2px;
+        width: max(b.width * 1px - 2px, 1px);
+        height: root.row-height - 4px;
+        border-radius: Theme.radius-s;
+        background: b.selected ? Theme.text-track.with-alpha(0.85) : Theme.text-track.with-alpha(body.has-hover ? 0.6 : 0.45);
+        border-width: b.selected ? 2px : 0;
+        border-color: Theme.selection;
+        clip: true;
+        accessible-role: list-item;
+        accessible-label: b.title;
+        accessible-item-selectable: true;
+        accessible-item-selected: b.selected;
+        HorizontalLayout {
+            padding-left: Theme.space-s;
+            padding-right: Theme.space-s;
+            spacing: Theme.space-xs;
+            Icon { source: Icons.text-t; size: Theme.icon-s; color: Theme.text; y: (parent.height - self.height) / 2; }
+            Text { text: b.title; color: Theme.text; font-size: Theme.font-caption; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; min-width: 0; }
+        }
+        body := TouchArea {
+            double-clicked => { EditorState.preview-text-double-clicked(b.index); }
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    EditorState.text-lane-pressed(b.index, e.modifiers.shift, e.modifiers.control || e.modifiers.meta, 0, b.x + self.mouse-x / 1px);
+                } else if e.kind == PointerEventKind.move && self.pressed {
+                    EditorState.text-lane-dragged(b.x + self.mouse-x / 1px);
+                } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    EditorState.text-released();
+                }
+            }
+        }
+        for edge[i] in [0, 1] : TouchArea {
+            x: edge == 0 ? 0 : parent.width - 8px;
+            width: 8px;
+            mouse-cursor: col-resize;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    EditorState.text-lane-pressed(b.index, false, false, edge + 1, b.x + self.x / 1px + self.mouse-x / 1px);
+                } else if e.kind == PointerEventKind.move && self.pressed {
+                    EditorState.text-lane-dragged(b.x + self.x / 1px + self.mouse-x / 1px);
+                } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    EditorState.text-released();
+                }
+            }
+            if b.selected || body.has-hover : Rectangle {
+                x: edge == 0 ? 0 : parent.width - 3px;
+                width: 3px;
+                background: Theme.text;
+                opacity: 0.6;
+            }
+        }
+    }
+}
+
+/// On-preview text editing (Canva / Keynote style): hit areas for the texts
+/// visible at the playhead, the selection box with side handles (wrap
+/// width) and corner handles (size), centre snap guides and the inline
+/// editor. Laid over the picture rectangle.
+export component TextOverlay inherits Rectangle {
+    /// The picture's size in the overlay (image-fit contain).
+    property <length> pic-w: min(root.width, root.height * EditorState.frame-aspect);
+    property <length> pic-h: root.pic-w / EditorState.frame-aspect;
+    property <length> pic-x: (root.width - root.pic-w) / 2;
+    property <length> pic-y: (root.height - root.pic-h) / 2;
+    property <length> handle: 10px;
+    // Empty picture space clears the text selection.
+    TouchArea {
+        x: root.pic-x;
+        y: root.pic-y;
+        width: root.pic-w;
+        height: root.pic-h;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                EditorState.preview-background-pressed();
+            }
+        }
+    }
+    if EditorState.guide-vertical : Rectangle {
+        x: root.pic-x + root.pic-w / 2;
+        y: root.pic-y;
+        width: 1px;
+        height: root.pic-h;
+        background: Theme.guide;
+    }
+    if EditorState.guide-horizontal : Rectangle {
+        x: root.pic-x;
+        y: root.pic-y + root.pic-h / 2;
+        width: root.pic-w;
+        height: 1px;
+        background: Theme.guide;
+    }
+    for t in EditorState.preview-texts : text-box := Rectangle {
+        x: root.pic-x + t.x * root.pic-w;
+        y: root.pic-y + t.y * root.pic-h;
+        width: t.width * root.pic-w;
+        height: t.height * root.pic-h;
+        property <bool> editing: t.index == EditorState.editing-index;
+        accessible-role: button;
+        accessible-label: @tr("Text on the preview");
+        // Hover outline shows what can be grabbed.
+        border-width: t.selected || editing ? 1px : (move.has-hover ? 1px : 0);
+        border-color: t.selected || editing ? Theme.selection : Theme.text.with-alpha(0.6);
+        move := TouchArea {
+            mouse-cursor: editing ? MouseCursor.text : MouseCursor.move;
+            enabled: !editing;
+            double-clicked => { EditorState.preview-text-double-clicked(t.index); }
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    EditorState.preview-text-pressed(t.index, 0, (parent.x - root.pic-x + self.mouse-x) / root.pic-w, (parent.y - root.pic-y + self.mouse-y) / root.pic-h);
+                } else if e.kind == PointerEventKind.move && self.pressed {
+                    EditorState.preview-text-dragged((parent.x - root.pic-x + self.mouse-x) / root.pic-w, (parent.y - root.pic-y + self.mouse-y) / root.pic-h);
+                } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    EditorState.text-released();
+                }
+            }
+        }
+        // Handles: corners scale (code 3), sides change the wrap width (1, 2).
+        for h[i] in (t.selected && !editing) ? [
+            { code: 3, fx: 0, fy: 0 }, { code: 3, fx: 1, fy: 0 }, { code: 3, fx: 0, fy: 1 }, { code: 3, fx: 1, fy: 1 },
+            { code: 1, fx: 0, fy: 0.5 }, { code: 2, fx: 1, fy: 0.5 },
+        ] : [] : Rectangle {
+            x: h.fx * parent.width - root.handle / 2;
+            y: h.fy * parent.height - root.handle / 2;
+            width: root.handle;
+            height: root.handle;
+            background: Theme.text;
+            border-width: 1px;
+            border-color: Theme.selection;
+            border-radius: Theme.radius-s / 2;
+            TouchArea {
+                mouse-cursor: h.code == 3 ? ((h.fx == h.fy) ? MouseCursor.nwse-resize : MouseCursor.nesw-resize) : MouseCursor.ew-resize;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        EditorState.preview-text-pressed(t.index, h.code, (text-box.x + parent.x - root.pic-x + self.mouse-x) / root.pic-w, (text-box.y + parent.y - root.pic-y + self.mouse-y) / root.pic-h);
+                    } else if e.kind == PointerEventKind.move && self.pressed {
+                        EditorState.preview-text-dragged((text-box.x + parent.x - root.pic-x + self.mouse-x) / root.pic-w, (text-box.y + parent.y - root.pic-y + self.mouse-y) / root.pic-h);
+                    } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                        EditorState.text-released();
+                    }
+                }
+            }
+        }
+        // Inline editor: same font, size, colour and alignment as the video.
+        if editing : editor := TextInput {
+            width: parent.width;
+            height: parent.height;
+            text <=> EditorState.editing-text;
+            font-family: EditorState.editing-family;
+            font-size: EditorState.editing-size * min(root.pic-w, root.pic-h);
+            font-weight: EditorState.editing-bold ? 700 : 400;
+            font-italic: EditorState.editing-italic;
+            color: EditorState.editing-color;
+            horizontal-alignment: EditorState.editing-align == 0 ? TextHorizontalAlignment.left : (EditorState.editing-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center);
+            vertical-alignment: center;
+            wrap: word-wrap;
+            single-line: false;
+            selection-background-color: Theme.selection-tint;
+            accessible-label: @tr("Text");
+            init => { self.focus(); self.select-all(); }
+            edited => { EditorState.text-typed(self.text); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { EditorState.inline-edit-finished(); return accept; }
+                return reject;
+            }
+            changed has-focus => { if !self.has-focus { EditorState.inline-edit-finished(); } }
+        }
     }
 }
 
@@ -500,7 +762,9 @@ export component TimelineStrip inherits Rectangle {
         scroll: -flick.content-x / 1px,
     };
     property <length> ruler-height: 24px;
-    property <length> clip-top: self.ruler-height + Theme.space-xs;
+    property <length> text-row-height: 28px;
+    property <length> text-top: self.ruler-height + Theme.space-xs;
+    property <length> clip-top: self.text-top + EditorState.text-rows * self.text-row-height + Theme.space-xs;
     property <length> clip-height: 100px;
     property <length> lane-top: self.clip-top + self.clip-height + Theme.space-xs;
     property <length> lane-height: Theme.bar-height;
@@ -592,6 +856,15 @@ export component TimelineStrip inherits Rectangle {
                     font-size: Theme.font-caption;
                 }
             }
+            TextLane {
+                x: 0;
+                y: root.text-top;
+                width: max(EditorState.strip-width * 1px, flick.width - Theme.space-s);
+                rows: EditorState.text-rows;
+                row-height: root.text-row-height;
+                blocks: EditorState.text-blocks;
+                viewport-width: flick.width;
+            }
             for clip in EditorState.clips : ClipView {
                 item: clip;
                 show-focus: clip.focused && strip-focus.has-focus && EditorState.focus-visible;
@@ -680,7 +953,7 @@ component Inspector inherits Rectangle {
     // selected; the clip inspector stays in the tree so `T` can reach the
     // transition picker.
     ScrollView {
-        visible: !EditorState.music-selected;
+        visible: !EditorState.music-selected && EditorState.text-selected-count == 0;
         VerticalLayout {
             padding: Theme.space-l;
             spacing: Theme.space-xl;
@@ -722,30 +995,6 @@ component Inspector inherits Rectangle {
                         EditorState.duration-changed(EditorState.duration-seconds);
                     }
                 }
-            }
-            if EditorState.clip-count > 0 : Section {
-                title: @tr("Caption");
-                TextEdit {
-                    height: 64px;
-                    wrap: word-wrap;
-                    text <=> EditorState.caption-text;
-                    placeholder-text: EditorState.caption-mixed ? @tr("Different captions") : @tr("Add a caption");
-                    accessible-label: @tr("Caption");
-                    edited(t) => { EditorState.caption-edited(t); }
-                    changed has-focus => { if !self.has-focus { EditorState.caption-committed(); } }
-                }
-                Caption { text: @tr("In the Title style a second line is shown smaller."); wrap: word-wrap; overflow: clip; }
-                ChoiceGroup {
-                    label: @tr("Caption style");
-                    compact: true;
-                    options: [@tr("Classic"), @tr("Banner"), @tr("Title"), @tr("Corner")];
-                    accessible-options: [@tr("Classic, at the bottom"), @tr("Banner, on a dark band"), @tr("Title, large in the centre"), @tr("Corner, small at the bottom left")];
-                    selected-index <=> EditorState.caption-style-index;
-                    changed(i) => { EditorState.caption-style-changed(i); }
-                }
-                ActionButton { text: @tr("Fill from date"); clicked => { EditorState.caption-fill-date(); } }
-                ActionButton { text: @tr("Fill from file name"); clicked => { EditorState.caption-fill-name(); } }
-                ActionButton { text: @tr("Remove captions"); icon: Icons.delete; enabled: EditorState.caption-any; clicked => { EditorState.caption-remove(); } }
             }
             if EditorState.has-title-target : Section {
                 title: @tr("Background");
@@ -868,6 +1117,162 @@ component Inspector inherits Rectangle {
                     enabled: EditorState.selected-count > 0;
                     clicked => { EditorState.delete-selected(); }
                 }
+            }
+        }
+    }
+    // Texts selected: the text inspector covers the clip inspector.
+    if EditorState.text-selected-count > 0 && !EditorState.music-selected : ScrollView {
+        VerticalLayout {
+            padding: Theme.space-l;
+            spacing: Theme.space-xl;
+            alignment: start;
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                Title { text: EditorState.text-selected-count == 1 ? @tr("Text") : @tr("{} texts selected", EditorState.text-selected-count); }
+                Caption { text: @tr("Drag it on the preview to move it; double-click to edit it there."); wrap: word-wrap; overflow: clip; }
+            }
+            Section {
+                title: @tr("Text");
+                TextEdit {
+                    height: 64px;
+                    wrap: word-wrap;
+                    text <=> EditorState.text-content;
+                    placeholder-text: EditorState.text-mixed ? @tr("Different texts") : "";
+                    accessible-label: @tr("Text");
+                    edited(t) => { EditorState.text-typed(t); }
+                    changed has-focus => { if !self.has-focus { EditorState.text-typing-done(); } }
+                }
+            }
+            Section {
+                title: @tr("Font");
+                ComboBox {
+                    height: Theme.control-height;
+                    model: ["Inter", "Montserrat", "Playfair Display", "Bebas Neue", "Dancing Script", "Caveat"];
+                    current-index <=> EditorState.text-font-index;
+                    selected => { EditorState.text-font-changed(self.current-index); }
+                    accessible-label: @tr("Font");
+                }
+                ValueSlider {
+                    minimum: 1.5;
+                    maximum: 30;
+                    step: 0.5;
+                    value <=> EditorState.text-size-percent;
+                    value-text: round(EditorState.text-size-percent * 10) / 10 + " %";
+                    label: @tr("Size");
+                    released(v) => { EditorState.text-size-changed(v); }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-s;
+                    alignment: start;
+                    IconButton {
+                        icon: Icons.text-bold;
+                        tooltip: @tr("Bold");
+                        checkable: true;
+                        checked <=> EditorState.text-bold;
+                        clicked => { EditorState.text-bold-changed(self.checked); }
+                    }
+                    IconButton {
+                        icon: Icons.text-italic;
+                        tooltip: @tr("Italic");
+                        checkable: true;
+                        checked <=> EditorState.text-italic;
+                        clicked => { EditorState.text-italic-changed(self.checked); }
+                    }
+                }
+                ChoiceGroup {
+                    label: @tr("Alignment");
+                    options: [@tr("Left"), @tr("Centre"), @tr("Right")];
+                    selected-index <=> EditorState.text-align-index;
+                    changed(i) => { EditorState.text-align-changed(i); }
+                }
+            }
+            Section {
+                title: @tr("Colour");
+                SwatchGroup {
+                    label: @tr("Text colour");
+                    compact: true;
+                    colors: Theme.text-colors;
+                    names: [@tr("White"), @tr("Black"), @tr("Yellow"), @tr("Orange"), @tr("Red"), @tr("Pink"), @tr("Blue"), @tr("Green")];
+                    selected-index <=> EditorState.text-color-index;
+                    changed(i) => { EditorState.text-color-changed(i); }
+                }
+                Switch {
+                    text: @tr("Shadow");
+                    checked <=> EditorState.text-shadow;
+                    toggled => { EditorState.text-shadow-changed(self.checked); }
+                }
+                Switch {
+                    text: @tr("Box behind text");
+                    checked <=> EditorState.text-box;
+                    toggled => { EditorState.text-box-changed(self.checked); }
+                }
+                if EditorState.text-box : SwatchGroup {
+                    label: @tr("Box colour");
+                    compact: true;
+                    colors: Theme.text-colors;
+                    names: [@tr("White"), @tr("Black"), @tr("Yellow"), @tr("Orange"), @tr("Red"), @tr("Pink"), @tr("Blue"), @tr("Green")];
+                    selected-index <=> EditorState.text-box-color-index;
+                    changed(i) => { EditorState.text-box-color-changed(i); }
+                }
+            }
+            Section {
+                title: @tr("Timing");
+                SecondaryText { text: @tr("Duration"); }
+                ValueSlider {
+                    minimum: 0.5;
+                    maximum: 30;
+                    step: 0.5;
+                    value <=> EditorState.text-duration;
+                    value-text: round(EditorState.text-duration * 10) / 10 + " s";
+                    label: @tr("Text duration");
+                    released(v) => { EditorState.text-duration-changed(v); }
+                }
+                Caption { text: @tr("Drag the text's block on the timeline to move it; drag its edges to change when it starts or ends."); wrap: word-wrap; overflow: clip; }
+            }
+            Section {
+                title: @tr("Animation in");
+                ComboBox {
+                    height: Theme.control-height;
+                    model: [@tr("None"), @tr("Fade"), @tr("Slide left"), @tr("Slide right"), @tr("Slide up"), @tr("Slide down"), @tr("Wipe left"), @tr("Wipe right"), @tr("Wipe up"), @tr("Wipe down"), @tr("Zoom")];
+                    current-index <=> EditorState.text-enter-index;
+                    selected => { EditorState.text-enter-changed(self.current-index, EditorState.text-enter-seconds); }
+                    accessible-label: @tr("Animation in");
+                }
+                ValueSlider {
+                    enabled: EditorState.text-enter-index != 0;
+                    minimum: 0.1;
+                    maximum: 3;
+                    step: 0.1;
+                    value <=> EditorState.text-enter-seconds;
+                    value-text: round(EditorState.text-enter-seconds * 10) / 10 + " s";
+                    label: @tr("Animation in duration");
+                    released(v) => { EditorState.text-enter-changed(EditorState.text-enter-index, v); }
+                }
+            }
+            Section {
+                title: @tr("Animation out");
+                ComboBox {
+                    height: Theme.control-height;
+                    model: [@tr("None"), @tr("Fade"), @tr("Slide left"), @tr("Slide right"), @tr("Slide up"), @tr("Slide down"), @tr("Wipe left"), @tr("Wipe right"), @tr("Wipe up"), @tr("Wipe down"), @tr("Zoom")];
+                    current-index <=> EditorState.text-exit-index;
+                    selected => { EditorState.text-exit-changed(self.current-index, EditorState.text-exit-seconds); }
+                    accessible-label: @tr("Animation out");
+                }
+                ValueSlider {
+                    enabled: EditorState.text-exit-index != 0;
+                    minimum: 0.1;
+                    maximum: 3;
+                    step: 0.1;
+                    value <=> EditorState.text-exit-seconds;
+                    value-text: round(EditorState.text-exit-seconds * 10) / 10 + " s";
+                    label: @tr("Animation out duration");
+                    released(v) => { EditorState.text-exit-changed(EditorState.text-exit-index, v); }
+                }
+            }
+            ActionButton {
+                text: EditorState.text-selected-count > 1 ? @tr("Remove {} texts", EditorState.text-selected-count) : @tr("Remove text");
+                icon: Icons.delete;
+                clicked => { EditorState.delete-selected(); }
             }
         }
     }
@@ -1028,6 +1433,15 @@ export component EditorPage inherits Rectangle {
             }
             if (event.modifiers.meta || event.modifiers.control) && event.text == "y" { EditorState.redo(); return accept; }
             // ↑/↓ and Alt+←/→ work anywhere in the editor and move focus into the strip.
+            // Texts selected: arrows nudge them, Enter edits in place.
+            if EditorState.text-selected-count > 0 {
+                if event.text == Key.LeftArrow { EditorState.text-nudge(-1, 0, event.modifiers.shift); return accept; }
+                if event.text == Key.RightArrow { EditorState.text-nudge(1, 0, event.modifiers.shift); return accept; }
+                if event.text == Key.UpArrow { EditorState.text-nudge(0, -1, event.modifiers.shift); return accept; }
+                if event.text == Key.DownArrow { EditorState.text-nudge(0, 1, event.modifiers.shift); return accept; }
+                if event.text == Key.Return { EditorState.edit-selected-text(); return accept; }
+            }
+            if (event.modifiers.meta || event.modifiers.control) && (event.text == "t" || event.text == "T") { EditorState.add-text(); return accept; }
             if strip.nav-key(event) { strip.focus-strip(); return accept; }
             if (event.modifiers.meta || event.modifiers.control) && event.text == "a" { EditorState.select-all(); return accept; }
             if event.text == Key.Delete || event.text == Key.Backspace { EditorState.delete-selected(); return accept; }
@@ -1062,6 +1476,7 @@ export component EditorPage inherits Rectangle {
                         }
                         IconButton { icon: Icons.arrow-undo; tooltip: Shell.macos ? @tr("Undo (⌘Z)") : @tr("Undo (Ctrl+Z)"); enabled: EditorState.can-undo; clicked => { EditorState.undo(); } }
                         IconButton { icon: Icons.arrow-redo; tooltip: Shell.macos ? @tr("Redo (⇧⌘Z)") : @tr("Redo (Ctrl+Shift+Z)"); enabled: EditorState.can-redo; clicked => { EditorState.redo(); } }
+                        IconButton { icon: Icons.text-t; tooltip: Shell.macos ? @tr("Add text (⌘T)") : @tr("Add text (Ctrl+T)"); clicked => { EditorState.add-text(); } }
                         BodyText {
                             text: EditorState.project-title + (EditorState.dirty ? " •" : "");
                             horizontal-stretch: 1;
@@ -1085,7 +1500,14 @@ export component EditorPage inherits Rectangle {
                         x: Theme.space-l;
                         y: Theme.space-l;
                     }
-                    if EditorState.clip-count == 0 : EmptyState {
+                    // WYSIWYG text editing over the picture.
+                    TextOverlay {
+                        width: parent.width - 2 * Theme.space-l;
+                        height: parent.height - 2 * Theme.space-l;
+                        x: Theme.space-l;
+                        y: Theme.space-l;
+                    }
+                    if EditorState.clip-count == 0 && EditorState.preview-texts.length == 0 : EmptyState {
                         width: min(parent.width, 480px);
                         x: (parent.width - self.width) / 2;
                         height: parent.height;

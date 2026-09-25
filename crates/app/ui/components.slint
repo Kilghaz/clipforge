@@ -562,9 +562,11 @@ export component SwatchGroup inherits HorizontalLayout {
     in property <[string]> names;
     in property <string> label;
     in property <bool> enabled: true;
+    /// Smaller cells and gaps, for eight colours in a narrow inspector.
+    in property <bool> compact;
     in-out property <int> selected-index;
     callback changed(int);
-    spacing: Theme.space-s;
+    spacing: root.compact ? Theme.space-xs : Theme.space-s;
     alignment: start;
     accessible-role: groupbox;
     accessible-label: root.label;
@@ -587,8 +589,8 @@ export component SwatchGroup inherits HorizontalLayout {
         }
     }
     for c[i] in root.colors : Rectangle {
-        width: Theme.control-height;
-        height: Theme.control-height;
+        width: root.compact ? Theme.control-height-s + Theme.space-xs : Theme.control-height;
+        height: self.width;
         property <bool> selected: i == root.selected-index;
         accessible-role: button;
         accessible-label: i < root.names.length ? root.names[i] : "";

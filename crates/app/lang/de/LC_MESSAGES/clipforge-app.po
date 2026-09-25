@@ -546,8 +546,6 @@ msgstr "Mediathek-Elemente"
 msgid "Timeline clips"
 msgstr "Clips in der Zeitleiste"
 
-msgid "Add a caption"
-msgstr "Beschriftung hinzufügen"
 
 msgid "Add closing card"
 msgstr "Abspann am Ende"
@@ -564,11 +562,7 @@ msgstr "{} Musikstücke zur Musik hinzugefügt"
 msgid "Background"
 msgstr "Hintergrund"
 
-msgid "Banner"
-msgstr "Band"
 
-msgid "Banner, on a dark band"
-msgstr "Band, auf dunklem Streifen"
 
 msgid "Black"
 msgstr "Schwarz"
@@ -576,29 +570,15 @@ msgstr "Schwarz"
 msgid "Blue"
 msgstr "Blau"
 
-msgid "Caption"
-msgstr "Beschriftung"
 
-msgid "Caption style"
-msgstr "Beschriftungsstil"
 
 msgid "Charcoal"
 msgstr "Anthrazit"
 
-msgid "Classic"
-msgstr "Klassisch"
 
-msgid "Classic, at the bottom"
-msgstr "Klassisch, unten"
 
-msgid "Corner"
-msgstr "Ecke"
 
-msgid "Corner, small at the bottom left"
-msgstr "Ecke, klein unten links"
 
-msgid "Different captions"
-msgstr "Unterschiedliche Beschriftungen"
 
 msgid "Drop songs here or"
 msgstr "Musik hier ablegen oder"
@@ -612,14 +592,8 @@ msgstr "Ausblenden"
 msgid "Fades"
 msgstr "Blenden"
 
-msgid "Fill from date"
-msgstr "Aus Datum füllen"
 
-msgid "Fill from file name"
-msgstr "Aus Dateiname füllen"
 
-msgid "Filled captions on {} clips"
-msgstr "Beschriftungen für {} Clips gefüllt"
 
 msgid "Fit slideshow to music"
 msgstr "Diashow an Musik anpassen"
@@ -627,14 +601,8 @@ msgstr "Diashow an Musik anpassen"
 msgid "Gives every photo the same duration so the slideshow is as long as the songs."
 msgstr "Gibt allen Fotos dieselbe Dauer, damit die Diashow so lang ist wie die Musik."
 
-msgid "Has a caption"
-msgstr "Hat eine Beschriftung"
 
-msgid "In the Title style a second line is shown smaller."
-msgstr "Im Stil „Titel“ wird eine zweite Zeile kleiner gezeigt."
 
-msgid "January,February,March,April,May,June,July,August,September,October,November,December"
-msgstr "Januar,Februar,März,April,Mai,Juni,Juli,August,September,Oktober,November,Dezember"
 
 msgid "Length"
 msgstr "Länge"
@@ -676,8 +644,6 @@ msgstr "Läuft unter der ganzen Diashow"
 msgid "Red"
 msgstr "Rot"
 
-msgid "Remove captions"
-msgstr "Beschriftungen entfernen"
 
 msgid "Remove song"
 msgstr "Musikstück entfernen"
@@ -688,20 +654,12 @@ msgstr "Musikstücke"
 msgid "The end"
 msgstr "Ende"
 
-msgid "Title"
-msgstr "Titel"
 
 msgid "Title background"
 msgstr "Titelhintergrund"
 
-msgid "Title card"
-msgstr "Titelkarte"
 
-msgid "Title card: {}"
-msgstr "Titelkarte: {}"
 
-msgid "Title, large in the centre"
-msgstr "Titel, groß in der Mitte"
 
 msgid "Titles"
 msgstr "Titel und Abspann"
@@ -709,11 +667,7 @@ msgstr "Titel und Abspann"
 msgid "White"
 msgstr "Weiß"
 
-msgid "{0} {1} {2}"
-msgstr "{0}. {1} {2}"
 
-msgid "{} clips have no date or file name and were left unchanged"
-msgstr "{} Clips haben kein Datum oder keinen Dateinamen und wurden nicht geändert"
 
 msgid "{} items skipped (not read yet or unreadable)"
 msgstr "{} Elemente übersprungen (noch nicht gelesen oder unlesbar)"
@@ -735,3 +689,120 @@ msgstr "Alle Musikstücke entfernen"
 
 msgid "Video and music add up to full volume: a video at 20 % leaves 80 % music."
 msgstr "Video und Musik ergeben zusammen die volle Lautstärke: Ein Video mit 20 % lässt 80 % Musik."
+
+msgid "Add text"
+msgstr "Text hinzufügen"
+
+msgid "Add text (Ctrl+T)"
+msgstr "Text hinzufügen (Strg+T)"
+
+msgid "Add text (⌘T)"
+msgstr "Text hinzufügen (⌘T)"
+
+msgid "Alignment"
+msgstr "Ausrichtung"
+
+msgid "Animation in"
+msgstr "Animation am Anfang"
+
+msgid "Animation in duration"
+msgstr "Dauer der Animation am Anfang"
+
+msgid "Animation out"
+msgstr "Animation am Ende"
+
+msgid "Animation out duration"
+msgstr "Dauer der Animation am Ende"
+
+msgid "Bold"
+msgstr "Fett"
+
+msgid "Box behind text"
+msgstr "Kasten hinter dem Text"
+
+msgid "Box colour"
+msgstr "Kastenfarbe"
+
+msgid "Centre"
+msgstr "Mitte"
+
+msgid "Colour"
+msgstr "Farbe"
+
+msgid "Colour card"
+msgstr "Farbfläche"
+
+msgid "Different texts"
+msgstr "Unterschiedliche Texte"
+
+msgid "Double-click to add text"
+msgstr "Doppelklicken, um Text hinzuzufügen"
+
+msgid "Drag it on the preview to move it; double-click to edit it there."
+msgstr "In der Vorschau ziehen zum Verschieben, doppelklicken zum Bearbeiten."
+
+msgid "Drag the text's block on the timeline to move it; drag its edges to change when it starts or ends."
+msgstr "Den Block des Textes in der Zeitleiste ziehen, um ihn zu verschieben; seine Kanten ziehen, um Anfang oder Ende zu ändern."
+
+msgid "Fade"
+msgstr "Blenden"
+
+msgid "Font"
+msgstr "Schrift"
+
+msgid "Green"
+msgstr "Grün"
+
+msgid "Italic"
+msgstr "Kursiv"
+
+msgid "Left"
+msgstr "Links"
+
+msgid "Orange"
+msgstr "Orange"
+
+msgid "Pink"
+msgstr "Pink"
+
+msgid "Remove text"
+msgstr "Text entfernen"
+
+msgid "Remove {} texts"
+msgstr "{} Texte entfernen"
+
+msgid "Right"
+msgstr "Rechts"
+
+msgid "Shadow"
+msgstr "Schatten"
+
+msgid "Size"
+msgstr "Größe"
+
+msgid "Text"
+msgstr "Text"
+
+msgid "Text colour"
+msgstr "Textfarbe"
+
+msgid "Text duration"
+msgstr "Textdauer"
+
+msgid "Text on the preview"
+msgstr "Text in der Vorschau"
+
+msgid "Text track"
+msgstr "Textspur"
+
+msgid "Timing"
+msgstr "Zeit"
+
+msgid "Yellow"
+msgstr "Gelb"
+
+msgid "Your text"
+msgstr "Dein Text"
+
+msgid "{} texts selected"
+msgstr "{} Texte ausgewählt"

@@ -50,14 +50,6 @@ pub(crate) fn date_time_utc(unix_ms: i64) -> String {
     )
 }
 
-/// Day, month (1–12) and year of a capture time, for date captions. UTC,
-/// like the rest of the capture times.
-#[must_use]
-pub(crate) fn civil_date(unix_ms: i64) -> (u32, u32, i64) {
-    let (y, m, d) = civil_from_days(unix_ms.div_euclid(1000).div_euclid(86_400));
-    (d, m, y)
-}
-
 /// Howard Hinnant's civil_from_days.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
@@ -109,13 +101,5 @@ mod tests {
         assert_eq!(date_time_utc(1_709_209_815_500), "2024-02-29 12:30");
         assert_eq!(date_time_utc(-1_000), "1969-12-31 23:59");
         assert_eq!(dimensions(4032, 3024), "4032 × 3024");
-    }
-
-    #[test]
-    fn caption_from_date_formats_per_language() {
-        // 2026-09-25 12:00 UTC; the layout itself is a translated string.
-        assert_eq!(civil_date(1_790_337_600_000), (25, 9, 2026));
-        assert_eq!(civil_date(0), (1, 1, 1970));
-        assert_eq!(civil_date(-1), (31, 12, 1969));
     }
 }

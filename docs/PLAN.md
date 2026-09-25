@@ -513,13 +513,16 @@ Kept short; the ADRs hold the reasoning.
   tracks; narration is not planned for v1. Songs play back to back from
   the start and always end with the show (fit = trim + fade out); "fit
   slideshow to music" changes photo durations.
-- **M5, titles:** opening title and closing card are title-card clips (solid
-  background + caption) on the video track rather than a separate
-  `TitleSet`, so they get transitions, durations, drag and delete for free
-  and can also be placed mid-show.
+- **M5, titles and captions:** a text track (`Project.texts`) instead of a
+  `TitleSet` and per-clip captions: texts have their own start and length,
+  sit anywhere in the frame, are edited on the preview (move, resize, type
+  in place) and animate in and out like clip transitions. Opening title and
+  closing card are a colour-card clip plus a text. (A first cut with
+  per-clip caption presets was replaced on request, 2026-09-25.)
 - **M5, text rendering:** parley + swash (already in the tree via Slint)
-  instead of `cosmic-text`, with one bundled font (Inter, OFL) so captions
-  look the same on every machine.
+  instead of `cosmic-text`, with six bundled OFL fonts (Inter, Montserrat,
+  Playfair Display, Bebas Neue, Dancing Script, Caveat) and no system fonts,
+  so texts look the same on every machine and in the export.
 - **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
   replaces the CPU compositor for preview and export; the CPU compositor is
   the fallback without a GPU and the reference in tests. Frames are still

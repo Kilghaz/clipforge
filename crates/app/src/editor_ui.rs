@@ -33,6 +33,7 @@ use crate::preview_worker::PreviewWorker;
 use crate::ui::{EditorState, MainWindow, TimelineClip};
 
 mod music_titles;
+mod texts;
 
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
 /// How long a status message stays in the transport bar.
@@ -155,9 +156,15 @@ struct Inner {
     export: Option<ExportRun>,
     /// The music lane is selected (the inspector shows the music).
     music_selected: bool,
-    /// Style for new captions (the caption style picker).
-    caption_style: clipforge_core::project::CaptionStyle,
     pending_songs: music_titles::PendingSongs,
+    /// Selected texts (exclusive with clips and music).
+    text_selection: Vec<clipforge_core::TextId>,
+    /// A text drag on the preview or the lane in progress.
+    text_drag: Option<texts::TextDrag>,
+    /// The text being edited in place on the preview.
+    editing_text: Option<clipforge_core::TextId>,
+    /// Lays texts out for hit boxes on the preview.
+    text_measure: clipforge_render::text::TextRenderer,
 }
 
 impl EditorController {
@@ -220,8 +227,11 @@ impl EditorController {
             trim: None,
             export: None,
             music_selected: false,
-            caption_style: clipforge_core::project::CaptionStyle::default(),
             pending_songs: music_titles::PendingSongs::default(),
+            text_selection: Vec::new(),
+            text_drag: None,
+            editing_text: None,
+            text_measure: clipforge_render::text::TextRenderer::new(),
         }));
 
         macro_rules! on {
@@ -283,13 +293,40 @@ impl EditorController {
         });
         on!(on_export_start, |i| i.export_start());
         on!(on_export_cancel, |i| i.export_cancel());
-        on!(on_caption_edited, |i, text| i.caption_edited(&text));
-        on!(on_caption_committed, |i| i.caption_committed());
-        on!(on_caption_style_changed, |i, idx| i
-            .caption_style_changed(idx));
-        on!(on_caption_fill_date, |i| i.caption_fill_date());
-        on!(on_caption_fill_name, |i| i.caption_fill_name());
-        on!(on_caption_remove, |i| i.caption_remove());
+        on!(on_add_text, |i| i.add_text());
+        on!(on_text_lane_pressed, |i, idx, shift, toggle, code, x| i
+            .text_lane_pressed(idx, shift, toggle, code, x));
+        on!(on_text_lane_dragged, |i, x| i.text_lane_dragged(x));
+        on!(on_text_released, |i| i.text_released());
+        on!(on_text_lane_double_clicked, |i, x| i
+            .text_lane_double_clicked(x));
+        on!(on_preview_text_pressed, |i, idx, code, nx, ny| i
+            .preview_text_pressed(idx, code, nx, ny));
+        on!(on_preview_text_dragged, |i, nx, ny| i
+            .preview_text_dragged(nx, ny));
+        on!(on_preview_background_pressed, |i| i
+            .preview_background_pressed());
+        on!(on_preview_text_double_clicked, |i, idx| i
+            .begin_inline_edit(idx));
+        on!(on_edit_selected_text, |i| i.edit_selected_text());
+        on!(on_inline_edit_finished, |i| i.end_inline_edit());
+        on!(on_text_typed, |i, text| i.text_typed(&text));
+        on!(on_text_typing_done, |i| i.text_typing_done());
+        on!(on_text_nudge, |i, dx, dy, large| i
+            .text_nudge(dx, dy, large));
+        on!(on_text_font_changed, |i, idx| i.text_font(idx));
+        on!(on_text_size_changed, |i, v| i.text_size(v));
+        on!(on_text_bold_changed, |i, on| i.text_bold(on));
+        on!(on_text_italic_changed, |i, on| i.text_italic(on));
+        on!(on_text_align_changed, |i, idx| i.text_align(idx));
+        on!(on_text_color_changed, |i, idx| i.text_color(idx));
+        on!(on_text_box_changed, |i, on| i.text_box(on));
+        on!(on_text_box_color_changed, |i, idx| i.text_box_color(idx));
+        on!(on_text_shadow_changed, |i, on| i.text_shadow(on));
+        on!(on_text_duration_changed, |i, v| i.text_duration(v));
+        on!(on_text_enter_changed, |i, idx, secs| i
+            .text_enter(idx, secs));
+        on!(on_text_exit_changed, |i, idx, secs| i.text_exit(idx, secs));
         on!(on_title_background_changed, |i, idx| i
             .title_background_changed(idx));
         on!(on_add_opening_title, |i| i.add_title(false));
@@ -362,6 +399,7 @@ impl Inner {
         match self.history.apply(&mut self.project, command) {
             Ok(()) => {
                 self.selection.retain_existing(&self.project.clips);
+                self.retain_text_selection();
                 self.dirty_since.get_or_insert_with(Instant::now);
                 self.sync_all();
             }
@@ -474,6 +512,7 @@ impl Inner {
 
     fn select_all(&mut self) {
         self.leave_music();
+        self.leave_texts();
         self.selection.select_all(&self.project.clips);
         self.sync_timeline();
     }
@@ -481,12 +520,19 @@ impl Inner {
     /// Escape: drop the selection (DESIGN.md §3 selection model).
     fn clear_selection(&mut self) {
         // Escape first cancels a gesture in progress (DESIGN.md §5).
-        if self.cancel_trim() {
+        if self.cancel_trim() || self.cancel_text_drag() {
+            return;
+        }
+        if self.editing_text.is_some() {
+            self.end_inline_edit();
+            self.sync_all();
             return;
         }
         self.leave_music();
+        self.leave_texts();
         self.selection.clear();
-        self.sync_timeline();
+        self.preview_dirty = true;
+        self.sync_all();
     }
 
     // ----- keyboard navigation (docs/ux/decisions/keyboard-navigation.md) --
@@ -602,6 +648,9 @@ impl Inner {
             self.remove_all_songs();
             return;
         }
+        if self.remove_selected_texts() {
+            return;
+        }
         let indices = self.selection.indices(&self.project.clips);
         if indices.is_empty() {
             return;
@@ -614,6 +663,7 @@ impl Inner {
     fn undo(&mut self) {
         if self.history.undo(&mut self.project).is_some() {
             self.selection.retain_existing(&self.project.clips);
+            self.retain_text_selection();
             self.dirty_since.get_or_insert_with(Instant::now);
             self.preview_dirty = true;
             self.sync_all();
@@ -623,6 +673,7 @@ impl Inner {
     fn redo(&mut self) {
         if self.history.redo(&mut self.project).is_some() {
             self.selection.retain_existing(&self.project.clips);
+            self.retain_text_selection();
             self.dirty_since.get_or_insert_with(Instant::now);
             self.preview_dirty = true;
             self.sync_all();
@@ -998,6 +1049,7 @@ impl Inner {
             return;
         };
         self.leave_music();
+        self.leave_texts();
         let already_selected = self
             .project
             .clips
@@ -1078,10 +1130,11 @@ impl Inner {
     // ----- transport --------------------------------------------------------
 
     fn scrub(&mut self, x: f32) {
-        if self.music_selected {
-            // A click on empty strip space leaves the music.
+        if self.music_selected || !self.text_selection.is_empty() {
+            // A click on empty strip space leaves the music and the texts.
             self.leave_music();
-            self.sync_timeline();
+            self.leave_texts();
+            self.sync_all();
         }
         let boxes = layout(&self.project.clips, self.pps);
         self.playhead = editor_view::time_at_x(&self.project.clips, &boxes, x);
@@ -1190,7 +1243,7 @@ impl Inner {
     // ----- sync to Slint ----------------------------------------------------
 
     fn sync_all(&mut self) {
-        self.snapshot = Arc::new(self.project.clone());
+        self.snapshot = Arc::new(self.preview_project());
         for m in self.project.media.values() {
             if m.kind == clipforge_core::RefKind::Video {
                 self.preview.register_video(m.id, &m.path);
@@ -1241,17 +1294,6 @@ impl Inner {
                     }
                     _ => slint::Color::default(),
                 },
-                title_text: SharedString::from(
-                    clip.caption
-                        .as_ref()
-                        .and_then(|c| c.text.lines().next())
-                        .unwrap_or_default(),
-                ),
-                title_light: clipforge_render::caption_on_light(clip),
-                has_caption: clip
-                    .caption
-                    .as_ref()
-                    .is_some_and(|c| !c.text.trim().is_empty()),
             });
         }
         // Reuse the model in place to avoid flicker.
@@ -1273,6 +1315,7 @@ impl Inner {
         self.sync_inspector();
         self.sync_transport();
         self.sync_music();
+        self.sync_texts();
     }
 
     fn strip_thumb(&mut self, id: MediaId) -> Option<slint::Image> {
@@ -1356,7 +1399,7 @@ impl Inner {
             s.set_muted(v.muted);
             s.set_volume_percent(f32::from(v.volume_percent));
         }
-        self.sync_captions();
+        self.sync_title_target();
     }
 
     fn sync_project(&self) {

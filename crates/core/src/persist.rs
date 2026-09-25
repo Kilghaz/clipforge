@@ -27,7 +27,10 @@ impl Project {
 
     /// Parses and validates a project file.
     pub fn from_json(json: &str) -> Result<Project, PersistError> {
-        let project: Project = serde_json::from_str(json)?;
+        let mut value: serde_json::Value = serde_json::from_str(json)?;
+        let captions = take_legacy_captions(&mut value);
+        let mut project: Project = serde_json::from_value(value)?;
+        captions_to_texts(&mut project, captions);
         if project.version > PROJECT_FORMAT_VERSION {
             return Err(PersistError::TooNew {
                 found: project.version,
@@ -37,6 +40,85 @@ impl Project {
         let project = migrate(project);
         project.validate().map_err(PersistError::Invalid)?;
         Ok(project)
+    }
+}
+
+/// A caption as the milestone-5 preview stored it on a clip.
+struct LegacyCaption {
+    clip: usize,
+    text: String,
+    style: String,
+}
+
+/// Removes `caption` from every clip (the field was replaced by the text
+/// track) and returns what was there.
+fn take_legacy_captions(value: &mut serde_json::Value) -> Vec<LegacyCaption> {
+    let mut out = Vec::new();
+    let Some(clips) = value.get_mut("clips").and_then(|c| c.as_array_mut()) else {
+        return out;
+    };
+    for (i, clip) in clips.iter_mut().enumerate() {
+        let Some(obj) = clip.as_object_mut() else {
+            continue;
+        };
+        let Some(caption) = obj.remove("caption") else {
+            continue;
+        };
+        let text = caption.get("text").and_then(|t| t.as_str()).unwrap_or("");
+        if text.trim().is_empty() {
+            continue;
+        }
+        out.push(LegacyCaption {
+            clip: i,
+            text: text.to_owned(),
+            style: caption
+                .get("style")
+                .and_then(|s| s.as_str())
+                .unwrap_or("classic")
+                .to_owned(),
+        });
+    }
+    out
+}
+
+/// Turns old per-clip captions into text items over the same span, with a
+/// look close to the old preset.
+fn captions_to_texts(project: &mut Project, captions: Vec<LegacyCaption>) {
+    use crate::text::{TextAlign, TextItem};
+    let places = crate::timeline::placements(&project.clips);
+    for c in captions {
+        let Some(place) = places.get(c.clip) else {
+            continue;
+        };
+        let mut t = TextItem::new(c.text, place.start, place.duration());
+        match c.style.as_str() {
+            "headline" => {
+                t.style.size = 1_000;
+                t.style.bold = true;
+            }
+            "banner" => {
+                t.y = 8_600;
+                t.width = 9_000;
+                t.style.size = 440;
+                t.style.shadow = false;
+                t.style.background = Some([0, 0, 0, 150]);
+            }
+            "corner" => {
+                t.x = 2_800;
+                t.y = 9_000;
+                t.width = 5_000;
+                t.style.size = 340;
+                t.style.align = TextAlign::Left;
+            }
+            _ => {
+                t.y = 8_500;
+                t.style.size = 520;
+                t.style.bold = true;
+            }
+        }
+        if t.validate().is_ok() {
+            project.texts.push(t);
+        }
     }
 }
 
@@ -123,5 +205,30 @@ mod tests {
             Project::from_json("{not json"),
             Err(PersistError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn old_captions_become_texts_on_load() {
+        let mut p = sample();
+        let m = p.media.values().next().unwrap().id;
+        Command::InsertClips {
+            entries: vec![(1, Clip::photo(m, Ticks::from_seconds(4)))],
+            media: vec![],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&p.to_json().unwrap()).unwrap();
+        value["clips"][1]["caption"] = serde_json::json!({"text": "Rome", "style": "banner"});
+        value["clips"][0]["caption"] = serde_json::json!({"text": "  ", "style": "classic"});
+        let back = Project::from_json(&value.to_string()).unwrap();
+        assert_eq!(back.texts.len(), 1, "empty captions are dropped");
+        let t = &back.texts[0];
+        assert_eq!(t.text, "Rome");
+        assert_eq!(
+            (t.start, t.duration),
+            (Ticks::from_seconds(3), Ticks::from_seconds(4))
+        );
+        assert!(t.style.background.is_some());
+        assert_eq!(back.clips, p.clips);
     }
 }

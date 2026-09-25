@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::music::Music;
 use crate::project::{
-    Caption, Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter,
-    TitleBackground, Transition,
+    Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, TitleBackground,
+    Transition,
 };
+use crate::text::TextItem;
 use crate::time::Ticks;
 
 /// Error for a command that cannot be applied to the current project.
@@ -31,6 +32,8 @@ pub enum CommandError {
     UnknownMedia,
     #[error("music settings are invalid: {0}")]
     InvalidMusic(String),
+    #[error("text is invalid: {0}")]
+    InvalidText(String),
 }
 
 /// Where a command's clips came from, for undo labels in the UI.
@@ -47,7 +50,7 @@ pub enum CommandLabel {
     Mute,
     Motion,
     Music,
-    Caption,
+    Text,
     Title,
     Settings,
 }
@@ -118,10 +121,18 @@ pub enum Command {
     SetSettings {
         settings: ProjectSettings,
     },
-    /// Sets (or with `None` removes) the caption of each listed clip. One
-    /// undo step for typing, style changes, auto-fill and removal.
-    SetCaptions {
-        entries: Vec<(usize, Option<Caption>)>,
+    /// Inserts text items so that each ends up at its index (ascending).
+    InsertTexts {
+        entries: Vec<(usize, TextItem)>,
+    },
+    /// Removes the text items at these indices.
+    RemoveTexts {
+        indices: Vec<usize>,
+    },
+    /// Replaces text items in place (move, resize, restyle, retime, edit).
+    /// One undo step for any number of items.
+    SetTexts {
+        entries: Vec<(usize, TextItem)>,
     },
     /// Sets the background of title cards.
     SetTitleBackground {
@@ -161,7 +172,9 @@ impl Command {
             Command::SetTransitionEach { .. } => CommandLabel::Transition,
             Command::SetSettings { .. } => CommandLabel::Settings,
             Command::SetMusic { .. } => CommandLabel::Music,
-            Command::SetCaptions { .. } => CommandLabel::Caption,
+            Command::InsertTexts { .. }
+            | Command::RemoveTexts { .. }
+            | Command::SetTexts { .. } => CommandLabel::Text,
             Command::SetTitleBackground { .. } => CommandLabel::Title,
             Command::Batch { commands } => commands
                 .first()
@@ -354,9 +367,66 @@ impl Command {
                 let before = std::mem::replace(&mut project.settings, settings);
                 Ok(Command::SetSettings { settings: before })
             }
-            Command::SetCaptions { entries } => set_each(project, &entries, |c, caption| {
-                c.caption.clone_from(caption)
-            }),
+            Command::InsertTexts { entries } => {
+                let mut sorted = entries;
+                sorted.sort_by_key(|(i, _)| *i);
+                for (_, t) in &sorted {
+                    t.validate().map_err(CommandError::InvalidText)?;
+                }
+                let mut indices = Vec::with_capacity(sorted.len());
+                for (i, t) in sorted {
+                    if i > project.texts.len() {
+                        // Roll back what was inserted so far.
+                        for &j in indices.iter().rev() {
+                            project.texts.remove(j);
+                        }
+                        return Err(CommandError::IndexOutOfRange {
+                            index: i,
+                            len: project.texts.len(),
+                        });
+                    }
+                    project.texts.insert(i, t);
+                    indices.push(i);
+                }
+                if let Err(e) = project.validate_texts() {
+                    for &j in indices.iter().rev() {
+                        project.texts.remove(j);
+                    }
+                    return Err(CommandError::InvalidText(e));
+                }
+                Ok(Command::RemoveTexts { indices })
+            }
+            Command::RemoveTexts { indices } => {
+                let indices = unique_sorted(&indices, project.texts.len())?;
+                let mut removed = Vec::with_capacity(indices.len());
+                for &i in indices.iter().rev() {
+                    removed.push((i, project.texts.remove(i)));
+                }
+                removed.reverse();
+                Ok(Command::InsertTexts { entries: removed })
+            }
+            Command::SetTexts { entries } => {
+                let indices: Vec<usize> = entries.iter().map(|(i, _)| *i).collect();
+                let indices = unique_sorted(&indices, project.texts.len())?;
+                for (_, t) in &entries {
+                    t.validate().map_err(CommandError::InvalidText)?;
+                }
+                let before: Vec<(usize, TextItem)> = indices
+                    .iter()
+                    .map(|&i| (i, project.texts[i].clone()))
+                    .collect();
+                for (i, t) in entries {
+                    project.texts[i] = t;
+                }
+                if let Err(e) = project.validate_texts() {
+                    for (i, t) in before {
+                        project.texts[i] = t;
+                    }
+                    return Err(CommandError::InvalidText(e));
+                }
+                Ok(Command::SetTexts { entries: before })
+            }
+
             Command::SetTitleBackground {
                 indices,
                 background,
@@ -927,9 +997,9 @@ mod tests {
 
     #[test]
     fn title_cards_need_no_media_and_take_a_duration() {
-        use crate::project::{CaptionStyle, TitleBackground};
+        use crate::project::TitleBackground;
         let mut p = project_with(2);
-        let title = Clip::title("Summer", TitleBackground::Blue, Ticks::from_seconds(3));
+        let title = Clip::title(TitleBackground::Blue, Ticks::from_seconds(3));
         Command::InsertClips {
             entries: vec![(0, title)],
             media: vec![],
@@ -938,10 +1008,6 @@ mod tests {
         .unwrap();
         assert!(p.validate().is_ok());
         assert!(p.clips[0].is_title() && p.clips[0].is_still());
-        assert_eq!(
-            p.clips[0].caption.as_ref().map(|c| c.style),
-            Some(CaptionStyle::Headline)
-        );
         Command::SetPhotoDuration {
             indices: vec![0, 1],
             duration: Ticks::from_seconds(5),
@@ -998,60 +1064,78 @@ mod tests {
     }
 
     #[test]
-    fn captions_are_set_per_clip_and_undo_in_one_step() {
-        use crate::project::{Caption, CaptionStyle};
-        let mut p = project_with(3);
+    fn texts_insert_edit_remove_and_undo() {
+        use crate::text::{TextItem, TextMotion};
+        let mut p = project_with(2);
         let original = p.clone();
-        let inv = Command::SetCaptions {
-            entries: vec![
-                (0, Some(Caption::new("Rome", CaptionStyle::Classic))),
-                (2, Some(Caption::new("Paris", CaptionStyle::Banner))),
-            ],
+        let a = TextItem::new("Rome", Ticks::ZERO, Ticks::from_seconds(2));
+        let b = TextItem::new("Paris", Ticks::SECOND, Ticks::from_seconds(2));
+        let undo_insert = Command::InsertTexts {
+            entries: vec![(0, a.clone()), (1, b.clone())],
         }
         .apply(&mut p)
         .unwrap();
-        assert_eq!(p.clips[0].caption.as_ref().unwrap().text, "Rome");
-        assert!(p.clips[1].caption.is_none());
-        assert_eq!(
-            p.clips[2].caption.as_ref().unwrap().style,
-            CaptionStyle::Banner
-        );
-        let remove = Command::SetCaptions {
-            entries: vec![(0, None)],
+        assert_eq!(p.texts.len(), 2);
+        let mut moved = p.texts[1].clone();
+        moved.x = 2_000;
+        moved.enter.kind = TextMotion::SlideLeft;
+        let undo_set = Command::SetTexts {
+            entries: vec![(1, moved)],
         }
         .apply(&mut p)
         .unwrap();
-        assert!(p.clips[0].caption.is_none());
-        remove.apply(&mut p).unwrap();
-        inv.apply(&mut p).unwrap();
+        assert_eq!(p.texts[1].x, 2_000);
+        let undo_remove = Command::RemoveTexts { indices: vec![0] }
+            .apply(&mut p)
+            .unwrap();
+        assert_eq!(p.texts.len(), 1);
+        assert_eq!(p.texts[0].text, "Paris");
+        undo_remove.apply(&mut p).unwrap();
+        undo_set.apply(&mut p).unwrap();
+        assert_eq!(p.texts, vec![a.clone(), b]);
+        undo_insert.apply(&mut p).unwrap();
         assert_eq!(p, original);
+        // Invalid items and duplicate ids are rejected without changes.
+        let mut bad = a.clone();
+        bad.duration = Ticks::ZERO;
         assert!(
-            Command::SetCaptions {
-                entries: vec![(9, None)]
+            Command::InsertTexts {
+                entries: vec![(0, bad)]
             }
             .apply(&mut p)
             .is_err()
         );
+        Command::InsertTexts {
+            entries: vec![(0, a.clone())],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert!(
+            Command::InsertTexts {
+                entries: vec![(1, a)]
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+        assert_eq!(p.texts.len(), 1);
     }
 
     #[test]
-    fn titles_and_captions_survive_a_save() {
-        use crate::project::{Caption, CaptionStyle, TitleBackground};
+    fn colour_cards_and_texts_survive_a_save() {
+        use crate::project::TitleBackground;
+        use crate::text::{Font, TextItem};
         let mut p = project_with(1);
         Command::InsertClips {
-            entries: vec![(
-                1,
-                Clip::title("The end", TitleBackground::Red, Ticks::SECOND),
-            )],
+            entries: vec![(1, Clip::title(TitleBackground::Red, Ticks::SECOND))],
             media: vec![],
         }
         .apply(&mut p)
         .unwrap();
-        Command::SetCaptions {
-            entries: vec![(
-                0,
-                Some(Caption::new("Line one\nLine two", CaptionStyle::Corner)),
-            )],
+        let mut t = TextItem::new("Line one\nLine two", Ticks::ZERO, Ticks::SECOND);
+        t.style.font = Font::Caveat;
+        t.style.background = Some([0, 0, 0, 128]);
+        Command::InsertTexts {
+            entries: vec![(0, t)],
         }
         .apply(&mut p)
         .unwrap();

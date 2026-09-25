@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::ids::MediaId;
 use crate::music::Music;
 use crate::settings::Aspect;
+use crate::text::{TextId, TextItem};
 use crate::time::{FrameRate, Ticks};
 
 /// Identity of a clip on the timeline. Survives reordering and undo.
@@ -275,60 +276,7 @@ impl Motion {
     }
 }
 
-/// Look of a caption or title text. Serialised names are stable.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CaptionStyle {
-    /// White text with a soft shadow, centred near the bottom.
-    #[default]
-    Classic,
-    /// Text on a dark translucent band across the bottom.
-    Banner,
-    /// Large bold text in the centre; further lines smaller. Title cards.
-    Headline,
-    /// Small text in the bottom-left corner.
-    Corner,
-}
-
-impl CaptionStyle {
-    pub const ALL: [CaptionStyle; 4] = [
-        CaptionStyle::Classic,
-        CaptionStyle::Banner,
-        CaptionStyle::Headline,
-        CaptionStyle::Corner,
-    ];
-
-    #[must_use]
-    pub fn index(self) -> usize {
-        Self::ALL.iter().position(|s| *s == self).unwrap_or(0)
-    }
-
-    #[must_use]
-    pub fn from_index(index: usize) -> CaptionStyle {
-        Self::ALL.get(index).copied().unwrap_or_default()
-    }
-}
-
-/// Text shown over a clip for as long as the clip is visible. Line breaks
-/// in `text` are kept.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Caption {
-    pub text: String,
-    #[serde(default)]
-    pub style: CaptionStyle,
-}
-
-impl Caption {
-    #[must_use]
-    pub fn new(text: impl Into<String>, style: CaptionStyle) -> Caption {
-        Caption {
-            text: text.into(),
-            style,
-        }
-    }
-}
-
-/// Background colour of a title card.
+/// Background colour of a colour card (title background).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TitleBackground {
@@ -404,8 +352,8 @@ pub enum ClipSource {
     Photo { duration: Ticks },
     /// A video trimmed to `in_point..out_point` of the source.
     Video { in_point: Ticks, out_point: Ticks },
-    /// A title card: a solid background for `duration`; the text is the
-    /// clip's caption.
+    /// A colour card: a solid background for `duration`, typically under an
+    /// opening title or closing text on the text track.
     Title {
         duration: Ticks,
         #[serde(default)]
@@ -433,9 +381,6 @@ pub struct Clip {
     /// Ken Burns movement. Only applied to photos.
     #[serde(default)]
     pub motion: Motion,
-    /// Text over the clip (the title of a title card).
-    #[serde(default)]
-    pub caption: Option<Caption>,
 }
 
 fn default_volume() -> u16 {
@@ -456,13 +401,12 @@ impl Clip {
             muted: false,
             volume_percent: 100,
             motion: Motion::None,
-            caption: None,
         }
     }
 
-    /// A title card showing `text` (headline style) on `background`.
+    /// A colour card on `background`.
     #[must_use]
-    pub fn title(text: impl Into<String>, background: TitleBackground, duration: Ticks) -> Clip {
+    pub fn title(background: TitleBackground, duration: Ticks) -> Clip {
         Clip {
             id: ClipId::new(),
             media: MediaId::NONE,
@@ -476,7 +420,6 @@ impl Clip {
             muted: false,
             volume_percent: 100,
             motion: Motion::None,
-            caption: Some(Caption::new(text, CaptionStyle::Headline)),
         }
     }
 
@@ -496,7 +439,6 @@ impl Clip {
             muted: false,
             volume_percent: 100,
             motion: Motion::None,
-            caption: None,
         }
     }
 
@@ -591,6 +533,9 @@ pub struct Project {
     /// Background music.
     #[serde(default)]
     pub music: Music,
+    /// The text track; later items are drawn on top.
+    #[serde(default)]
+    pub texts: Vec<TextItem>,
 }
 
 impl Default for Project {
@@ -602,6 +547,7 @@ impl Default for Project {
             media: BTreeMap::new(),
             clips: Vec::new(),
             music: Music::default(),
+            texts: Vec::new(),
         }
     }
 }
@@ -671,7 +617,28 @@ impl Project {
         if ids.len() != self.clips.len() {
             return Err("duplicate clip ids".to_owned());
         }
-        self.validate_music()
+        self.validate_music()?;
+        self.validate_texts()
+    }
+
+    /// Checks the text track alone.
+    pub fn validate_texts(&self) -> Result<(), String> {
+        for (i, t) in self.texts.iter().enumerate() {
+            t.validate().map_err(|e| format!("text {i}: {e}"))?;
+        }
+        let mut ids: Vec<TextId> = self.texts.iter().map(|t| t.id).collect();
+        ids.sort();
+        ids.dedup();
+        if ids.len() != self.texts.len() {
+            return Err("duplicate text ids".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Index of the text with `id`.
+    #[must_use]
+    pub fn text_index(&self, id: TextId) -> Option<usize> {
+        self.texts.iter().position(|t| t.id == id)
     }
 
     /// Checks the music track alone (used by `SetMusic`).

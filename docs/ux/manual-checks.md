@@ -189,19 +189,27 @@ Things CI cannot verify. Run before tagging a milestone.
       the export has the same mix.
 - [ ] "Fit slideshow to music" makes the show as long as the songs (videos
       and title cards keep their length); the read-out shows the two lengths.
-- [ ] Captions: typing updates the preview live; one Cmd/Ctrl+Z undoes the
-      whole typing session; a multi-selection with different captions shows
-      "Different captions". Style chips change all selected captions.
-- [ ] "Fill from date" writes e.g. "25 September 2026" (German "25.
-      September 2026"); clips without a date are reported and left alone.
-      "Fill from file name" drops the extension. "Remove captions" clears.
-- [ ] Captions move with their clip through slides and wipes; a letterboxed
-      portrait photo keeps its caption on the photo.
-- [ ] "Add opening title" inserts a selected title card at the start with
-      the project name (or "My slideshow"); "Add closing card" appends "The
-      end". The inspector shows Duration, Caption and Background; the
-      swatches change the card colour; framing and motion are hidden.
-- [ ] A title card can be dragged, deleted, given a transition and a
-      duration preset like a photo; the timeline shows its colour and text.
+- [ ] Text track: the toolbar T button, Cmd/Ctrl+T, Edit → Add text and a
+      double-click on the empty text lane add "Your text" at the playhead,
+      selected, with the text field open on the preview; typing replaces it.
+- [ ] On the preview: drag a text to move it (snaps to the centre lines with
+      a guide), side handles change its width, corner handles its size;
+      each drag is one undo step and Escape during a drag puts it back.
+      Double-click (or Enter) edits in place with the same font; Escape or a
+      click outside ends editing; one Cmd/Ctrl+Z undoes the typing session.
+- [ ] Arrows nudge the selected text; Delete removes it; clicking empty
+      preview space deselects.
+- [ ] On the text lane: drag a text block to move it in time, its edges to
+      trim it; overlapping texts stack into rows.
+- [ ] Inspector: text, font (six fonts look different), size, bold, italic,
+      alignment, colour, shadow, box behind text and its colour, duration,
+      animation in and out (fade, slides, wipes, zoom) all update the preview
+      at once and apply to all selected texts.
+- [ ] Texts animate in the export exactly as in the preview; texts stay on
+      top of clip transitions.
+- [ ] Opening a project saved with captions shows them as texts.
+- [ ] "Add opening title" inserts a black colour card and a large text over
+      it with the text field open; "Add closing card" does it at the end.
+      Colour cards take a background colour and hide framing and motion.
 - [ ] German: every new string translated; song counts say "Musikstücke";
       nothing is cut off in the inspector at 900 px.

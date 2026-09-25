@@ -27,13 +27,15 @@ The UI icons in `assets/fluent/` are a subset of Microsoft's Fluent UI
 System Icons, MIT licence (`assets/fluent/LICENSE.txt`). Attribution is
 shown in Settings → About. Regenerate with `cargo xtask fluent-icons`.
 
-## Inter (caption and title font)
+## Text fonts
 
-Captions and title cards are drawn with Inter by Rasmus Andersson
-(`assets/fonts/InterVariable.ttf`, v4.1), SIL Open Font License 1.1
-(`assets/fonts/OFL.txt`). The font is embedded in the binary; the OFL
-allows bundling it with software as long as the licence travels with it
-and the font is not sold on its own.
+Texts are drawn with six fonts embedded in the binary, all under the SIL
+Open Font License 1.1 (licence texts next to the files in `assets/fonts/`):
+Inter by Rasmus Andersson (`InterVariable.ttf`, v4.1, `OFL-inter.txt`),
+Montserrat, Playfair Display, Bebas Neue, Dancing Script and Caveat (from
+the Google Fonts repository, `OFL-<name>.txt`). The OFL allows bundling
+them with software as long as the licence travels with them and the fonts
+are not sold on their own.
 
 ## FFmpeg
 

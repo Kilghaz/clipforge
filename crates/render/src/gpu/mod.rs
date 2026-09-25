@@ -30,7 +30,7 @@ use crate::frame::Frame;
 use crate::layout::place;
 use crate::quality::RenderQuality;
 use crate::source::{SourceImage, SourceProvider};
-use crate::text::{Area, CaptionImage, TextRenderer};
+use crate::text::{TextImage, TextRenderer, text_draw};
 use crate::transition::{ease, opening_colour};
 use crate::{FrameRenderer, PLACEHOLDER_RGB};
 
@@ -78,12 +78,12 @@ struct CachedVideo {
     frame: Arc<Vec<u8>>,
 }
 
-/// Captions uploaded recently; the `Arc` identifies the rendered image
-/// (the text renderer hands out the same `Arc` for the same caption).
-const CAPTION_TEXTURES: usize = 8;
+/// Text blocks uploaded recently; the `Arc` identifies the rendered image
+/// (the text renderer hands out the same `Arc` for the same text).
+const TEXT_TEXTURES: usize = 16;
 
 struct State {
-    captions: Vec<(Arc<CaptionImage>, Sampled)>,
+    text_textures: Vec<(Arc<TextImage>, Sampled)>,
     stills: HashMap<(MediaId, u32, u32), CachedStill>,
     videos: HashMap<MediaId, CachedVideo>,
     still_bytes: u64,
@@ -256,7 +256,7 @@ impl GpuCompositor {
             sampler,
             uniforms,
             state: Mutex::new(State {
-                captions: Vec::new(),
+                text_textures: Vec::new(),
                 stills: HashMap::new(),
                 videos: HashMap::new(),
                 still_bytes: 0,
@@ -477,17 +477,27 @@ impl GpuCompositor {
         [make("clip a"), make("clip b"), make("output")]
     }
 
-    /// Records one pass: clear to `clear`, then the paints in order.
+    /// Records one pass: clear to `clear` (or keep the target with `None`),
+    /// then the paints in order.
     fn pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         size: (u32, u32),
-        clear: [u8; 3],
+        clear: Option<[u8; 3]>,
         paints: &[Paint<'_>],
         slot: &mut u64,
     ) {
         let colour = |c: u8| f64::from(c) / 255.0;
+        let load = match clear {
+            Some(clear) => wgpu::LoadOp::Clear(wgpu::Color {
+                r: colour(clear[0]),
+                g: colour(clear[1]),
+                b: colour(clear[2]),
+                a: 1.0,
+            }),
+            None => wgpu::LoadOp::Load,
+        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("compose"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -495,12 +505,7 @@ impl GpuCompositor {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: colour(clear[0]),
-                        g: colour(clear[1]),
-                        b: colour(clear[2]),
-                        a: 1.0,
-                    }),
+                    load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -628,13 +633,57 @@ impl GpuCompositor {
         }
     }
 
-    /// Bind group of an uploaded caption, uploading it on first use.
-    fn caption_texture(&self, state: &mut State, img: &Arc<CaptionImage>) -> wgpu::BindGroup {
-        if let Some(pos) = state.captions.iter().position(|(i, _)| Arc::ptr_eq(i, img)) {
+    /// The text track over the finished frame in target 2.
+    fn draw_texts(
+        &self,
+        state: &mut State,
+        project: &Project,
+        t: Ticks,
+        (w, h): (u32, u32),
+        encoder: &mut wgpu::CommandEncoder,
+        slot: &mut u64,
+    ) {
+        let mut draws = Vec::new();
+        for item in project.texts.iter().filter(|i| i.visible_at(t)) {
+            let Some(img) = self.text.image(item, (w, h)) else {
+                continue;
+            };
+            let Some(d) = text_draw(item, &img, t, (w, h)) else {
+                continue;
+            };
+            let bg = self.text_texture(state, &img);
+            draws.push((bg, d));
+        }
+        if draws.is_empty() {
+            return;
+        }
+        let Some((_, targets)) = state.targets.as_ref() else {
+            return;
+        };
+        let paints: Vec<Paint<'_>> = draws
+            .iter()
+            .map(|(bg, d)| Paint::Texture {
+                bind_group: bg,
+                dst: d.dst,
+                rotate: Quarter::None,
+                alpha: d.alpha,
+                scissor: d.clip.map(|c| scissor_of(c, w, h)),
+            })
+            .collect();
+        self.pass(encoder, &targets[2].view, (w, h), None, &paints, slot);
+    }
+
+    /// Bind group of an uploaded text block, uploading it on first use.
+    fn text_texture(&self, state: &mut State, img: &Arc<TextImage>) -> wgpu::BindGroup {
+        if let Some(pos) = state
+            .text_textures
+            .iter()
+            .position(|(i, _)| Arc::ptr_eq(i, img))
+        {
             // Most recently used last.
-            let entry = state.captions.remove(pos);
+            let entry = state.text_textures.remove(pos);
             let bg = entry.1.bind_group.clone();
-            state.captions.push(entry);
+            state.text_textures.push(entry);
             return bg;
         }
         let sampled = self.upload(
@@ -646,10 +695,10 @@ impl GpuCompositor {
             false,
         );
         let bg = sampled.bind_group.clone();
-        if state.captions.len() >= CAPTION_TEXTURES {
-            state.captions.remove(0);
+        if state.text_textures.len() >= TEXT_TEXTURES {
+            state.text_textures.remove(0);
         }
-        state.captions.push((Arc::clone(img), sampled));
+        state.text_textures.push((Arc::clone(img), sampled));
         bg
     }
 
@@ -835,9 +884,10 @@ impl FrameRenderer for GpuCompositor {
         sources: &dyn SourceProvider,
     ) -> Frame {
         let (w, h) = quality.frame_size(project.settings.aspect);
-        let Some(at) = clipforge_core::timeline::frame_at(&project.clips, t) else {
+        let at = clipforge_core::timeline::frame_at(&project.clips, t);
+        if at.is_none() && !project.texts.iter().any(|i| i.visible_at(t)) {
             return Frame::black(w, h);
-        };
+        }
         let Ok(mut guard) = self.state.lock() else {
             return Frame::black(w, h);
         };
@@ -877,20 +927,6 @@ impl FrameRenderer for GpuCompositor {
             let source = self
                 .source(state, clip, local, want_edge, sources)
                 .map(|s| (s.size, s.bind_group.clone()));
-            let area = source.as_ref().map_or(Area::full(w, h), |(size, _)| {
-                Area::of_picture(*size, clip.rotate, (w, h), clip.fit)
-            });
-            let caption = clip
-                .caption
-                .as_ref()
-                .and_then(|c| {
-                    self.text
-                        .caption(c, (w, h), area, crate::caption_on_light(clip))
-                })
-                .map(|img| {
-                    let bg = self.caption_texture(state, &img);
-                    (img, bg)
-                });
             let Some((_, targets)) = state.targets.as_ref() else {
                 return;
             };
@@ -913,101 +949,100 @@ impl FrameRenderer for GpuCompositor {
                     scissor: None,
                 });
             }
-            if let Some((img, bg)) = &caption {
-                paints.push(Paint::Texture {
-                    bind_group: bg,
-                    dst: RectF {
-                        x: f64::from(img.x),
-                        y: f64::from(img.y),
-                        width: f64::from(img.width),
-                        height: f64::from(img.height),
+            self.pass(encoder, view, (w, h), Some(clear), &paints, slot);
+        };
+
+        if let Some(at) = at {
+            let (cur_idx, cur_local) = at.current;
+            let current = &project.clips[cur_idx];
+            let kind = current.transition_in.kind;
+            let opening = if cur_idx == 0 {
+                opening_overlap(&project.clips)
+            } else {
+                Ticks::ZERO
+            };
+            // (from, progress, kind to draw); `from` None = the opening colour
+            // of the clip's own transition (a fade from a colour is a dissolve).
+            let blend: Option<(BlendFrom, f32, TransitionKind)> = if let Some(out) = at.outgoing {
+                Some((Some(out), at.progress, kind))
+            } else if opening > Ticks::ZERO && cur_local < opening {
+                #[allow(clippy::cast_precision_loss)]
+                let p = cur_local.flicks() as f32 / opening.flicks() as f32;
+                Some((
+                    None,
+                    p,
+                    if kind.is_fade() {
+                        TransitionKind::CrossDissolve
+                    } else {
+                        kind
                     },
-                    rotate: Quarter::None,
-                    alpha: 1.0,
-                    scissor: None,
-                });
-            }
-            self.pass(encoder, view, (w, h), clear, &paints, slot);
-        };
+                ))
+            } else {
+                None
+            };
+            let opening_rgb = opening_colour(kind);
 
-        let (cur_idx, cur_local) = at.current;
-        let current = &project.clips[cur_idx];
-        let kind = current.transition_in.kind;
-        let opening = if cur_idx == 0 {
-            opening_overlap(&project.clips)
-        } else {
-            Ticks::ZERO
-        };
-        // (from, progress, kind to draw); `from` None = the opening colour
-        // of the clip's own transition (a fade from a colour is a dissolve).
-        let blend: Option<(BlendFrom, f32, TransitionKind)> = if let Some(out) = at.outgoing {
-            Some((Some(out), at.progress, kind))
-        } else if opening > Ticks::ZERO && cur_local < opening {
-            #[allow(clippy::cast_precision_loss)]
-            let p = cur_local.flicks() as f32 / opening.flicks() as f32;
-            Some((
-                None,
-                p,
-                if kind.is_fade() {
-                    TransitionKind::CrossDissolve
-                } else {
-                    kind
-                },
-            ))
-        } else {
-            None
-        };
-        let opening_rgb = opening_colour(kind);
-
-        match blend {
-            None => draw_clip(state, current, cur_local, 2, &mut encoder, &mut slot),
-            Some((from, p, draw_kind)) => {
-                // `to` into A, `from` into B (or a solid colour).
-                draw_clip(state, current, cur_local, 0, &mut encoder, &mut slot);
-                let from_rgb = match from {
-                    Some((i, local)) => {
-                        draw_clip(state, &project.clips[i], local, 1, &mut encoder, &mut slot);
-                        None
-                    }
-                    None => Some(opening_rgb),
-                };
-                let Some((_, targets)) = state.targets.as_ref() else {
-                    return Frame::black(w, h);
-                };
-                let full = RectF {
-                    x: 0.0,
-                    y: 0.0,
-                    width: f64::from(w),
-                    height: f64::from(h),
-                };
-                let to = |dst: RectF, alpha: f32, scissor: Option<Scissor>| Paint::Texture {
-                    bind_group: &targets[0].bind_group,
-                    dst,
-                    rotate: Quarter::None,
-                    alpha,
-                    scissor,
-                };
-                let from_paint = |dst: RectF| match from_rgb {
-                    Some(rgb) => Paint::Solid { rgb, alpha: 1.0 },
-                    None => Paint::Texture {
-                        bind_group: &targets[1].bind_group,
+            match blend {
+                None => draw_clip(state, current, cur_local, 2, &mut encoder, &mut slot),
+                Some((from, p, draw_kind)) => {
+                    // `to` into A, `from` into B (or a solid colour).
+                    draw_clip(state, current, cur_local, 0, &mut encoder, &mut slot);
+                    let from_rgb = match from {
+                        Some((i, local)) => {
+                            draw_clip(state, &project.clips[i], local, 1, &mut encoder, &mut slot);
+                            None
+                        }
+                        None => Some(opening_rgb),
+                    };
+                    let Some((_, targets)) = state.targets.as_ref() else {
+                        return Frame::black(w, h);
+                    };
+                    let full = RectF {
+                        x: 0.0,
+                        y: 0.0,
+                        width: f64::from(w),
+                        height: f64::from(h),
+                    };
+                    let to = |dst: RectF, alpha: f32, scissor: Option<Scissor>| Paint::Texture {
+                        bind_group: &targets[0].bind_group,
                         dst,
                         rotate: Quarter::None,
-                        alpha: 1.0,
-                        scissor: None,
-                    },
-                };
-                let paints = transition_paints(draw_kind, p, w, h, full, &to, &from_paint);
-                self.pass(
-                    &mut encoder,
-                    &targets[2].view,
-                    (w, h),
-                    [0, 0, 0],
-                    &paints,
-                    &mut slot,
-                );
+                        alpha,
+                        scissor,
+                    };
+                    let from_paint = |dst: RectF| match from_rgb {
+                        Some(rgb) => Paint::Solid { rgb, alpha: 1.0 },
+                        None => Paint::Texture {
+                            bind_group: &targets[1].bind_group,
+                            dst,
+                            rotate: Quarter::None,
+                            alpha: 1.0,
+                            scissor: None,
+                        },
+                    };
+                    let paints = transition_paints(draw_kind, p, w, h, full, &to, &from_paint);
+                    self.pass(
+                        &mut encoder,
+                        &targets[2].view,
+                        (w, h),
+                        Some([0, 0, 0]),
+                        &paints,
+                        &mut slot,
+                    );
+                }
             }
+        } else if let Some((_, targets)) = state.targets.as_ref() {
+            // Past the clips: black under the text track.
+            self.pass(
+                &mut encoder,
+                &targets[2].view,
+                (w, h),
+                Some([0, 0, 0]),
+                &[],
+                &mut slot,
+            );
         }
+        self.draw_texts(state, project, t, (w, h), &mut encoder, &mut slot);
         self.queue.submit(Some(encoder.finish()));
         let Some((_, targets)) = state.targets.take() else {
             return Frame::black(w, h);
@@ -1020,6 +1055,17 @@ impl FrameRenderer for GpuCompositor {
     fn name(&self) -> &str {
         "gpu"
     }
+}
+
+/// A frame-pixel rectangle as a scissor, clamped to the frame. Pixel
+/// centres decide, like the CPU path.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn scissor_of(c: RectF, w: u32, h: u32) -> Scissor {
+    let x0 = (c.x - 0.5).ceil().clamp(0.0, f64::from(w)) as u32;
+    let y0 = (c.y - 0.5).ceil().clamp(0.0, f64::from(h)) as u32;
+    let x1 = (c.x + c.width - 0.5).ceil().clamp(0.0, f64::from(w)) as u32;
+    let y1 = (c.y + c.height - 0.5).ceil().clamp(0.0, f64::from(h)) as u32;
+    (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
 }
 
 /// The draws of a transition pass (same timing as `transition::apply`).

@@ -1,5 +1,9 @@
 # Decisions: music and titles (Milestone 5)
 
+> **Superseded in part (2026-09-25):** captions, caption styles, fill from
+> date / file name and title-card text were replaced by the text track —
+> see `m5b-text-track.md`. Music decisions below still apply.
+
 Written with `/ux-prepare` before implementation; `/ux-review` checks
 against it.
 

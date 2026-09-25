@@ -17,16 +17,9 @@ export global Strings {
     out property <string> added-clips: @tr("Added {} items to the timeline", self.count);
     out property <string> skipped-items: @tr("{} items skipped (not read yet or unreadable)", self.count);
     out property <string> added-songs: @tr("Added {} songs to the music", self.count);
-    out property <string> filled-captions: @tr("Filled captions on {} clips", self.count);
-    out property <string> captions-skipped: @tr("{} clips have no date or file name and were left unchanged", self.count);
-    /// Month names, January first, comma separated (for date captions).
-    out property <string> month-names: @tr("January,February,March,April,May,June,July,August,September,October,November,December");
-    /// Date caption from day, month name and year (German "25. September 2026").
-    in-out property <string> date-day;
-    in-out property <string> date-month;
-    in-out property <string> date-year;
-    out property <string> caption-date: @tr("{0} {1} {2}", self.date-day, self.date-month, self.date-year);
     out property <string> opening-title: @tr("My slideshow");
+    /// Placeholder of a new text (selected, so typing replaces it).
+    out property <string> new-text: @tr("Your text");
     out property <string> closing-title: @tr("The end");
     out property <string> ffmpeg-missing: @tr("ffmpeg was not found. Install it or place it next to the app.");
     out property <string> shuffled-transitions: @tr("Shuffled transitions on {} clips", self.count);
@@ -85,6 +78,7 @@ export component MainWindow inherits Window {
             MenuItem { title: @tr("Select all clips"); enabled: EditorState.clip-count > 0; activated => { EditorState.select-all(); } }
             MenuItem { title: @tr("Remove selected clips"); enabled: EditorState.selected-count > 0; activated => { EditorState.delete-selected(); } }
             MenuSeparator {}
+            MenuItem { title: @tr("Add text"); activated => { EditorState.add-text(); } }
             MenuItem { title: @tr("Add opening title"); activated => { EditorState.add-opening-title(); } }
             MenuItem { title: @tr("Add closing card"); activated => { EditorState.add-closing-card(); } }
             MenuItem { title: @tr("Add music…"); activated => { EditorState.add-music(); } }

@@ -32,4 +32,9 @@ Rationale for the grid and timeline keys:
 | Tab to the music lane, Enter / Space | Select the music (the inspector shows the playlist and music settings) | M5 |
 | Delete (music selected) | Remove all songs (one undo step) | M5 |
 | ← → ↑ ↓, Home / End | Title background swatches: move the selection | M5 |
-| (typing in the caption field) | Letters, Space, Delete and arrows edit the text; editor shortcuts wait until the field loses focus | M5 |
+| Cmd/Ctrl+T | Add a text at the playhead (selected, typing replaces the placeholder) | M5 |
+| ← → ↑ ↓ (texts selected) | Nudge the selected texts by 0.5 % of the frame; Shift: 5 % | M5 |
+| Enter (one text selected) | Edit the text in place on the preview | M5 |
+| Esc (editing / dragging a text) | End editing / put the dragged text back | M5 |
+| Delete (texts selected) | Remove the selected texts (one undo step) | M5 |
+| (typing in a text field) | Letters, Space, Delete and arrows edit the text; editor shortcuts wait until the field loses focus | M5 |
