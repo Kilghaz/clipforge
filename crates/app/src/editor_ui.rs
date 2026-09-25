@@ -1472,8 +1472,14 @@ impl Inner {
                 // Audio first: it is small and lets ffmpeg mux in one pass.
                 let wav_path = output.with_extension("clipforge-audio.wav");
                 let audio = if clipforge_export::audio::has_audio(&project) {
-                    let samples = clipforge_export::audio::mix(&project, &sources);
-                    match clipforge_export::audio::write_wav(&wav_path, &samples) {
+                    let token = ctx.token.clone();
+                    let keep_going = move || !token.is_cancelled();
+                    match clipforge_export::audio::write_mix(
+                        &wav_path,
+                        &project,
+                        &sources,
+                        &keep_going,
+                    ) {
                         Ok(()) => Some(wav_path.clone()),
                         Err(e) => {
                             warn!(error = %e, "could not write audio mix; exporting without sound");

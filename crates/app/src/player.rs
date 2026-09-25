@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use clipforge_core::project::ClipSource;
-use clipforge_core::timeline::placements;
+use clipforge_core::timeline::total_duration;
 use clipforge_core::{MediaId, Project, Ticks};
+use clipforge_export::audio::{AudioSourceFactory, AudioStream, Mixer};
 use clipforge_media::{
     AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AudioReader, FfmpegCli, MediaInfo, VideoReader,
 };
@@ -147,40 +147,31 @@ fn fetch_loop(
     }
 }
 
-/// A segment of timeline audio: which file, from where, how loud.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AudioSegment {
-    pub media: MediaId,
-    pub source_start: Ticks,
-    pub length: Ticks,
-    pub gain: f32,
+/// True if playing from `from` would make any sound.
+pub(crate) fn audible_from(project: &Project, from: Ticks) -> bool {
+    from < total_duration(&project.clips) && clipforge_export::audio::has_audio(project)
 }
 
-/// Audio to play from timeline time `from` onwards, in order. Only the
-/// clip that owns each instant contributes (no cross-fades in preview).
-pub(crate) fn audio_segments(project: &Project, from: Ticks) -> Vec<AudioSegment> {
-    let clips = &project.clips;
-    let places = placements(clips);
-    let mut out = Vec::new();
-    for (i, clip) in clips.iter().enumerate() {
-        let ClipSource::Video { in_point, .. } = clip.source else {
-            continue;
-        };
-        let p = places[i];
-        // A clip owns [start, next.start) so overlaps go to the incoming clip.
-        let own_end = places.get(i + 1).map_or(p.end, |n| n.start.max(p.start));
-        if own_end <= from || clip.gain() <= 0.0 {
-            continue;
-        }
-        let begin = from.max(p.start);
-        out.push(AudioSegment {
-            media: clip.media,
-            source_start: in_point + (begin - p.start),
-            length: own_end - begin,
-            gain: clip.gain(),
-        });
+/// Opens preview audio streams with the ffmpeg sidecar.
+struct ReaderFactory {
+    cli: FfmpegCli,
+    paths: HashMap<MediaId, std::path::PathBuf>,
+}
+
+impl AudioSourceFactory for ReaderFactory {
+    fn open(&self, media: MediaId, start: Ticks) -> Option<Box<dyn AudioStream>> {
+        let path = self.paths.get(&media)?;
+        let reader = AudioReader::open(&self.cli, path, start).ok()?;
+        Some(Box::new(ReaderStream(reader)))
     }
-    out
+}
+
+struct ReaderStream(AudioReader);
+
+impl AudioStream for ReaderStream {
+    fn read(&mut self, buf: &mut [f32]) -> usize {
+        self.0.read(buf).unwrap_or(0)
+    }
 }
 
 struct AudioOutput {
@@ -236,71 +227,51 @@ impl AudioOutput {
         }
     }
 
-    fn start_feeder(
-        &mut self,
-        cli: FfmpegCli,
-        paths: HashMap<MediaId, std::path::PathBuf>,
-        segments: Vec<AudioSegment>,
-    ) {
+    fn start_feeder(&mut self, factory: ReaderFactory, project: Project, from: Ticks) {
         self.stop_feeder();
         let stop = Arc::new(AtomicBool::new(false));
         self.feeder_stop = Arc::clone(&stop);
         let ring = Arc::clone(&self.ring);
         self.feeder = std::thread::Builder::new()
             .name("clipforge-audio-feed".into())
-            .spawn(move || feed_loop(&stop, &ring, &cli, &paths, &segments))
+            .spawn(move || feed_loop(&stop, &ring, &factory, &project, from))
             .ok();
     }
 }
 
+/// Mixes the timeline from `from` into the ring, staying at most
+/// `RING_FRAMES` ahead of the output.
 fn feed_loop(
     stop: &AtomicBool,
     ring: &Mutex<VecDeque<f32>>,
-    cli: &FfmpegCli,
-    paths: &HashMap<MediaId, std::path::PathBuf>,
-    segments: &[AudioSegment],
+    factory: &ReaderFactory,
+    project: &Project,
+    from: Ticks,
 ) {
+    let mut mixer = Mixer::new(project, factory, from);
     let mut buf = vec![0.0f32; 2048 * AUDIO_CHANNELS];
-    for seg in segments {
+    loop {
         if stop.load(Ordering::SeqCst) {
             return;
         }
-        let Some(path) = paths.get(&seg.media) else {
-            continue;
-        };
-        let Ok(mut reader) = AudioReader::open(cli, path, seg.source_start) else {
-            continue;
-        };
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let mut remaining = (seg.length.as_seconds_f64() * f64::from(AUDIO_SAMPLE_RATE))
-            .round()
-            .max(0.0) as usize;
-        while remaining > 0 {
-            if stop.load(Ordering::SeqCst) {
-                return;
-            }
-            // Wait for room in the ring.
-            let room = {
-                let r = ring
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                RING_FRAMES.saturating_sub(r.len() / AUDIO_CHANNELS)
-            };
-            if room < 1024 {
-                std::thread::sleep(Duration::from_millis(5));
-                continue;
-            }
-            let want = remaining.min(room).min(2048) * AUDIO_CHANNELS;
-            let n = reader.read(&mut buf[..want]).unwrap_or(0);
-            if n == 0 {
-                break;
-            }
-            let mut r = ring
+        let room = {
+            let r = ring
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            r.extend(buf[..n].iter().map(|v| v * seg.gain));
-            remaining -= n / AUDIO_CHANNELS;
+            RING_FRAMES.saturating_sub(r.len() / AUDIO_CHANNELS)
+        };
+        if room < 1024 {
+            std::thread::sleep(Duration::from_millis(5));
+            continue;
         }
+        let want = room.min(2048) * AUDIO_CHANNELS;
+        let n = mixer.fill(&mut buf[..want]);
+        if n == 0 {
+            return;
+        }
+        ring.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(&buf[..n]);
     }
 }
 
@@ -377,8 +348,7 @@ impl Player {
     /// Starts audio for the timeline from `from`.
     pub(crate) fn play_audio(&self, project: &Project, from: Ticks) {
         let Some(cli) = self.cli.clone() else { return };
-        let segments = audio_segments(project, from);
-        if segments.is_empty() {
+        if !audible_from(project, from) {
             self.stop_audio();
             return;
         }
@@ -398,7 +368,7 @@ impl Player {
                 .values()
                 .map(|m| (m.id, m.path.clone()))
                 .collect();
-            out.start_feeder(cli, paths, segments);
+            out.start_feeder(ReaderFactory { cli, paths }, project.clone(), from);
         }
     }
 
@@ -414,7 +384,7 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clipforge_core::project::{MediaRef, RefKind, Transition, TransitionKind};
+    use clipforge_core::project::{ClipSource, MediaRef, RefKind, Transition, TransitionKind};
     use clipforge_core::{Clip, Command};
 
     fn project() -> Project {
@@ -454,35 +424,16 @@ mod tests {
     }
 
     #[test]
-    fn segments_start_mid_clip_and_hand_over_at_transitions() {
-        let p = project();
-        // clips: [0,2) [2,4) [3,5) with the third pulled 1 s left.
-        let segs = audio_segments(&p, Ticks::from_millis(500));
-        assert_eq!(segs.len(), 3);
-        assert_eq!(segs[0].source_start, Ticks::from_millis(1_500));
-        assert_eq!(segs[0].length, Ticks::from_millis(1_500));
-        assert_eq!(segs[1].source_start, Ticks::from_seconds(1));
-        assert_eq!(
-            segs[1].length,
-            Ticks::SECOND,
-            "second clip stops when the third starts"
-        );
-        assert_eq!(segs[2].length, Ticks::from_seconds(2));
-        assert!((segs[0].gain - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn muted_clips_and_past_clips_are_skipped() {
+    fn audio_plays_only_where_something_sounds() {
         let mut p = project();
+        assert!(audible_from(&p, Ticks::ZERO));
+        assert!(!audible_from(&p, Ticks::from_seconds(10)), "past the end");
         Command::SetMuted {
-            indices: vec![0],
+            indices: vec![0, 1, 2],
             muted: true,
         }
         .apply(&mut p)
         .unwrap();
-        let segs = audio_segments(&p, Ticks::from_seconds(2));
-        assert_eq!(segs.len(), 2);
-        assert_eq!(segs[0].media, p.clips[1].media);
-        assert!(audio_segments(&p, Ticks::from_seconds(10)).is_empty());
+        assert!(!audible_from(&p, Ticks::ZERO));
     }
 }

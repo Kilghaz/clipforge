@@ -193,6 +193,46 @@ mod tests {
         assert_eq!(s.cache.lock().unwrap().len(), 1);
     }
 
+    /// Music path: a real song under photos, looped past its end.
+    #[test]
+    fn mixes_a_real_song_under_photos() {
+        if FfmpegLocation::discover().is_none() {
+            eprintln!("ffmpeg not installed; skipping");
+            return;
+        }
+        let photo = media_ref(fixture("photo_landscape.jpg"));
+        let mut song = media_ref(fixture("audio_stereo.m4a"));
+        song.kind = RefKind::Audio;
+        song.duration = Some(Ticks::from_seconds(3));
+        let mut p = Project::new();
+        Command::InsertClips {
+            entries: vec![(0, Clip::photo(photo.id, Ticks::from_seconds(4)))],
+            media: vec![photo],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let music = clipforge_core::Music {
+            songs: vec![clipforge_core::Song::new(song.id)],
+            fade_out: Ticks::ZERO,
+            ..clipforge_core::Music::default()
+        };
+        Command::SetMusic {
+            music,
+            media: vec![song],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let sources = FileSources::for_project(&p, Backends::discover());
+        let samples = crate::audio::mix(&p, &sources);
+        assert_eq!(samples.len(), 4 * 48_000 * 2);
+        let rms = |range: std::ops::Range<usize>| {
+            let s = &samples[range.start * 96_000..range.end * 96_000];
+            (s.iter().map(|v| f64::from(*v).powi(2)).sum::<f64>() / s.len() as f64).sqrt()
+        };
+        assert!(rms(1..2) > 0.05, "song plays: {}", rms(1..2));
+        assert!(rms(3..4) > 0.05, "and loops: {}", rms(3..4));
+    }
+
     /// Video path: a trimmed clip with its audio, through readers, mix and ffmpeg.
     #[test]
     fn exports_a_trimmed_video_clip_with_audio() {
