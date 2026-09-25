@@ -72,6 +72,59 @@ pub fn total_duration(clips: &[Clip]) -> Ticks {
     placements(clips).last().map_or(Ticks::ZERO, |p| p.end)
 }
 
+/// Shortest photo duration "fit to length" hands out.
+pub const MIN_FIT_PHOTO: Ticks = Ticks::from_millis(500);
+
+/// One duration for every photo so the show lasts `target` (as close as
+/// the transition caps allow; videos keep their length). `None` when there
+/// are no photos. Clamped to [`MIN_FIT_PHOTO`] when the videos alone are
+/// already longer than `target`.
+#[must_use]
+pub fn fit_photo_duration(clips: &[Clip], target: Ticks) -> Option<Ticks> {
+    if !clips.iter().any(Clip::is_photo) {
+        return None;
+    }
+    let with = |d: Ticks| -> Ticks {
+        let trial: Vec<Clip> = clips
+            .iter()
+            .map(|c| {
+                let mut c = c.clone();
+                if c.is_photo() {
+                    c.source = crate::project::ClipSource::Photo { duration: d };
+                }
+                c
+            })
+            .collect();
+        total_duration(&trial)
+    };
+    // The total grows monotonically with the photo duration: bisect on
+    // whole milliseconds for the largest duration not exceeding `target`.
+    let ms = Ticks::from_millis(1);
+    let (mut lo, mut hi) = (MIN_FIT_PHOTO.flicks() / ms.flicks(), 1i64);
+    if with(MIN_FIT_PHOTO) >= target {
+        return Some(MIN_FIT_PHOTO);
+    }
+    while with(Ticks::from_millis(hi)) < target {
+        hi *= 2;
+        if hi > 1_000_000_000 {
+            return None;
+        }
+    }
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if with(Ticks::from_millis(mid)) <= target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    // Pick whichever neighbour lands closer to the target.
+    let (a, b) = (Ticks::from_millis(lo), Ticks::from_millis(hi));
+    let da = (target - with(a)).flicks().abs();
+    let db = (with(b) - target).flicks().abs();
+    Some(if db < da { b } else { a })
+}
+
 /// What is visible at `t`: the clip that owns the instant and, during a
 /// transition, the outgoing clip with the transition progress in `0..1`.
 #[derive(Clone, Debug, PartialEq)]
@@ -233,6 +286,57 @@ mod tests {
         assert_eq!(
             frame_at(&clips, Ticks::ZERO).unwrap().current,
             (0, Ticks::ZERO)
+        );
+    }
+
+    #[test]
+    fn fit_photo_duration_hits_the_target_around_videos_and_overlaps() {
+        use crate::project::ClipSource;
+        let video = Clip {
+            source: ClipSource::Video {
+                in_point: Ticks::ZERO,
+                out_point: Ticks::from_seconds(6),
+            },
+            ..photo(1)
+        };
+        let clips = vec![
+            photo(4),
+            with_dissolve(photo(4), 1000),
+            video,
+            with_dissolve(photo(4), 1000),
+        ];
+        let target = Ticks::from_seconds(60);
+        let d = fit_photo_duration(&clips, target).unwrap();
+        let fitted: Vec<Clip> = clips
+            .iter()
+            .map(|c| {
+                let mut c = c.clone();
+                if c.is_photo() {
+                    c.source = ClipSource::Photo { duration: d };
+                }
+                c
+            })
+            .collect();
+        let total = total_duration(&fitted);
+        assert!(
+            (total - target).flicks().abs() <= Ticks::from_millis(2).flicks(),
+            "{total}"
+        );
+        // (60 - 6 + 2 overlaps of 1 s) / 3 photos = 18.667 s
+        assert!((d.as_seconds_f64() - 18.667).abs() < 0.01, "{d}");
+    }
+
+    #[test]
+    fn fit_photo_duration_edge_cases() {
+        assert_eq!(fit_photo_duration(&[], Ticks::SECOND), None);
+        let short = vec![photo(4), photo(4)];
+        assert_eq!(
+            fit_photo_duration(&short, Ticks::from_millis(100)),
+            Some(MIN_FIT_PHOTO)
+        );
+        assert_eq!(
+            fit_photo_duration(&short, Ticks::from_seconds(10)),
+            Some(Ticks::from_seconds(5))
         );
     }
 

@@ -11,6 +11,7 @@
 pub mod command;
 pub mod history;
 pub mod ids;
+pub mod music;
 pub mod persist;
 pub mod project;
 pub mod settings;
@@ -21,6 +22,7 @@ pub mod timeline;
 pub use command::{Command, CommandError, CommandLabel};
 pub use history::History;
 pub use ids::MediaId;
+pub use music::{Music, Song, SongId};
 pub use project::{
     Clip, ClipId, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, RefKind,
     Transition, TransitionKind,

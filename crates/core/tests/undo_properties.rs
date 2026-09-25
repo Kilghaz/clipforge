@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clipforge_core::{
-    Clip, Command, Fit, History, MediaId, MediaRef, Motion, Project, ProjectSettings, Quarter,
-    RefKind, Ticks, Transition, TransitionKind,
+    Clip, Command, Fit, History, MediaId, MediaRef, Motion, Music, Project, ProjectSettings,
+    Quarter, RefKind, Song, Ticks, Transition, TransitionKind,
 };
 use proptest::prelude::*;
 
@@ -60,6 +60,7 @@ enum Op {
     Motion(Vec<u8>, u8),
     ShuffleTransitions(Vec<u8>, u64),
     ShuffleMotion(Vec<u8>, u64),
+    Music(u8, u8, bool, bool),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -77,6 +78,8 @@ fn op() -> impl Strategy<Value = Op> {
         (idx.clone(), 0u8..7).prop_map(|(i, m)| Op::Motion(i, m)),
         (idx.clone(), any::<u64>()).prop_map(|(i, s)| Op::ShuffleTransitions(i, s)),
         (idx, any::<u64>()).prop_map(|(i, s)| Op::ShuffleMotion(i, s)),
+        (0u8..4, 0u8..=200, any::<bool>(), any::<bool>())
+            .prop_map(|(n, v, l, d)| Op::Music(n, v, l, d)),
     ]
 }
 
@@ -217,6 +220,17 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
                 entries: clipforge_core::shuffle::motions(&idx, *seed),
             }
         }
+        Op::Music(songs, volume, looped, duck) => Command::SetMusic {
+            music: Music {
+                songs: (0..*songs).map(|_| Song::new(photo_id)).collect(),
+                volume_percent: u16::from(*volume),
+                fade_in: Ticks::from_millis(i64::from(*volume) * 10),
+                looped: *looped,
+                duck: *duck,
+                ..Music::default()
+            },
+            media: vec![],
+        },
     })
 }
 

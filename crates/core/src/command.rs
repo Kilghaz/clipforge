@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::music::Music;
 use crate::project::{
     Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, Transition,
 };
@@ -27,6 +28,8 @@ pub enum CommandError {
     NotApplicable { index: usize, reason: &'static str },
     #[error("clip references unknown media")]
     UnknownMedia,
+    #[error("music settings are invalid: {0}")]
+    InvalidMusic(String),
 }
 
 /// Where a command's clips came from, for undo labels in the UI.
@@ -42,6 +45,7 @@ pub enum CommandLabel {
     Trim,
     Mute,
     Motion,
+    Music,
     Settings,
 }
 
@@ -111,6 +115,12 @@ pub enum Command {
     SetSettings {
         settings: ProjectSettings,
     },
+    /// Replaces the music track (songs and their settings). `media` is
+    /// merged into the project's media table first.
+    SetMusic {
+        music: Music,
+        media: Vec<MediaRef>,
+    },
     /// Replays several commands as one undo step.
     Batch {
         commands: Vec<Command>,
@@ -137,6 +147,7 @@ impl Command {
             Command::SetMotion { .. } | Command::SetMotionEach { .. } => CommandLabel::Motion,
             Command::SetTransitionEach { .. } => CommandLabel::Transition,
             Command::SetSettings { .. } => CommandLabel::Settings,
+            Command::SetMusic { .. } => CommandLabel::Music,
             Command::Batch { commands } => commands
                 .first()
                 .map_or(CommandLabel::Settings, Command::label),
@@ -321,6 +332,20 @@ impl Command {
             Command::SetSettings { settings } => {
                 let before = std::mem::replace(&mut project.settings, settings);
                 Ok(Command::SetSettings { settings: before })
+            }
+            Command::SetMusic { music, media } => {
+                for m in media {
+                    project.media.insert(m.id, m);
+                }
+                let before = std::mem::replace(&mut project.music, music);
+                if let Err(e) = project.validate_music() {
+                    project.music = before;
+                    return Err(CommandError::InvalidMusic(e));
+                }
+                Ok(Command::SetMusic {
+                    music: before,
+                    media: Vec::new(),
+                })
             }
             Command::Batch { commands } => {
                 let mut inverses = Vec::with_capacity(commands.len());

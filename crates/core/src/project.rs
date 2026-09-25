@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::ids::MediaId;
+use crate::music::Music;
 use crate::settings::Aspect;
 use crate::time::{FrameRate, Ticks};
 
@@ -448,6 +449,9 @@ pub struct Project {
     pub media: BTreeMap<MediaId, MediaRef>,
     #[serde(default)]
     pub clips: Vec<Clip>,
+    /// Background music.
+    #[serde(default)]
+    pub music: Music,
 }
 
 impl Default for Project {
@@ -458,6 +462,7 @@ impl Default for Project {
             settings: ProjectSettings::default(),
             media: BTreeMap::new(),
             clips: Vec::new(),
+            music: Music::default(),
         }
     }
 }
@@ -479,10 +484,14 @@ impl Project {
         self.clips.iter().position(|c| c.id == id)
     }
 
-    /// Drops media references no clip uses any more.
+    /// Drops media references no clip or song uses any more.
     pub fn prune_media(&mut self) {
-        let used: std::collections::BTreeSet<MediaId> =
-            self.clips.iter().map(|c| c.media).collect();
+        let used: std::collections::BTreeSet<MediaId> = self
+            .clips
+            .iter()
+            .map(|c| c.media)
+            .chain(self.music.songs.iter().map(|s| s.media))
+            .collect();
         self.media.retain(|id, _| used.contains(id));
     }
 
@@ -520,6 +529,29 @@ impl Project {
         ids.dedup();
         if ids.len() != self.clips.len() {
             return Err("duplicate clip ids".to_owned());
+        }
+        self.validate_music()
+    }
+
+    /// Checks the music track alone (used by `SetMusic`).
+    pub fn validate_music(&self) -> Result<(), String> {
+        let music = &self.music;
+        for (i, song) in music.songs.iter().enumerate() {
+            if !self.media.contains_key(&song.media) {
+                return Err(format!("song {i} references unknown media {}", song.media));
+            }
+        }
+        let mut ids: Vec<crate::music::SongId> = music.songs.iter().map(|s| s.id).collect();
+        ids.sort();
+        ids.dedup();
+        if ids.len() != music.songs.len() {
+            return Err("duplicate song ids".to_owned());
+        }
+        if music.volume_percent > Music::MAX_VOLUME {
+            return Err("music volume out of range".to_owned());
+        }
+        if music.fade_in < Ticks::ZERO || music.fade_out < Ticks::ZERO {
+            return Err("negative music fade".to_owned());
         }
         Ok(())
     }
