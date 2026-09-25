@@ -121,3 +121,27 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Library empty state does not appear while a scan/import is running;
       "no results" offers "Clear search and filter" and names the type filter
       when the search box is empty.
+
+## Milestone 4
+
+- [ ] Transition picker lists 13 kinds; each plays as named in the preview
+      (scrub through an overlap): dissolve, fades through black and white,
+      slides and wipes in all four directions, zoom from the centre.
+- [ ] With nothing selected, choosing a transition or motion changes every
+      clip in one undo step and becomes the default for clips added later.
+- [ ] "Shuffle transitions" / "Shuffle motion" give neighbouring clips
+      different kinds, report "Shuffled … on N clips/photos" in the transport
+      bar for ~5 s, and undo in one step. Each click gives a new mix.
+- [ ] Motion section appears only when photos are among the targets; with
+      a mixed selection it says "Applies to photos only". Videos never move.
+- [ ] Ken Burns: zoom in/out and pans are smooth, start and stop softly and
+      never show a black edge; the export matches the preview.
+- [ ] The first clip plays its transition in from black (white for the white
+      fade); a slide pushes the first photo in over black.
+- [ ] A transition longer than half of a neighbouring clip shows "Shortened
+      where clips are too short" under the duration slider.
+- [ ] `T` jumps to the transition picker; ↑ ↓ change it; Return applies.
+- [ ] Timeline: moving photos show the move badge; every transition shows a
+      tinted overlap with a thin edge that is visible on bright and dark
+      pictures; badges are not hidden under the next clip.
+

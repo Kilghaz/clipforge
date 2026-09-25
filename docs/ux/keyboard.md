@@ -15,4 +15,4 @@
 | Delete | Remove selected clips | M2 |
 | Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z | Undo / redo | M2 |
 | Cmd/Ctrl+D | Duplicate selection (planned, not wired yet) | M4 |
-| T | Transition palette for selection | M4 |
+| T | Focus the transition picker in the inspector (then ↑ ↓ to choose, Return to apply) | M4 |

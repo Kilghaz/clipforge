@@ -463,3 +463,81 @@ msgstr "Stelle den Typfilter auf „Alle“, um alles zu sehen."
 
 msgid "Try another word, or clear the search and filter."
 msgstr "Versuche ein anderes Wort oder setze Suche und Filter zurück."
+
+msgid "Fade through white"
+msgstr "Über Weiß blenden"
+
+msgid "Slide left"
+msgstr "Nach links schieben"
+
+msgid "Slide right"
+msgstr "Nach rechts schieben"
+
+msgid "Slide up"
+msgstr "Nach oben schieben"
+
+msgid "Slide down"
+msgstr "Nach unten schieben"
+
+msgid "Wipe left"
+msgstr "Nach links wischen"
+
+msgid "Wipe right"
+msgstr "Nach rechts wischen"
+
+msgid "Wipe up"
+msgstr "Nach oben wischen"
+
+msgid "Wipe down"
+msgstr "Nach unten wischen"
+
+msgid "Zoom"
+msgstr "Zoom"
+
+msgid "Shortened where clips are too short"
+msgstr "Gekürzt, wo Clips zu kurz sind"
+
+msgid "Shuffle transitions"
+msgstr "Übergänge mischen"
+
+msgid "Motion"
+msgstr "Bewegung"
+
+msgid "None"
+msgstr "Keine"
+
+msgid "Zoom in"
+msgstr "Hineinzoomen"
+
+msgid "Zoom out"
+msgstr "Herauszoomen"
+
+msgid "Pan left"
+msgstr "Nach links schwenken"
+
+msgid "Pan right"
+msgstr "Nach rechts schwenken"
+
+msgid "Pan up"
+msgstr "Nach oben schwenken"
+
+msgid "Pan down"
+msgstr "Nach unten schwenken"
+
+msgid "Slow zoom or pan across photos. Applies to photos only."
+msgstr "Langsamer Zoom oder Schwenk über Fotos. Gilt nur für Fotos."
+
+msgid "Slow zoom or pan across photos."
+msgstr "Langsamer Zoom oder Schwenk über Fotos."
+
+msgid "Shuffle motion"
+msgstr "Bewegung mischen"
+
+msgid "Moves (Ken Burns)"
+msgstr "Bewegt sich (Ken Burns)"
+
+msgid "Shuffled transitions on {} clips"
+msgstr "Übergänge von {} Clips gemischt"
+
+msgid "Shuffled motion on {} photos"
+msgstr "Bewegung von {} Fotos gemischt"

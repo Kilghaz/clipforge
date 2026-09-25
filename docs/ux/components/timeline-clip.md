@@ -1,8 +1,8 @@
 # Timeline clip and strip (spec card)
 
-Status: audited 2026-09-24
+Status: audited 2026-09-24, updated 2026-09-25 (M4: motion badge, transition catalogue, badge placement, overlay edge)
 Implementation: `crates/app/ui/editor.slint` → `ClipView` (clip card, transition overlay, mute badge, trim handles) and the `strip` section of `EditorPage` (ruler, playhead, trim marker, drop marker, drop-zone tint, zoom slider in the transport `Bar`, `FocusScope keys`); geometry and selection in `crates/app/src/editor_view.rs` (`layout`, `drop_index`, `time_at_x`, `x_at_time`, `Selection`, `MIN_CLIP_WIDTH`); gestures in `crates/app/src/editor_ui.rs` (`clip_pressed` / `clip_dragged` / `clip_released`, `trim_for` / `trim_dragged` / `trim_released`, `scrub`, `step_frames`, `library_drop_hover`).
-Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, video, muted video, no thumb" in `crates/app/ui/gallery.slint`. The ruler, playhead and markers have no gallery row; they are visible in `target/screenshots/populated.png`.
+Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, video, muted video, no thumb" and "Timeline clips, M4: moving photo (no transition), moving photo with slide, video with wipe (movement overlay), selected moving photo with zoom" in `crates/app/ui/gallery.slint`. The ruler, playhead and markers have no gallery row; they are visible in `target/screenshots/populated.png`.
 
 ## References (read, not remembered)
 
@@ -27,8 +27,10 @@ Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, vid
 | Thumbnail | Apple: display at original aspect ratio (player); Spectrum preview | `image-fit: cover` over `surface-canvas`; fallback kind icon 28 px `text-disabled` | ✅ (cover is fine for a strip thumbnail; the preview pane uses `contain`) | gallery "no thumb" |
 | Label footer | Spectrum card footer; DESIGN: "solid label footer" | 22 px `surface-card` footer, title 11 px `elide` + duration `Caption` | ✅ | gallery |
 | Duration | Premiere-style read-out | `format::duration(clip.duration())` right-aligned | ✅ | gallery "4.0 s", "0:06" |
-| Transition overlay | DESIGN §4 "transition overlay" | `Rectangle` over the overlap (min 10 px): dissolve = `title-clip` 40 %, fade-through-black = `text` 20 % | ✅ (two transitions distinguishable by colour, not by red/green) | gallery "selected photo with dissolve", "muted video" (fade) |
-| Mute badge | Spectrum Badge | `Badge` `speaker-mute` "Muted", top-right 8 px inset, videos only | ✅ | gallery "muted video" |
+| Transition overlay | DESIGN §4 "transition overlay"; DESIGN §2 UI elements ≥ 3:1 | `Rectangle` over the overlap (min 10 px): blending kinds (dissolve, fade through black/white) = `title-clip` 40 %, movement kinds (slides, wipes, zoom) = `text` 20 %; the overlap's end is marked by a 1 px `text` line on a 3 px `badge-backdrop`, inset 4 px from the top and stopping 4 px above the footer. The 13 kinds are not told apart by colour; the inspector names the kind | ✅ (the wash alone was too faint over bright footage; the edge reads on any picture) | gallery "M4" row, `populated.png` |
+| Mute badge | Spectrum Badge | `Badge` `speaker-mute` "Muted", videos only, at the left just after the clip's own transition overlay (`badge-x`) | ✅ | gallery "muted video" |
+| Motion badge | Spectrum Badge; decision note `docs/ux/decisions/m4-motion.md` | `Badge` `arrow-move` "Moves (Ken Burns)", photos with a motion preset, same slot as the mute badge (the two never coexist) | ✅ | gallery "M4" row |
+| Badge slot | Fluent info badge: inside the parent, top-right | left, after the clip's own overlay: the right end of a clip is covered by the next clip's overlap, which hid top-right badges whenever a transition followed | ➖ deliberate deviation (reason given) | `populated.png` before/after 2026-09-25 |
 | Trim handles | NN/G: affordance visible; Premiere edge handles | 10 px `TouchArea` each edge, 4 px `text` bar at 25 % opacity, 70 % on hover/selected, videos only | ✅ (see metrics for hit width) | manual-checks M3 |
 | Ruler | DESIGN §4 "one tick per second, labels thinned by zoom" | 24 px `surface-pane` ruler, 1 px tick per second (8 px at label step, 4 px otherwise), `m:ss` caption at `label-step` 1/2/5/10 s | ✅ | populated.png |
 | Playhead | Apple: scrubber; DESIGN token `playhead` | 2 px `Theme.playhead` line full strip height + 12 × 12 grab head in the ruler | ✅ | populated.png |
@@ -58,7 +60,7 @@ Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, vid
 | disabled | | — no disabled clips | ➖ | |
 | playing | Apple: Space toggles | playhead advances, play icon becomes pause, `Play (Space)` tooltip | ✅ | `tick`, transport `Bar` |
 | drop target (library drag over strip) | Fluent/Apple | tinted strip + accent marker | ✅ | manual-checks M2 |
-| gallery coverage | DESIGN §4 | photo / selected+dissolve / video / muted+fade / no-thumb present; **ruler + playhead + drop marker + trim marker** have no gallery row | ❌ | gallery |
+| gallery coverage | DESIGN §4 | photo / selected+dissolve / video / muted+fade / no-thumb; M4: moving / moving+slide / video+wipe / selected moving+zoom present; **ruler + playhead + drop marker + trim marker** have no gallery row | ❌ | gallery |
 
 ## Metrics
 
@@ -159,3 +161,14 @@ Status legend: ✅ matches · ❌ gap · ➖ deliberately omitted (reason given)
 
 - Fixed: Escape clears the selection, End jumps to the end; trim hit area 16 px; footer on the 24 px step; placeholder icon on clips without thumbnail; `TimelineStrip` extracted and shown in the gallery (ruler, playhead, drop marker); manual-checks wording.
 - Deferred to AUDIT-2026-09: keyboard access #2, context menu #5, snapping #6, precise trim #7, follow playhead #8, drag visual #9, zoom shortcuts #16, a11y #18.
+
+## Review 2026-09-25 (M4), open for triage
+
+- **nice** — on videos without a transition the badge's left 8 px sit under
+  the 16 px trim handle, so its tooltip only appears over the right part.
+- **nice** — on minimum-width clips (56 px) with a long overlap the badge is
+  clipped by the card.
+- **nice** — the motion badge tooltip says "Moves (Ken Burns)"; "Ken Burns"
+  is jargon (NN/G "match with the real world"). Alternative: "Slow zoom or pan".
+- Keyboard: `T` focuses the transition picker in the inspector
+  (`keyboard.md`); like J/K/L it is not shown in a menu yet.
