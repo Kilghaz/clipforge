@@ -1,6 +1,6 @@
 # ClipForge – Implementation Plan
 
-Status: v1 (2026-09-22). Milestones 0–3 implemented (M3 without proxies); see §10 for deviations. Refinement pass with fresh context still to do.
+Status: v1 (2026-09-22). Milestones 0–4 implemented (M3 without proxies); see §10 for deviations. Refinement pass with fresh context still to do.
 
 ClipForge is a native desktop app for macOS and Windows that turns hundreds or
 thousands of photos and videos into a slideshow video. Think Clipchamp, minus
@@ -505,3 +505,13 @@ Kept short; the ADRs hold the reasoning.
 - **M3, HDR video in preview/export:** frames come from ffmpeg's default RGB
   conversion, so HLG sources look flat until the colour pipeline (M6) adds
   tone mapping.
+- **M4, renderer:** transitions and Ken Burns are CPU effects (a general
+  draw-into-rectangle routine plus a pure transition module) instead of WGSL
+  shaders. Golden tests are pixel assertions at progress 0 / 0.5 / 1 per
+  kind rather than stored PNGs. The GPU compositor is tracked as issue #1.
+- **M4, "random" Ken Burns preset:** implemented as a "Shuffle motion"
+  action that writes concrete presets per clip (undoable, reproducible),
+  not as a stored "random" value that changes on every render.
+- **M4, transition picker:** Slint's std ComboBox has no section headers or
+  type-ahead; the 13 kinds are grouped by order and naming.
+

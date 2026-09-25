@@ -20,7 +20,8 @@ Gallery rows: "SearchField empty / with text / disabled; std ComboBox, CheckBox,
 | Library filter (`library.slint` l. 236) | ComboBox | All / Photos / Videos / Audio (4) | Fluent: < 5 items → consider radio; combo box when the choice is secondary and space is tight | ✅ pane is 280 px wide; filter is secondary to the grid; four `ChoiceButton`s would not fit next to sort + direction | gallery "Bar" ComboBox |
 | Library sort (`library.slint` l. 245) | ComboBox + `IconButton` direction | Date / Name / Type / Added (4) | same; most common option first (Date) | ✅ | |
 | Inspector "Framing" (`editor.slint` l. 320) | ComboBox | Fit inside (bars) / Fill frame (crop) (2) | Fluent: a list with the same 2 options → check box / toggle, or radio for 2–4 static items; a drop-down hides the alternative | ❌ | gallery "Section": ComboBox "Fit inside (bars)" |
-| Inspector "Transition into clip" (`editor.slint` l. 331) | ComboBox | Cut / Cross dissolve / Fade through black (3) | Fluent: 3–4 static items → consider radio | ❌ | |
+| Inspector "Transition into clip" (`editor.slint`) | ComboBox | 13 kinds since M4: Cut, Cross dissolve, Fade through black / white, Slide ×4, Wipe ×4, Zoom | Fluent: ≥ 5 single-line items → drop-down; group related options, most common first; Spectrum Picker: group long lists | ✅ (grouped by adjacency and naming; std ComboBox has no section headers) | `populated.png` inspector |
+| Inspector "Motion" (`editor.slint`, M4) | ComboBox | None, Zoom in, Zoom out, Pan left / right / up / down (7) | same | ✅ | gallery "Section": Motion (M4) |
 | Inspector "Project" (`editor.slint` l. 352) | ComboBox | Landscape 16:9 / Portrait 9:16 (2) | 2 static options → radio / toggle group | ❌ | |
 | Export "Resolution" (`editor.slint` l. 382) | ComboBox | Full HD (1080p) / 4K (2160p) (2) | 2 static options → radio group | ❌ | `export` scene |
 | Export "Quality" (`editor.slint` l. 387) | ComboBox | Good / Better / Best (3) | 3 static items → consider radio; secondary choice with a recommended default may stay a combo | ➖ default "Better" is recommended for most users; Fluent allows the combo to "minimize distraction" | |
@@ -54,7 +55,7 @@ Gallery rows: "SearchField empty / with text / disabled; std ComboBox, CheckBox,
 |---|---|---|---|---|
 | ComboBox selection commits a command | DESIGN §3 undo everything | `selected => …-changed(index)` applies a `Command` for framing, transition, aspect; filter/sort/language are view state (not undoable, correctly) | ✅ | proptests in `core` |
 | ComboBox keyboard: Up/Down, Return, Escape | Fluent | std `combobox-base` | ✅ (std) | |
-| ComboBox type-ahead text search | Fluent: type a letter to jump | std has none | ➖ lists have ≤ 4 items | |
+| ComboBox type-ahead text search | Fluent: type a letter to jump, "especially helpful when navigating a long list" | std has none | ❌ since M4 the transition list has 13 items; arrows still work. Needs a custom picker or upstream Slint support (open for triage) | |
 | ComboBox disabled during export | Fluent: disable what cannot change | `enabled: EditorState.export-status != 1` on both export combos and the YouTube box | ✅ | |
 | CheckBox Space / Return toggles | Fluent | std | ✅ (std) | |
 | CheckBox indeterminate | Fluent: only for partial groups | not used; no grouped checkboxes | ➖ | |

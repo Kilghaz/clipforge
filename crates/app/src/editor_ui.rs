@@ -33,6 +33,8 @@ use crate::preview_worker::PreviewWorker;
 use crate::ui::{EditorState, MainWindow, TimelineClip};
 
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
+/// How long a status message stays in the transport bar.
+const STATUS_VISIBLE: Duration = Duration::from_secs(5);
 const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(33);
 
 pub(crate) struct EditorController {
@@ -133,6 +135,8 @@ struct Inner {
     last_preview: Instant,
     dirty_since: Option<Instant>,
     last_prune: Instant,
+    /// When the status message was set; cleared after `STATUS_VISIBLE`.
+    status_since: Option<Instant>,
     drag: Option<(usize, bool)>,
     export: Option<ExportRun>,
 }
@@ -192,6 +196,7 @@ impl EditorController {
             last_preview: Instant::now() - PREVIEW_MIN_INTERVAL,
             dirty_since: None,
             last_prune: Instant::now(),
+            status_since: None,
             drag: None,
             export: None,
         }));
@@ -231,6 +236,9 @@ impl EditorController {
         on!(on_transition_changed, |i, idx, secs| i
             .set_transition(idx, secs));
         on!(on_rotate_selected, |i| i.rotate_selected());
+        on!(on_shuffle_transitions, |i| i.shuffle_transitions());
+        on!(on_motion_changed, |i, idx| i.set_motion(idx));
+        on!(on_shuffle_motion, |i| i.shuffle_motion());
         on!(on_aspect_changed, |i, idx| i.set_aspect(idx));
         on!(on_muted_changed, |i, muted| i.set_muted(muted));
         on!(on_volume_changed, |i, percent| i.set_volume(percent));
@@ -394,14 +402,18 @@ impl Inner {
         self.preview_dirty = true;
     }
 
-    /// Status kinds: 0 none, 1 added N, 2 skipped N (not photos / not ready).
-    fn set_status(&self, kind: u8, n: usize) {
+    /// Status kinds: 0 none, 1 added N, 2 skipped N, 3 shuffled transitions
+    /// on N clips, 4 shuffled motion on N photos.
+    fn set_status(&mut self, kind: u8, n: usize) {
+        self.status_since = (kind != 0).then(Instant::now);
         if let Some(w) = self.state() {
             let strings = w.global::<crate::ui::Strings>();
             strings.set_count(i32::try_from(n).unwrap_or(i32::MAX));
             let text = match kind {
                 1 => strings.get_added_clips(),
                 2 => strings.get_skipped_items(),
+                3 => strings.get_shuffled_transitions(),
+                4 => strings.get_shuffled_motion(),
                 _ => SharedString::default(),
             };
             w.global::<EditorState>().set_status_text(text);
@@ -598,11 +610,7 @@ impl Inner {
     }
 
     fn set_transition(&mut self, idx: i32, secs: f32) {
-        let kind = match idx {
-            1 => TransitionKind::CrossDissolve,
-            2 => TransitionKind::FadeThroughBlack,
-            _ => TransitionKind::Cut,
-        };
+        let kind = TransitionKind::from_index(usize::try_from(idx).unwrap_or(0));
         let transition = Transition {
             kind,
             duration: Ticks::from_seconds_f64(f64::from(secs.max(0.1))),
@@ -624,6 +632,61 @@ impl Inner {
             });
         }
         self.apply(Command::Batch { commands });
+        self.preview_dirty = true;
+    }
+
+    /// Varied transitions on the targets, keeping the current duration.
+    /// One undo step; the defaults for new clips are not touched.
+    fn shuffle_transitions(&mut self) {
+        let indices = self.targets();
+        if indices.is_empty() {
+            return;
+        }
+        let secs = self
+            .state()
+            .map_or(1.0, |w| w.global::<EditorState>().get_transition_seconds());
+        let duration = Ticks::from_seconds_f64(f64::from(secs.max(0.1)));
+        let entries = clipforge_core::shuffle::transitions(&indices, duration, shuffle_seed());
+        let n = entries.len();
+        self.apply(Command::SetTransitionEach { entries });
+        self.set_status(3, n);
+        self.preview_dirty = true;
+    }
+
+    fn set_motion(&mut self, idx: i32) {
+        let motion = clipforge_core::Motion::from_index(usize::try_from(idx).unwrap_or(0));
+        let targets = self.targets();
+        let indices = editor_view::photo_targets(&self.project, &targets);
+        let mut commands = Vec::new();
+        if !indices.is_empty() {
+            commands.push(Command::SetMotion { indices, motion });
+        }
+        if self.selection.is_empty() {
+            commands.push(Command::SetSettings {
+                settings: ProjectSettings {
+                    default_motion: motion,
+                    ..self.project.settings.clone()
+                },
+            });
+        }
+        if commands.is_empty() {
+            return;
+        }
+        self.apply(Command::Batch { commands });
+        self.preview_dirty = true;
+    }
+
+    /// Varied movement on the photo targets. One undo step.
+    fn shuffle_motion(&mut self) {
+        let targets = self.targets();
+        let indices = editor_view::photo_targets(&self.project, &targets);
+        if indices.is_empty() {
+            return;
+        }
+        let entries = clipforge_core::shuffle::motions(&indices, shuffle_seed());
+        let n = entries.len();
+        self.apply(Command::SetMotionEach { entries });
+        self.set_status(4, n);
         self.preview_dirty = true;
     }
 
@@ -938,6 +1001,16 @@ impl Inner {
         if self.preview.player.take_changed() {
             self.preview_dirty = true;
         }
+        if self
+            .status_since
+            .is_some_and(|t| now.duration_since(t) >= STATUS_VISIBLE)
+        {
+            self.status_since = None;
+            if let Some(w) = self.state() {
+                w.global::<EditorState>()
+                    .set_status_text(SharedString::default());
+            }
+        }
         if let Some(frame) = self.worker.take_frame()
             && let Some(w) = self.state()
         {
@@ -1042,13 +1115,10 @@ impl Inner {
                 overlap: b.overlap,
                 selected: self.selection.ids.contains(&clip.id),
                 duration_text: SharedString::from(format::duration(clip.duration())),
-                transition: match clip.transition_in.kind {
-                    TransitionKind::Cut => 0,
-                    TransitionKind::CrossDissolve => 1,
-                    TransitionKind::FadeThroughBlack => 2,
-                },
+                transition: editor_view::clip_flags(clip).transition,
                 is_video: !clip.is_photo(),
                 muted: clip.muted,
+                moving: editor_view::clip_flags(clip).moving,
                 focused: self.selection.focus == Some(clip.id),
             });
         }
@@ -1119,11 +1189,7 @@ impl Inner {
         #[allow(clippy::cast_possible_truncation)]
         s.set_duration_seconds(duration.as_seconds_f64() as f32);
         s.set_fit_index(if fit == Fit::Cover { 1 } else { 0 });
-        s.set_transition_index(match transition.kind {
-            TransitionKind::Cut => 0,
-            TransitionKind::CrossDissolve => 1,
-            TransitionKind::FadeThroughBlack => 2,
-        });
+        s.set_transition_index(i32::try_from(transition.kind.index()).unwrap_or(0));
         if transition.kind != TransitionKind::Cut {
             #[allow(clippy::cast_possible_truncation)]
             s.set_transition_seconds(transition.duration.as_seconds_f64() as f32);
@@ -1141,6 +1207,18 @@ impl Inner {
             .collect();
         s.set_has_video_target(!videos.is_empty());
         s.set_only_video_target(!videos.is_empty() && videos.len() == targets.len());
+        let photos = editor_view::photo_targets(&self.project, &targets);
+        s.set_has_photo_target(!photos.is_empty() || self.project.clips.is_empty());
+        let motion = photos
+            .first()
+            .map_or(self.project.settings.default_motion, |&i| {
+                self.project.clips[i].motion
+            });
+        s.set_motion_index(i32::try_from(motion.index()).unwrap_or(0));
+        s.set_transition_capped(
+            transition.kind != TransitionKind::Cut
+                && editor_view::transition_capped(&self.project, &targets, transition.duration),
+        );
         if let Some(v) = videos.first() {
             s.set_muted(v.muted);
             s.set_volume_percent(f32::from(v.volume_percent));
@@ -1415,6 +1493,15 @@ impl Inner {
             }
         }
     }
+}
+
+/// Seed for the shuffle actions: the clock, so every click gives a new mix.
+fn shuffle_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| {
+            u64::try_from(d.as_nanos() & u128::from(u64::MAX)).unwrap_or(0)
+        })
 }
 
 fn frame_to_image(frame: &Frame) -> slint::Image {

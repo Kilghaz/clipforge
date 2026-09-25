@@ -42,7 +42,7 @@ use slint::{ComponentHandle, ModelRc, PhysicalSize, VecModel};
 
 use ui::{
     EditorState, GalleryWindow, GridRow, InspectorInfo, LibraryState, MainWindow, MediaCell, Shell,
-    TimelineClip,
+    Strings, TimelineClip,
 };
 
 const SCENES: &[&str] = &[
@@ -265,9 +265,11 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             } else {
                 "4.0 s".into()
             },
-            transition: if i == 0 { 0 } else { 1 },
+            // Cut, dissolve, fade, slide left, zoom, wipe left: overlays of both kinds.
+            transition: [0, 1, 2, 4, 12, 8][usize::try_from(i).unwrap_or(0)],
             is_video,
             muted: i == 4,
+            moving: i == 1 || i == 3,
             focused: false,
         });
         x += width - 40.0 + 4.0;
@@ -275,6 +277,13 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
     editor.set_clips(ModelRc::new(VecModel::from(clips)));
     editor.set_clip_count(6);
     editor.set_selected_count(1);
+    // The selected clip (index 1) is a photo with a dissolve and a zoom-in.
+    editor.set_transition_index(1);
+    editor.set_motion_index(1);
+    // Feedback of the last bulk action, as after "Shuffle transitions".
+    let strings = app.global::<Strings>();
+    strings.set_count(6);
+    editor.set_status_text(strings.get_shuffled_transitions());
     editor.set_strip_width(x as f32);
     editor.set_playhead_x(300.0);
     editor.set_time_text("00:00:07".into());

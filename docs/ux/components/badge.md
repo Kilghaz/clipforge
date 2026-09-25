@@ -61,7 +61,7 @@ Badges are non-interactive; states are the value variants.
 | icon size | Fluent: icon must fit; DESIGN.md: 16 or 20 | 16 px | ✅ |
 | radius | DESIGN.md: 4 px controls | `radius-s` | ✅ |
 | backdrop | Fluent preset styles ensure contrast on any background | `#000000b3` semantic token `badge-backdrop` | ✅ |
-| placement | Fluent: inside the parent's bounding box, top-right corner | cell: `x = width − 22 − 4`, `y = 4`; clip: 8 px inset top-right | ✅ |
+| placement | Fluent: inside the parent's bounding box, top-right corner | cell: `x = width − 22 − 4`, `y = 4` ✅; timeline clip: 8 px inset at the **left**, after the clip's own transition overlay, because the next clip's overlap covers the right end (see `timeline-clip.md` "Badge slot") | ➖ (clip only, reason given) |
 | HDR tag height | one size | inspector: `control-height` (32 px); gallery: `control-height-s` (24 px) | ❌ inconsistent |
 | HDR tag width / type | — | 44 px, 11 px semibold | ➖ |
 

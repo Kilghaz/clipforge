@@ -120,7 +120,8 @@ impl Quarter {
     }
 }
 
-/// Kind of transition into a clip. More kinds arrive in Milestone 4.
+/// Kind of transition into a clip. Serialised names are stable; new kinds
+/// are appended, never renamed.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransitionKind {
@@ -128,6 +129,149 @@ pub enum TransitionKind {
     Cut,
     CrossDissolve,
     FadeThroughBlack,
+    FadeThroughWhite,
+    /// The incoming clip pushes the outgoing one out towards the left.
+    SlideLeft,
+    SlideRight,
+    SlideUp,
+    SlideDown,
+    /// A straight edge moving to the left reveals the incoming clip.
+    WipeLeft,
+    WipeRight,
+    WipeUp,
+    WipeDown,
+    /// The incoming clip grows from the centre while fading in.
+    Zoom,
+}
+
+impl TransitionKind {
+    /// Every kind, in the order the transition picker lists them.
+    pub const ALL: [TransitionKind; 13] = [
+        TransitionKind::Cut,
+        TransitionKind::CrossDissolve,
+        TransitionKind::FadeThroughBlack,
+        TransitionKind::FadeThroughWhite,
+        TransitionKind::SlideLeft,
+        TransitionKind::SlideRight,
+        TransitionKind::SlideUp,
+        TransitionKind::SlideDown,
+        TransitionKind::WipeLeft,
+        TransitionKind::WipeRight,
+        TransitionKind::WipeUp,
+        TransitionKind::WipeDown,
+        TransitionKind::Zoom,
+    ];
+
+    /// Kinds the "shuffle" action picks from: everything but the cut.
+    pub const SHUFFLE_POOL: [TransitionKind; 12] = [
+        TransitionKind::CrossDissolve,
+        TransitionKind::FadeThroughBlack,
+        TransitionKind::FadeThroughWhite,
+        TransitionKind::SlideLeft,
+        TransitionKind::SlideRight,
+        TransitionKind::SlideUp,
+        TransitionKind::SlideDown,
+        TransitionKind::WipeLeft,
+        TransitionKind::WipeRight,
+        TransitionKind::WipeUp,
+        TransitionKind::WipeDown,
+        TransitionKind::Zoom,
+    ];
+
+    /// Position in [`TransitionKind::ALL`]; used as the picker index.
+    #[must_use]
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|k| *k == self).unwrap_or(0)
+    }
+
+    /// Kind for a picker index; out-of-range means `Cut`.
+    #[must_use]
+    pub fn from_index(index: usize) -> TransitionKind {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+
+    /// Transitions that pass through a solid colour between the clips.
+    #[must_use]
+    pub const fn is_fade(self) -> bool {
+        matches!(
+            self,
+            TransitionKind::FadeThroughBlack | TransitionKind::FadeThroughWhite
+        )
+    }
+}
+
+/// Slow camera movement over a photo ("Ken Burns"). The movement spans
+/// the whole time the clip is visible, including transition overlaps.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Motion {
+    #[default]
+    None,
+    ZoomIn,
+    ZoomOut,
+    PanLeft,
+    PanRight,
+    PanUp,
+    PanDown,
+}
+
+impl Motion {
+    /// Every preset, in picker order.
+    pub const ALL: [Motion; 7] = [
+        Motion::None,
+        Motion::ZoomIn,
+        Motion::ZoomOut,
+        Motion::PanLeft,
+        Motion::PanRight,
+        Motion::PanUp,
+        Motion::PanDown,
+    ];
+
+    /// Presets the shuffle action picks from.
+    pub const SHUFFLE_POOL: [Motion; 6] = [
+        Motion::ZoomIn,
+        Motion::ZoomOut,
+        Motion::PanLeft,
+        Motion::PanRight,
+        Motion::PanUp,
+        Motion::PanDown,
+    ];
+
+    /// How much larger than the frame the picture is at the widest point of
+    /// the movement. 1.15 is noticeable but calm over four seconds.
+    pub const SCALE: f64 = 1.15;
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|m| *m == self).unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn from_index(index: usize) -> Motion {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+
+    /// Camera state at `progress` (0..=1 over the clip): zoom factor (>= 1)
+    /// and the offset of the visible window's centre from the picture's
+    /// centre, as a fraction of the frame size in `-0.5..=0.5`. Eased so the
+    /// movement starts and stops softly.
+    #[must_use]
+    pub fn camera(self, progress: f64) -> (f64, f64, f64) {
+        let t = progress.clamp(0.0, 1.0);
+        // Smoothstep easing.
+        let e = t * t * (3.0 - 2.0 * t);
+        // Maximum pan that keeps the zoomed picture covering the frame.
+        let travel = (Self::SCALE - 1.0) / (2.0 * Self::SCALE);
+        match self {
+            Motion::None => (1.0, 0.0, 0.0),
+            Motion::ZoomIn => (1.0 + (Self::SCALE - 1.0) * e, 0.0, 0.0),
+            Motion::ZoomOut => (Self::SCALE - (Self::SCALE - 1.0) * e, 0.0, 0.0),
+            Motion::PanLeft => (Self::SCALE, travel * (1.0 - 2.0 * e), 0.0),
+            Motion::PanRight => (Self::SCALE, -travel * (1.0 - 2.0 * e), 0.0),
+            Motion::PanUp => (Self::SCALE, 0.0, travel * (1.0 - 2.0 * e)),
+            Motion::PanDown => (Self::SCALE, 0.0, -travel * (1.0 - 2.0 * e)),
+        }
+    }
 }
 
 /// A transition from the previous clip into this one.
@@ -187,6 +331,9 @@ pub struct Clip {
     /// Audio gain in percent (100 = unchanged). Only meaningful for video.
     #[serde(default = "default_volume")]
     pub volume_percent: u16,
+    /// Ken Burns movement. Only applied to photos.
+    #[serde(default)]
+    pub motion: Motion,
 }
 
 fn default_volume() -> u16 {
@@ -206,6 +353,7 @@ impl Clip {
             transition_in: Transition::default(),
             muted: false,
             volume_percent: 100,
+            motion: Motion::None,
         }
     }
 
@@ -224,6 +372,7 @@ impl Clip {
             transition_in: Transition::default(),
             muted: false,
             volume_percent: 100,
+            motion: Motion::None,
         }
     }
 
@@ -268,6 +417,9 @@ pub struct ProjectSettings {
     /// Fit new clips get when added.
     #[serde(default)]
     pub default_fit: Fit,
+    /// Ken Burns movement new photos get when added.
+    #[serde(default)]
+    pub default_motion: Motion,
 }
 
 impl Default for ProjectSettings {
@@ -278,6 +430,7 @@ impl Default for ProjectSettings {
             default_photo_duration: Ticks::from_seconds(4),
             default_transition: Transition::default(),
             default_fit: Fit::default(),
+            default_motion: Motion::None,
         }
     }
 }
@@ -369,5 +522,77 @@ impl Project {
             return Err("duplicate clip ids".to_owned());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_catalogue_is_complete_and_indexable() {
+        for (i, k) in TransitionKind::ALL.iter().enumerate() {
+            assert_eq!(k.index(), i);
+            assert_eq!(TransitionKind::from_index(i), *k);
+        }
+        assert_eq!(TransitionKind::from_index(999), TransitionKind::Cut);
+        assert!(!TransitionKind::SHUFFLE_POOL.contains(&TransitionKind::Cut));
+        assert_eq!(
+            TransitionKind::SHUFFLE_POOL.len() + 1,
+            TransitionKind::ALL.len()
+        );
+        assert!(TransitionKind::FadeThroughWhite.is_fade() && !TransitionKind::WipeLeft.is_fade());
+    }
+
+    #[test]
+    fn transition_names_are_stable_on_disk() {
+        let json = serde_json::to_string(&TransitionKind::FadeThroughWhite).unwrap();
+        assert_eq!(json, "\"fade_through_white\"");
+        assert_eq!(
+            serde_json::to_string(&TransitionKind::SlideLeft).unwrap(),
+            "\"slide_left\""
+        );
+        assert_eq!(serde_json::to_string(&Motion::PanUp).unwrap(), "\"pan_up\"");
+    }
+
+    #[test]
+    fn camera_starts_and_ends_at_the_preset_extremes() {
+        assert_eq!(Motion::None.camera(0.3), (1.0, 0.0, 0.0));
+        let (z0, ..) = Motion::ZoomIn.camera(0.0);
+        let (z1, ..) = Motion::ZoomIn.camera(1.0);
+        assert!((z0 - 1.0).abs() < 1e-12 && (z1 - Motion::SCALE).abs() < 1e-12);
+        let (z0, ..) = Motion::ZoomOut.camera(0.0);
+        assert!((z0 - Motion::SCALE).abs() < 1e-12);
+        // Pans travel from one side to the other and pass the centre half way.
+        let (_, x0, _) = Motion::PanLeft.camera(0.0);
+        let (_, xm, _) = Motion::PanLeft.camera(0.5);
+        let (_, x1, _) = Motion::PanLeft.camera(1.0);
+        assert!(x0 > 0.0 && xm.abs() < 1e-12 && x1 < 0.0);
+        assert!((x0 + x1).abs() < 1e-12, "symmetric travel");
+        // The zoomed picture always covers the frame: |offset| <= (s-1)/(2s).
+        for m in Motion::ALL {
+            for i in 0..=20 {
+                let (z, x, y) = m.camera(f64::from(i) / 20.0);
+                assert!(z >= 1.0);
+                let limit = (z - 1.0) / (2.0 * z) + 1e-12;
+                assert!(
+                    x.abs() <= limit && y.abs() <= limit,
+                    "{m:?} at {i}: {z} {x} {y}"
+                );
+            }
+        }
+        // Clamped outside 0..1 and eased (slow at the ends).
+        assert_eq!(Motion::ZoomIn.camera(-1.0), Motion::ZoomIn.camera(0.0));
+        let (a, ..) = Motion::ZoomIn.camera(0.05);
+        let (b, ..) = Motion::ZoomIn.camera(0.5);
+        assert!(a - 1.0 < (b - 1.0) * 0.1, "ease-in");
+    }
+
+    #[test]
+    fn old_project_files_default_the_new_fields() {
+        let json = r#"{"id":"00000000-0000-0000-0000-000000000001","media":"00000000-0000-0000-0000-000000000002","source":{"photo":{"duration":705600000}}}"#;
+        let clip: Clip = serde_json::from_str(json).unwrap();
+        assert_eq!(clip.motion, Motion::None);
+        assert_eq!(clip.volume_percent, 100);
     }
 }

@@ -169,7 +169,7 @@ All live in `crates/app/ui/components.slint` unless noted; tokens in
 | `EmptyState` | Primer "Empty states", Spectrum "Illustrated message" | Icon, title, description, primary + secondary action. |
 | `DialogFrame`, `DialogButtons` | Fluent "Dialog", Apple HIG "Alerts" | Scrim, Escape to dismiss, platform button order via `Shell.macos`. |
 | Library grid cell (`library.slint`) | Spectrum "Card" (quiet) + Fluent "GridView" selection | Thumbnail, type badge, hover tint, accent selection ring, drag source. Geometry mirrored in `library_view.rs`. |
-| Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, thumbnail, solid label footer, transition overlay, mute badge, trim handles shown on hover. |
+| Timeline clip (`editor.slint`) | Spectrum "Card" + custom | Type colour stripe, thumbnail, solid label footer, transition overlay with a high-contrast end edge, mute / motion badge at the left after the overlay, trim handles shown on hover. |
 | Timeline ruler (`editor.slint`) | Premiere / Spectrum "Slider" ticks | One tick per second, labels thinned by zoom level, playhead with grab head. |
 | `ValueSlider` (`editor.slint`) | Spectrum "Slider" | Slider with live value read-out and accessible label. |
 | Panel divider (`main.slint`) | Fluent "SplitView" | 1 px line, 8 px grab area, accent on hover, double-click resets. |

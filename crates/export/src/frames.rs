@@ -80,16 +80,16 @@ impl FrameSource for TimelineFrames<'_> {
 
     fn frame(&mut self, index: u64) -> FrameRef {
         let t = self.time_of(index);
-        // A photo clip outside any transition shows the same picture for
-        // every frame: key it by clip index so repeats are free.
+        // A still photo outside any transition shows the same picture for
+        // every frame: key it by clip index so repeats are free. Moving
+        // photos (Ken Burns) and the opening transition change every frame.
         let key = frame_at(&self.project.clips, t).and_then(|at| {
-            let (idx, _) = at.current;
+            let (idx, local) = at.current;
             let clip = &self.project.clips[idx];
-            let in_opening_fade = idx == 0
-                && clip.transition_in.overlap() > Ticks::ZERO
-                && at.current.1 < clip.transition_in.overlap();
-            (clip.is_photo() && at.outgoing.is_none() && !in_opening_fade)
-                .then_some((idx, Ticks::ZERO))
+            let in_opening =
+                idx == 0 && local < clipforge_core::timeline::opening_overlap(&self.project.clips);
+            let still = clip.is_photo() && clip.motion == clipforge_core::Motion::None;
+            (still && at.outgoing.is_none() && !in_opening).then_some((idx, Ticks::ZERO))
         });
         if key.is_some() && key == self.last_key {
             return FrameRef::SameAsPrevious;
@@ -172,6 +172,44 @@ mod tests {
             .filter(|i| matches!(frames.frame(*i), FrameRef::New(_)))
             .count();
         assert_eq!(new, 32);
+    }
+
+    #[test]
+    fn moving_photos_render_every_frame() {
+        let (mut p, provider) = project(&[2], false);
+        Command::SetMotion {
+            indices: vec![0],
+            motion: clipforge_core::Motion::ZoomIn,
+        }
+        .apply(&mut p)
+        .unwrap();
+        let c = Compositor::new();
+        let mut frames = TimelineFrames::new(&p, &c, &provider, RenderQuality::Preview);
+        let new = (0..frames.len())
+            .filter(|i| matches!(frames.frame(*i), FrameRef::New(_)))
+            .count();
+        assert_eq!(new, 60, "2 s at 30 fps, all distinct");
+    }
+
+    #[test]
+    fn opening_transition_frames_are_rendered_individually() {
+        let (mut p, provider) = project(&[2], false);
+        let t = Transition {
+            kind: TransitionKind::SlideLeft,
+            duration: Ticks::SECOND,
+        };
+        Command::SetTransition {
+            indices: vec![0],
+            transition: t,
+        }
+        .apply(&mut p)
+        .unwrap();
+        let c = Compositor::new();
+        let mut frames = TimelineFrames::new(&p, &c, &provider, RenderQuality::Preview);
+        let new = (0..frames.len())
+            .filter(|i| matches!(frames.frame(*i), FrameRef::New(_)))
+            .count();
+        assert_eq!(new, 31, "30 opening frames plus one still for the rest");
     }
 
     #[test]

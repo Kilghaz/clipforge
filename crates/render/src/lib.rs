@@ -13,10 +13,12 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod compositor;
+pub mod draw;
 pub mod frame;
 pub mod layout;
 pub mod quality;
 pub mod source;
+pub mod transition;
 
 pub use compositor::Compositor;
 pub use frame::Frame;

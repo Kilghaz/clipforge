@@ -299,9 +299,57 @@ pub(crate) fn clips_for(project: &Project, refs: &[MediaRef]) -> Vec<Clip> {
             };
             c.fit = project.settings.default_fit;
             c.transition_in = project.settings.default_transition;
+            if c.is_photo() {
+                c.motion = project.settings.default_motion;
+            }
             c
         })
         .collect()
+}
+
+/// Indices of `targets` that are photos (motion only applies to photos).
+#[must_use]
+pub(crate) fn photo_targets(project: &Project, targets: &[usize]) -> Vec<usize> {
+    targets
+        .iter()
+        .copied()
+        .filter(|&i| project.clips.get(i).is_some_and(Clip::is_photo))
+        .collect()
+}
+
+/// True if a transition of `duration` would be shortened on any target
+/// because a neighbouring clip is too short (overlaps are capped at half of
+/// either neighbour; the first clip's opening at half of itself).
+#[must_use]
+pub(crate) fn transition_capped(project: &Project, targets: &[usize], duration: Ticks) -> bool {
+    let clips = &project.clips;
+    targets.iter().any(|&i| {
+        let Some(clip) = clips.get(i) else {
+            return false;
+        };
+        let mut cap = clip.duration() / 2;
+        if i > 0 {
+            cap = cap.min(clips[i - 1].duration() / 2);
+        }
+        duration > cap
+    })
+}
+
+/// What a timeline clip card shows besides its picture.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClipFlags {
+    /// Index of the transition kind in `TransitionKind::ALL` (0 = cut).
+    pub transition: i32,
+    /// The clip is a photo with a Ken Burns movement.
+    pub moving: bool,
+}
+
+#[must_use]
+pub(crate) fn clip_flags(clip: &Clip) -> ClipFlags {
+    ClipFlags {
+        transition: i32::try_from(clip.transition_in.kind.index()).unwrap_or(0),
+        moving: clip.is_photo() && clip.motion != clipforge_core::Motion::None,
+    }
 }
 
 #[cfg(test)]
@@ -425,8 +473,14 @@ mod tests {
             captured_at_ms: None,
             name: "a".into(),
         };
+        p.settings.default_motion = clipforge_core::Motion::ZoomOut;
         let c = clips_for(&p, std::slice::from_ref(&r));
         assert_eq!(c[0].duration(), Ticks::from_seconds(7));
+        assert_eq!(
+            c[0].motion,
+            clipforge_core::Motion::ZoomOut,
+            "photos get the default motion"
+        );
         assert_eq!(c[0].fit, clipforge_core::Fit::Cover);
         let v = MediaRef {
             kind: RefKind::Video,
@@ -435,9 +489,107 @@ mod tests {
         };
         let c = clips_for(&p, &[v]);
         assert!(!c[0].is_photo());
+        assert_eq!(
+            c[0].motion,
+            clipforge_core::Motion::None,
+            "videos never get motion"
+        );
         assert_eq!(c[0].duration(), Ticks::from_seconds(12));
     }
 
+    fn mixed_project() -> Project {
+        let mut p = Project::new();
+        let photo = MediaRef {
+            id: MediaId::new(),
+            kind: RefKind::Photo,
+            path: "/p".into(),
+            fingerprint_hash: 1,
+            size: 1,
+            pixel_size: Some((10, 10)),
+            duration: None,
+            captured_at_ms: None,
+            name: "p".into(),
+        };
+        let video = MediaRef {
+            id: MediaId::new(),
+            kind: RefKind::Video,
+            duration: Some(Ticks::from_seconds(8)),
+            ..photo.clone()
+        };
+        let entries = vec![
+            (0, Clip::photo(photo.id, Ticks::from_seconds(4))),
+            (1, Clip::video(video.id, Ticks::from_seconds(8))),
+            (2, Clip::photo(photo.id, Ticks::from_seconds(1))),
+            (3, Clip::photo(photo.id, Ticks::from_seconds(4))),
+        ];
+        clipforge_core::Command::InsertClips {
+            entries,
+            media: vec![photo, video],
+        }
+        .apply(&mut p)
+        .unwrap();
+        p
+    }
+
+    #[test]
+    fn photo_targets_skip_videos() {
+        let p = mixed_project();
+        assert_eq!(photo_targets(&p, &[0, 1, 2, 3]), [0, 2, 3]);
+        assert_eq!(photo_targets(&p, &[1]), Vec::<usize>::new());
+        assert_eq!(
+            photo_targets(&p, &[9]),
+            Vec::<usize>::new(),
+            "stale index ignored"
+        );
+    }
+
+    #[test]
+    fn capped_transition_is_reported_when_a_neighbour_is_too_short() {
+        let p = mixed_project();
+        // Clip 3 follows the 1 s photo: anything over 0.5 s is shortened.
+        assert!(transition_capped(&p, &[3], Ticks::from_millis(800)));
+        // Clip 2 itself is 1 s long.
+        assert!(transition_capped(&p, &[2], Ticks::from_millis(600)));
+        // First clip: capped by its own half only.
+        assert!(transition_capped(&p, &[0], Ticks::from_millis(2_500)));
+    }
+
+    #[test]
+    fn uncapped_transition_is_not_reported() {
+        let p = mixed_project();
+        assert!(!transition_capped(&p, &[1], Ticks::SECOND));
+        assert!(!transition_capped(&p, &[0, 1], Ticks::from_millis(2_000)));
+        assert!(!transition_capped(&p, &[], Ticks::from_seconds(10)));
+    }
+
+    #[test]
+    fn clip_view_flags_follow_motion_and_transition() {
+        let mut p = mixed_project();
+        assert_eq!(
+            clip_flags(&p.clips[0]),
+            ClipFlags {
+                transition: 0,
+                moving: false
+            }
+        );
+        p.clips[0].motion = clipforge_core::Motion::PanLeft;
+        p.clips[0].transition_in = Transition {
+            kind: TransitionKind::SlideUp,
+            duration: Ticks::SECOND,
+        };
+        assert_eq!(
+            clip_flags(&p.clips[0]),
+            ClipFlags {
+                transition: 6,
+                moving: true
+            }
+        );
+        p.clips[1].motion = clipforge_core::Motion::ZoomIn;
+        assert!(
+            !clip_flags(&p.clips[1]).moving,
+            "videos never show the motion badge"
+        );
+    }
     #[test]
     fn nudge_left_and_right_move_the_block_by_one() {
         // Block [2, 3] of 6 clips.

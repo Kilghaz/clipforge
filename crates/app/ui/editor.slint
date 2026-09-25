@@ -25,10 +25,13 @@ export struct TimelineClip {
     overlap: float,
     selected: bool,
     duration-text: string,
-    // 0 cut, 1 dissolve, 2 fade through black
+    // Index into the transition picker (TransitionKind::ALL); 0 = cut,
+    // 1–3 dissolve and fades, 4+ movement transitions.
     transition: int,
     is-video: bool,
     muted: bool,
+    /// Photo with a Ken Burns movement.
+    moving: bool,
     /// Keyboard focus (drawn only while the strip has keyboard focus).
     focused: bool,
 }
@@ -53,6 +56,11 @@ export global EditorState {
     in-out property <int> fit-index;
     in-out property <int> transition-index;
     in-out property <float> transition-seconds: 1;
+    /// The chosen duration is shortened on some target (neighbour too short).
+    in-out property <bool> transition-capped;
+    /// Targets include photos (shows the Motion section) / also videos.
+    in-out property <bool> has-photo-target: true;
+    in-out property <int> motion-index;
     /// Selection contains videos (shows audio controls) / only videos.
     in-out property <bool> has-video-target;
     in-out property <bool> only-video-target;
@@ -110,6 +118,9 @@ export global EditorState {
     callback duration-changed(float);
     callback fit-changed(int);
     callback transition-changed(int, float);
+    callback shuffle-transitions();
+    callback motion-changed(int);
+    callback shuffle-motion();
     callback rotate-selected();
     callback aspect-changed(int);
     callback muted-changed(bool);
@@ -204,10 +215,31 @@ export component ClipView inherits Rectangle {
         y: 0;
         width: max(root.item.overlap * 1px, 10px);
         height: parent.height;
-        background: root.item.transition == 1 ? Theme.title-clip.with-alpha(0.4) : Theme.text.with-alpha(0.2);
+        // Dissolves and fades blend; movement transitions (slide, wipe, zoom) move.
+        background: root.item.transition <= 3 ? Theme.title-clip.with-alpha(0.4) : Theme.text.with-alpha(0.2);
+        // End of the overlap: a light line on a dark backdrop reads on any
+        // footage (the wash alone is too faint over bright pictures).
+        // Stops above the footer so it never cuts through the clip name.
+        Rectangle {
+            x: parent.width - 3px;
+            width: 3px;
+            y: Theme.space-xs;
+            height: parent.height - Theme.control-height-s - 2 * Theme.space-xs;
+            background: Theme.badge-backdrop;
+            Rectangle { x: 1px; width: 1px; height: parent.height; background: Theme.text; }
+        }
+    }
+    // Badges sit at the left, just after this clip's own transition overlay:
+    // the right end of a clip is covered by the next clip's overlap.
+    property <length> badge-x: (root.item.transition != 0 ? max(root.item.overlap * 1px, 10px) : 0px) + Theme.space-s;
+    if root.item.moving : Badge {
+        x: root.badge-x;
+        y: Theme.space-s;
+        icon: Icons.arrow-move;
+        label: @tr("Moves (Ken Burns)");
     }
     if root.item.is-video && root.item.muted : Badge {
-        x: parent.width - self.width - Theme.space-s;
+        x: root.badge-x;
         y: Theme.space-s;
         icon: Icons.speaker-mute;
         label: @tr("Muted");
@@ -444,6 +476,8 @@ export component TimelineStrip inherits Rectangle {
 
 
 component Inspector inherits Rectangle {
+    /// Keyboard: `T` jumps to the transition picker.
+    public function focus-transition() { transition-picker.focus(); }
     background: Theme.surface-pane;
     width: 296px;
     ScrollView {
@@ -521,9 +555,14 @@ component Inspector inherits Rectangle {
             }
             Section {
                 title: @tr("Transition into clip");
-                ComboBox {
+                transition-picker := ComboBox {
                     height: Theme.control-height;
-                    model: [@tr("Cut"), @tr("Cross dissolve"), @tr("Fade through black")];
+                    model: [
+                        @tr("Cut"), @tr("Cross dissolve"), @tr("Fade through black"), @tr("Fade through white"),
+                        @tr("Slide left"), @tr("Slide right"), @tr("Slide up"), @tr("Slide down"),
+                        @tr("Wipe left"), @tr("Wipe right"), @tr("Wipe up"), @tr("Wipe down"),
+                        @tr("Zoom"),
+                    ];
                     current-index <=> EditorState.transition-index;
                     selected => { EditorState.transition-changed(self.current-index, EditorState.transition-seconds); }
                     accessible-label: @tr("Transition into clip");
@@ -537,6 +576,38 @@ component Inspector inherits Rectangle {
                     value-text: round(EditorState.transition-seconds * 10) / 10 + " s";
                     label: @tr("Transition duration");
                     released(v) => { EditorState.transition-changed(EditorState.transition-index, v); }
+                }
+                if EditorState.transition-capped && EditorState.transition-index != 0 : Caption {
+                    text: @tr("Shortened where clips are too short");
+                    wrap: word-wrap;
+                    overflow: clip;
+                }
+                ActionButton {
+                    text: @tr("Shuffle transitions");
+                    icon: Icons.arrow-shuffle;
+                    enabled: EditorState.clip-count > 0;
+                    clicked => { EditorState.shuffle-transitions(); }
+                }
+            }
+            if EditorState.has-photo-target : Section {
+                title: @tr("Motion");
+                ComboBox {
+                    height: Theme.control-height;
+                    model: [@tr("None"), @tr("Zoom in"), @tr("Zoom out"), @tr("Pan left"), @tr("Pan right"), @tr("Pan up"), @tr("Pan down")];
+                    current-index <=> EditorState.motion-index;
+                    selected => { EditorState.motion-changed(self.current-index); }
+                    accessible-label: @tr("Motion");
+                }
+                Caption {
+                    text: EditorState.has-video-target ? @tr("Slow zoom or pan across photos. Applies to photos only.") : @tr("Slow zoom or pan across photos.");
+                    wrap: word-wrap;
+                    overflow: clip;
+                }
+                ActionButton {
+                    text: @tr("Shuffle motion");
+                    icon: Icons.arrow-shuffle;
+                    enabled: EditorState.clip-count > 0;
+                    clicked => { EditorState.shuffle-motion(); }
                 }
             }
             Divider { }
@@ -637,6 +708,7 @@ export component EditorPage inherits Rectangle {
             if event.text == Key.LeftArrow { EditorState.step-frames(event.modifiers.shift ? -10 : -1); return accept; }
             if event.text == Key.RightArrow { EditorState.step-frames(event.modifiers.shift ? 10 : 1); return accept; }
             if event.text == Key.Home { EditorState.scrub(0); return accept; }
+            if event.text == "t" && !event.modifiers.control && !event.modifiers.meta { inspector.focus-transition(); return accept; }
             if event.text == Key.End { EditorState.scrub(EditorState.strip-width); return accept; }
             if event.text == Key.Escape { EditorState.clear-selection(); return accept; }
             return reject;
@@ -703,8 +775,18 @@ export component EditorPage inherits Rectangle {
                             enabled: EditorState.clip-count > 0;
                             clicked => { EditorState.toggle-play(); }
                         }
-                        SecondaryText { text: EditorState.time-text + " / " + EditorState.total-text; color: Theme.text; }
-                        Rectangle { horizontal-stretch: 1; }
+                        // The time read-out never shrinks; the status message gives way.
+                        SecondaryText { text: EditorState.time-text + " / " + EditorState.total-text; color: Theme.text; min-width: self.preferred-width; }
+                        // Result of the last bulk action ("Shuffled transitions on 12 clips");
+                        // Rust clears it after a few seconds.
+                        Caption {
+                            text: EditorState.status-text;
+                            horizontal-stretch: 1;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                            min-width: 0;
+                            accessible-role: text;
+                        }
                         // Timeline zoom: icons at both ends label the slider.
                         Icon { source: Icons.zoom-out; size: Theme.icon-s; color: Theme.text-secondary; }
                         Slider {
@@ -723,7 +805,7 @@ export component EditorPage inherits Rectangle {
                 strip := TimelineStrip { }
             }
             VDivider { }
-            Inspector { }
+            inspector := Inspector { }
         }
     }
     if EditorState.export-open : ExportDialog { }

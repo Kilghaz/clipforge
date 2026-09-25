@@ -176,6 +176,13 @@ export component GalleryWindow inherits Window {
             ClipView { width: 160px; height: 100px; show-focus: true; item: { index: 6, id: "g", title: "IMG_4101.jpg", thumb: root.sample, has-thumb: true, width: 160, focused: true, duration-text: "4.0 s" }; }
         }
         Row {
+            title: "Timeline clips, M4: moving photo (no transition), moving photo with slide, video with wipe (movement overlay), selected moving photo with zoom";
+            ClipView { width: 160px; height: 100px; item: { index: 0, id: "f", title: "IMG_4101.jpg", thumb: root.sample, has-thumb: true, width: 160, moving: true, duration-text: "4.0 s" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 1, id: "g", title: "IMG_4102.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, transition: 4, moving: true, duration-text: "4.0 s" }; }
+            ClipView { width: 220px; height: 100px; item: { index: 2, id: "h", title: "Clip 6.mov", thumb: root.sample, has-thumb: true, width: 220, is-video: true, overlap: 30, transition: 8, duration-text: "0:06" }; }
+            ClipView { width: 160px; height: 100px; item: { index: 3, id: "i", title: "IMG_4104.jpg", thumb: root.sample, has-thumb: true, width: 160, overlap: 40, transition: 12, moving: true, selected: true, duration-text: "4.0 s" }; }
+        }
+        Row {
             title: "Section + ValueSlider (inspector form), 280 px wide; EmptyState; DialogButtons Windows / macOS";
             Rectangle {
                 width: 280px;
@@ -196,6 +203,12 @@ export component GalleryWindow inherits Window {
                         title: "Framing";
                         ChoiceGroup { label: "Framing"; options: ["Fit inside", "Fill frame"]; selected-index: 0; }
                         ActionButton { text: "Rotate 90°"; icon: Icons.arrow-rotate-clockwise; }
+                    }
+                    Section {
+                        title: "Motion (M4)";
+                        ComboBox { height: Theme.control-height; model: ["Zoom in"]; current-index: 0; }
+                        Caption { text: "Slow zoom or pan across photos. Applies to photos only."; wrap: word-wrap; overflow: clip; }
+                        ActionButton { text: "Shuffle motion"; icon: Icons.arrow-shuffle; }
                     }
                 }
             }

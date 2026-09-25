@@ -4,8 +4,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clipforge_core::{
-    Clip, Command, Fit, History, MediaId, MediaRef, Project, ProjectSettings, Quarter, RefKind,
-    Ticks, Transition, TransitionKind,
+    Clip, Command, Fit, History, MediaId, MediaRef, Motion, Project, ProjectSettings, Quarter,
+    RefKind, Ticks, Transition, TransitionKind,
 };
 use proptest::prelude::*;
 
@@ -57,6 +57,9 @@ enum Op {
     Transition(Vec<u8>, u8),
     Trim(u8, u8, u8),
     Settings(u8),
+    Motion(Vec<u8>, u8),
+    ShuffleTransitions(Vec<u8>, u64),
+    ShuffleMotion(Vec<u8>, u64),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -68,9 +71,12 @@ fn op() -> impl Strategy<Value = Op> {
         (idx.clone(), 1u8..10).prop_map(|(i, d)| Op::Duration(i, d)),
         (idx.clone(), any::<bool>()).prop_map(|(i, c)| Op::Fit(i, c)),
         idx.clone().prop_map(Op::Rotate),
-        (idx, 0u8..3).prop_map(|(i, t)| Op::Transition(i, t)),
+        (idx.clone(), 0u8..3).prop_map(|(i, t)| Op::Transition(i, t)),
         (0u8..8, 0u8..5, 1u8..6).prop_map(|(i, a, b)| Op::Trim(i, a, b)),
         (1u8..10).prop_map(Op::Settings),
+        (idx.clone(), 0u8..7).prop_map(|(i, m)| Op::Motion(i, m)),
+        (idx.clone(), any::<u64>()).prop_map(|(i, s)| Op::ShuffleTransitions(i, s)),
+        (idx, any::<u64>()).prop_map(|(i, s)| Op::ShuffleMotion(i, s)),
     ]
 }
 
@@ -177,6 +183,40 @@ fn concrete(op: &Op, p: &Project) -> Option<Command> {
                 ..ProjectSettings::default()
             },
         },
+        Op::Motion(i, m) => {
+            let idx: Vec<usize> = pick(i, len)
+                .into_iter()
+                .filter(|&k| p.clips[k].is_photo())
+                .collect();
+            if idx.is_empty() {
+                return None;
+            }
+            Command::SetMotion {
+                indices: idx,
+                motion: Motion::from_index(usize::from(*m)),
+            }
+        }
+        Op::ShuffleTransitions(i, seed) => {
+            let idx = pick(i, len);
+            if idx.is_empty() {
+                return None;
+            }
+            Command::SetTransitionEach {
+                entries: clipforge_core::shuffle::transitions(&idx, Ticks::from_millis(600), *seed),
+            }
+        }
+        Op::ShuffleMotion(i, seed) => {
+            let idx: Vec<usize> = pick(i, len)
+                .into_iter()
+                .filter(|&k| p.clips[k].is_photo())
+                .collect();
+            if idx.is_empty() {
+                return None;
+            }
+            Command::SetMotionEach {
+                entries: clipforge_core::shuffle::motions(&idx, *seed),
+            }
+        }
     })
 }
 

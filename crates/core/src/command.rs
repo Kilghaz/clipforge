@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::project::{
-    Clip, ClipSource, Fit, MediaRef, Project, ProjectSettings, Quarter, Transition,
+    Clip, ClipSource, Fit, MediaRef, Motion, Project, ProjectSettings, Quarter, Transition,
 };
 use crate::time::Ticks;
 
@@ -41,6 +41,7 @@ pub enum CommandLabel {
     Transition,
     Trim,
     Mute,
+    Motion,
     Settings,
 }
 
@@ -94,6 +95,19 @@ pub enum Command {
         indices: Vec<usize>,
         percent: u16,
     },
+    /// Sets the same Ken Burns movement on photo clips.
+    SetMotion {
+        indices: Vec<usize>,
+        motion: Motion,
+    },
+    /// Sets an individual transition per clip (shuffle). One undo step.
+    SetTransitionEach {
+        entries: Vec<(usize, Transition)>,
+    },
+    /// Sets an individual movement per photo clip (shuffle). One undo step.
+    SetMotionEach {
+        entries: Vec<(usize, Motion)>,
+    },
     SetSettings {
         settings: ProjectSettings,
     },
@@ -120,6 +134,8 @@ impl Command {
             Command::SetRotate { .. } => CommandLabel::Rotate,
             Command::SetTransition { .. } => CommandLabel::Transition,
             Command::SetMuted { .. } | Command::SetVolume { .. } => CommandLabel::Mute,
+            Command::SetMotion { .. } | Command::SetMotionEach { .. } => CommandLabel::Motion,
+            Command::SetTransitionEach { .. } => CommandLabel::Transition,
             Command::SetSettings { .. } => CommandLabel::Settings,
             Command::Batch { commands } => commands
                 .first()
@@ -285,6 +301,23 @@ impl Command {
             Command::SetVolume { indices, percent } => {
                 set_field(project, &indices, |c| c.volume_percent = percent.min(300))
             }
+            Command::SetMotion { indices, motion } => {
+                let indices = unique_sorted(&indices, project.clips.len())?;
+                require_photos(project, &indices)?;
+                set_field(project, &indices, |c| c.motion = motion)
+            }
+            Command::SetTransitionEach { entries } => {
+                if entries.iter().any(|(_, t)| t.duration < Ticks::ZERO) {
+                    return Err(CommandError::NonPositiveDuration);
+                }
+                set_each(project, &entries, |c, t| c.transition_in = *t)
+            }
+            Command::SetMotionEach { entries } => {
+                let indices: Vec<usize> = entries.iter().map(|(i, _)| *i).collect();
+                let indices = unique_sorted(&indices, project.clips.len())?;
+                require_photos(project, &indices)?;
+                set_each(project, &entries, |c, m| c.motion = *m)
+            }
             Command::SetSettings { settings } => {
                 let before = std::mem::replace(&mut project.settings, settings);
                 Ok(Command::SetSettings { settings: before })
@@ -363,6 +396,33 @@ fn snapshot(project: &Project, indices: &[usize]) -> Vec<(usize, Clip)> {
         .iter()
         .map(|&i| (i, project.clips[i].clone()))
         .collect()
+}
+
+fn require_photos(project: &Project, indices: &[usize]) -> Result<(), CommandError> {
+    for &i in indices {
+        if !project.clips[i].is_photo() {
+            return Err(CommandError::NotApplicable {
+                index: i,
+                reason: "not a photo",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Applies a per-clip value; the inverse restores the previous clips.
+fn set_each<T>(
+    project: &mut Project,
+    entries: &[(usize, T)],
+    f: impl Fn(&mut Clip, &T),
+) -> Result<Command, CommandError> {
+    let indices: Vec<usize> = entries.iter().map(|(i, _)| *i).collect();
+    let indices = unique_sorted(&indices, project.clips.len())?;
+    let before = snapshot(project, &indices);
+    for (i, v) in entries {
+        f(&mut project.clips[*i], v);
+    }
+    Ok(Command::RestoreClips { entries: before })
 }
 
 fn set_field(
@@ -673,6 +733,107 @@ mod tests {
         assert_eq!(p.settings.default_photo_duration, Ticks::SECOND);
         inv.apply(&mut p).unwrap();
         assert_eq!(p, before);
+    }
+
+    #[test]
+    fn motion_commands_apply_to_photos_and_undo() {
+        let mut p = project_with(3);
+        let before = p.clone();
+        let inv = Command::SetMotion {
+            indices: vec![0, 2],
+            motion: Motion::ZoomIn,
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(p.clips[0].motion, Motion::ZoomIn);
+        assert_eq!(p.clips[1].motion, Motion::None);
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        let inv = Command::SetMotionEach {
+            entries: vec![(0, Motion::PanLeft), (1, Motion::PanUp)],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!(
+            (p.clips[0].motion, p.clips[1].motion),
+            (Motion::PanLeft, Motion::PanUp)
+        );
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn motion_is_rejected_for_videos() {
+        let mut p = Project::new();
+        let m = media_ref(RefKind::Video, Some(Ticks::from_seconds(5)));
+        Command::InsertClips {
+            entries: vec![(0, Clip::video(m.id, Ticks::from_seconds(5)))],
+            media: vec![m],
+        }
+        .apply(&mut p)
+        .unwrap();
+        let before = p.clone();
+        assert_eq!(
+            Command::SetMotion {
+                indices: vec![0],
+                motion: Motion::ZoomIn
+            }
+            .apply(&mut p)
+            .unwrap_err(),
+            CommandError::NotApplicable {
+                index: 0,
+                reason: "not a photo"
+            }
+        );
+        assert!(
+            Command::SetMotionEach {
+                entries: vec![(0, Motion::ZoomIn)]
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+        assert_eq!(p, before);
+    }
+
+    #[test]
+    fn transition_each_sets_individual_values_in_one_step() {
+        let mut p = project_with(3);
+        let before = p.clone();
+        let a = Transition {
+            kind: TransitionKind::WipeLeft,
+            duration: Ticks::from_millis(500),
+        };
+        let b = Transition {
+            kind: TransitionKind::Zoom,
+            duration: Ticks::from_millis(800),
+        };
+        let inv = Command::SetTransitionEach {
+            entries: vec![(1, a), (2, b)],
+        }
+        .apply(&mut p)
+        .unwrap();
+        assert_eq!((p.clips[1].transition_in, p.clips[2].transition_in), (a, b));
+        inv.apply(&mut p).unwrap();
+        assert_eq!(p, before);
+        let bad = Transition {
+            kind: TransitionKind::Zoom,
+            duration: Ticks::from_flicks(-1),
+        };
+        assert!(
+            Command::SetTransitionEach {
+                entries: vec![(0, bad)]
+            }
+            .apply(&mut p)
+            .is_err()
+        );
+        assert!(
+            Command::SetTransitionEach {
+                entries: vec![(0, a), (0, b)]
+            }
+            .apply(&mut p)
+            .is_err(),
+            "duplicate index"
+        );
     }
 
     #[test]
