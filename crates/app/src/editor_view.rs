@@ -352,6 +352,62 @@ pub(crate) fn clip_flags(clip: &Clip) -> ClipFlags {
     }
 }
 
+/// Where a trim drag started: the clip's trim and its on-screen edges.
+/// Positions during the drag are computed from this anchor and the absolute
+/// cursor x, so the edge sits exactly under the pointer.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) struct TrimAnchor {
+    pub index: usize,
+    /// Dragging the left (in) edge; otherwise the right (out) edge.
+    pub left: bool,
+    pub in_point: Ticks,
+    pub out_point: Ticks,
+    /// Length of the source video; the out point cannot pass it.
+    pub natural: Ticks,
+    /// Strip x of the clip's left and right edge when the drag started.
+    pub start_x: f32,
+    pub end_x: f32,
+}
+
+/// Shortest a trimmed clip may become.
+pub(crate) const MIN_TRIM: Ticks = Ticks::from_millis(200);
+
+/// New `(in, out)` with the dragged edge under `cursor` (strip x), clamped
+/// to the source (0 .. natural) and to `MIN_TRIM`.
+#[must_use]
+pub(crate) fn trim_at_cursor(
+    a: &TrimAnchor,
+    cursor: f32,
+    pixels_per_second: f32,
+) -> (Ticks, Ticks) {
+    let secs = |px: f32| Ticks::from_seconds_f64(f64::from(px / pixels_per_second));
+    if a.left {
+        // The right edge stays put: the clip spans cursor .. end_x.
+        let len = secs(a.end_x - cursor);
+        let new_in = (a.out_point - len).clamp(Ticks::ZERO, a.out_point - MIN_TRIM);
+        (new_in, a.out_point)
+    } else {
+        // The left edge stays put: the clip spans start_x .. cursor.
+        let len = secs(cursor - a.start_x);
+        let new_out = (a.in_point + len).clamp(a.in_point + MIN_TRIM, a.natural);
+        (a.in_point, new_out)
+    }
+}
+
+/// Box of the clip being trimmed from its left edge: the right edge stays
+/// where it was when the drag started, the left edge moves.
+#[must_use]
+pub(crate) fn left_trim_box(a: &TrimAnchor, in_point: Ticks, pixels_per_second: f32) -> ClipBox {
+    #[allow(clippy::cast_possible_truncation)]
+    let natural_w = (a.out_point - in_point).as_seconds_f64() as f32 * pixels_per_second;
+    let width = natural_w.max(MIN_CLIP_WIDTH);
+    ClipBox {
+        x: a.end_x - width,
+        width,
+        overlap: 0.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,5 +719,83 @@ mod tests {
         let fewer = clips[..3].to_vec();
         sel.retain_existing(&fewer);
         assert_eq!(sel.focus_index(&fewer), None, "focused clip removed");
+    }
+
+    fn anchor(left: bool) -> TrimAnchor {
+        // A 10 s video trimmed to 2..6 s, drawn at 40 px/s from x = 100 to 260.
+        TrimAnchor {
+            index: 0,
+            left,
+            in_point: Ticks::from_seconds(2),
+            out_point: Ticks::from_seconds(6),
+            natural: Ticks::from_seconds(10),
+            start_x: 100.0,
+            end_x: 260.0,
+        }
+    }
+
+    #[test]
+    fn right_edge_follows_the_cursor_exactly() {
+        let a = anchor(false);
+        assert_eq!(
+            trim_at_cursor(&a, 260.0, 40.0),
+            (Ticks::from_seconds(2), Ticks::from_seconds(6)),
+            "no move, no change"
+        );
+        assert_eq!(trim_at_cursor(&a, 300.0, 40.0).1, Ticks::from_seconds(7));
+        assert_eq!(trim_at_cursor(&a, 180.0, 40.0).1, Ticks::from_seconds(4));
+    }
+
+    #[test]
+    fn right_edge_stops_at_the_end_of_the_video_and_the_minimum() {
+        let a = anchor(false);
+        assert_eq!(
+            trim_at_cursor(&a, 10_000.0, 40.0).1,
+            Ticks::from_seconds(10),
+            "cannot pass the source"
+        );
+        assert_eq!(
+            trim_at_cursor(&a, 0.0, 40.0).1,
+            Ticks::from_seconds(2) + MIN_TRIM,
+            "cannot invert"
+        );
+    }
+
+    #[test]
+    fn left_edge_follows_the_cursor_and_keeps_the_right_edge() {
+        let a = anchor(true);
+        assert_eq!(
+            trim_at_cursor(&a, 100.0, 40.0),
+            (Ticks::from_seconds(2), Ticks::from_seconds(6))
+        );
+        assert_eq!(
+            trim_at_cursor(&a, 140.0, 40.0).0,
+            Ticks::from_seconds(3),
+            "drag right: later in point"
+        );
+        assert_eq!(
+            trim_at_cursor(&a, 60.0, 40.0).0,
+            Ticks::from_seconds(1),
+            "drag left: earlier in point"
+        );
+        assert_eq!(
+            trim_at_cursor(&a, -500.0, 40.0).0,
+            Ticks::ZERO,
+            "cannot pass the start of the video"
+        );
+        assert_eq!(
+            trim_at_cursor(&a, 5_000.0, 40.0).0,
+            Ticks::from_seconds(6) - MIN_TRIM
+        );
+        // The box keeps its right edge and puts the left edge under the cursor.
+        let b = left_trim_box(&a, Ticks::from_seconds(3), 40.0);
+        assert!(
+            (b.x - 140.0).abs() < 1e-3 && (b.x + b.width - 260.0).abs() < 1e-3,
+            "{b:?}"
+        );
+        // Very short: minimum width, right edge still fixed.
+        let b = left_trim_box(&a, Ticks::from_seconds(6) - MIN_TRIM, 40.0);
+        assert_eq!(b.width, MIN_CLIP_WIDTH);
+        assert!((b.x + b.width - 260.0).abs() < 1e-3);
     }
 }

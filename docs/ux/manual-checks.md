@@ -77,8 +77,12 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Space / L plays with sound; K pauses; J jumps back a second; ←/→ step
       one frame (Shift: ten); Home returns to the start. Audio stops on pause
       and on scrubbing.
-- [ ] Drag the left or right edge of a video clip: the white marker follows,
-      the preview shows the new first/last frame, release trims (undoable).
+- [ ] Drag the right edge of a video clip: the edge stays exactly under the
+      pointer (later clips move along) until the end of the video; the left
+      edge likewise, with the clip's right edge staying put and the gap
+      closing on release. The preview shows the new first/last frame, the
+      duration updates live, release trims in one undo step, Escape during
+      the drag restores the original length.
 - [ ] Inspector shows Mute and Volume for video selections; muting removes the
       ▶ badge's sound icon and the exported file has no audio for that clip.
 - [ ] A dissolve between two videos plays both pictures blended; the export

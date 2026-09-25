@@ -66,9 +66,6 @@ export global EditorState {
     in-out property <bool> only-video-target;
     in-out property <bool> muted;
     in-out property <float> volume-percent: 100;
-    /// Trim drag feedback: index being trimmed (or -1) and the marker x.
-    in-out property <int> trim-marker: -1;
-    in-out property <float> trim-marker-x;
 
     // Project
     in-out property <string> project-title;
@@ -432,13 +429,6 @@ export component TimelineStrip inherits Rectangle {
                 y: root.clip-top;
                 width: clip.width * 1px;
                 height: root.clip-height;
-            }
-            if EditorState.trim-marker >= 0 : Rectangle {
-                x: EditorState.trim-marker-x * 1px - 1px;
-                y: root.clip-top - Theme.space-xs;
-                width: 2px;
-                height: root.clip-height + Theme.space-s;
-                background: Theme.text;
             }
             // Insertion point while dragging from the library.
             if EditorState.drop-marker >= 0 : Rectangle {

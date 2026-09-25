@@ -35,7 +35,7 @@ Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, vid
 | Ruler | DESIGN §4 "one tick per second, labels thinned by zoom" | 24 px `surface-pane` ruler, 1 px tick per second (8 px at label step, 4 px otherwise), `m:ss` caption at `label-step` 1/2/5/10 s | ✅ | populated.png |
 | Playhead | Apple: scrubber; DESIGN token `playhead` | 2 px `Theme.playhead` line full strip height + 12 × 12 grab head in the ruler | ✅ | populated.png |
 | Drop insertion marker | React Aria: "DropIndicator is rendered between items"; Apple: insertion point only when destination accepts | 3 px `Theme.accent` line at `boxes[to].x`, spanning clip height + 8 px | ✅ (note: manual-checks.md still calls it "orange"; code uses accent) | `library_drop_hover`, `clip_dragged` |
-| Trim marker | live preview of the edit (NN/G direct manipulation) | 2 px `Theme.text` line at the new edge while dragging | ✅ | `trim_dragged` |
+| Live trim | NN/G direct manipulation: "effects immediately visible"; the edge stays under the pointer | the dragged edge follows the cursor exactly (`editor_view::trim_at_cursor` from a `TrimAnchor` taken at the first move); right edge: later clips shift live; left edge: the right edge stays put and the gap closes on release; clamped at the source length and 0.2 s; below 56 px the minimum width wins. The former trim marker line is gone | ✅ | tests `right_edge_follows_the_cursor_exactly`, `left_edge_follows_the_cursor_and_keeps_the_right_edge` |
 | Drop-zone tint | Fluent DragOver feedback; Apple highlight only while above | `drop-target` fill + 2 px accent border over the strip while `Shell.drag-over-timeline` | ✅ | manual-checks "Design guide pass" |
 | Drag ghost (clip reorder) | Fluent DragUI content; Apple translucent drag image; React Aria "copy of the dragged element" | none for clip reordering: clips stay in place, only the drop marker moves | ❌ | |
 | Zoom control | Fluent Ctrl++/−; Premiere zoom slider | `Slider` 10–200 px/s between zoom-out/zoom-in icons, `Tooltip` "Timeline zoom" | ✅ | populated.png |
@@ -55,7 +55,7 @@ Gallery rows: "Timeline clips (100 px): photo, selected photo with dissolve, vid
 | focus (keyboard) | Fluent focus visual on the focused item | none; `ClipView` has no focus, only the page-level `FocusScope` | ❌ | |
 | dragging (reorder) | Apple: drag image; React Aria: preview | no change on the dragged clips; drop marker only | ❌ | |
 | trim-hover | NN/G cursor: "Use the platform's standard cursor for moving or resizing" | `MouseCursor.col-resize` on the handles, bars brighten | ✅ | `trim-left`/`trim-right` |
-| trimming (in progress) | NN/G: effects "immediately visible" | white trim marker follows; playhead jumps to the new in/out frame and the preview re-renders | ✅ | `trim_dragged`; manual-checks M3 |
+| trimming (in progress) | NN/G: effects "immediately visible"; DESIGN §5: Escape cancels every gesture | the clip resizes under the pointer, its duration read-out updates, the playhead jumps to the new first / last frame and the preview shows it (rendered from a display copy; the project changes once, on release, as one `SetTrim`); Escape restores the original trim without an undo step | ✅ | `trim_dragged`, `cancel_trim`; manual-checks M3 |
 | muted | | badge shown; audio section in inspector | ✅ | gallery "muted video" |
 | disabled | | — no disabled clips | ➖ | |
 | playing | Apple: Space toggles | playhead advances, play icon becomes pause, `Play (Space)` tooltip | ✅ | `tick`, transport `Bar` |

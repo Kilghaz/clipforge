@@ -98,6 +98,16 @@ impl PreviewSources {
     }
 }
 
+/// A trim drag: where it started and the values under the cursor now.
+#[derive(Copy, Clone, Debug)]
+struct TrimState {
+    anchor: editor_view::TrimAnchor,
+    in_point: Ticks,
+    out_point: Ticks,
+    /// Escape was pressed; ignore further moves until the button is released.
+    cancelled: bool,
+}
+
 enum ExportEvent {
     Progress(f32),
     Finished(Result<clipforge_export::ExportReport, String>),
@@ -138,6 +148,8 @@ struct Inner {
     /// When the status message was set; cleared after `STATUS_VISIBLE`.
     status_since: Option<Instant>,
     drag: Option<(usize, bool)>,
+    /// Trim gesture in progress: shown live, committed on release.
+    trim: Option<TrimState>,
     export: Option<ExportRun>,
 }
 
@@ -198,6 +210,7 @@ impl EditorController {
             last_prune: Instant::now(),
             status_since: None,
             drag: None,
+            trim: None,
             export: None,
         }));
 
@@ -427,6 +440,10 @@ impl Inner {
 
     /// Escape: drop the selection (DESIGN.md §3 selection model).
     fn clear_selection(&mut self) {
+        // Escape first cancels a gesture in progress (DESIGN.md §5).
+        if self.cancel_trim() {
+            return;
+        }
         self.selection.clear();
         self.sync_timeline();
     }
@@ -751,8 +768,43 @@ impl Inner {
         self.apply(Command::SetVolume { indices, percent });
     }
 
-    /// New trim range for dragging one edge of clip `index` to strip `x`.
-    fn trim_for(&self, index: usize, left: bool, x: f32) -> Option<(Ticks, Ticks)> {
+    /// Clips as currently displayed: the project, with a trim in progress
+    /// applied. Display only; the project changes on release.
+    fn display_clips(&self) -> std::borrow::Cow<'_, [clipforge_core::Clip]> {
+        match self.trim {
+            Some(t) if !t.cancelled => {
+                let mut clips = self.project.clips.clone();
+                if let Some(c) = clips.get_mut(t.anchor.index) {
+                    c.source = clipforge_core::ClipSource::Video {
+                        in_point: t.in_point,
+                        out_point: t.out_point,
+                    };
+                }
+                std::borrow::Cow::Owned(clips)
+            }
+            _ => std::borrow::Cow::Borrowed(&self.project.clips),
+        }
+    }
+
+    /// Clip boxes as displayed. A right-edge trim ripples live (later clips
+    /// move with the edge); a left-edge trim keeps everything in place and
+    /// moves only the trimmed clip's left edge, so it sits under the cursor.
+    fn display_boxes(&self) -> Vec<editor_view::ClipBox> {
+        match self.trim {
+            Some(t) if !t.cancelled && t.anchor.left => {
+                let mut boxes = layout(&self.project.clips, self.pps);
+                if let Some(b) = boxes.get_mut(t.anchor.index) {
+                    *b = editor_view::left_trim_box(&t.anchor, t.in_point, self.pps);
+                }
+                boxes
+            }
+            _ => layout(&self.display_clips(), self.pps),
+        }
+    }
+
+    /// Starts a trim gesture on first move: remembers the clip's trim and
+    /// its on-screen edges.
+    fn begin_trim(&mut self, index: usize, left: bool) -> Option<TrimState> {
         let clip = self.project.clips.get(index)?;
         let clipforge_core::ClipSource::Video {
             in_point,
@@ -768,19 +820,20 @@ impl Inner {
             .and_then(|m| m.duration)?;
         let boxes = layout(&self.project.clips, self.pps);
         let b = boxes.get(index)?;
-        let edge = if left { b.x } else { b.x + b.width };
-        let delta = Ticks::from_seconds_f64(f64::from((x - edge) / self.pps));
-        let min_len = Ticks::from_millis(200);
-        Some(if left {
-            (
-                (in_point + delta).clamp(Ticks::ZERO, out_point - min_len),
-                out_point,
-            )
-        } else {
-            (
-                in_point,
-                (out_point + delta).clamp(in_point + min_len, natural),
-            )
+        let anchor = editor_view::TrimAnchor {
+            index,
+            left,
+            in_point,
+            out_point,
+            natural,
+            start_x: b.x,
+            end_x: b.x + b.width,
+        };
+        Some(TrimState {
+            anchor,
+            in_point,
+            out_point,
+            cancelled: false,
         })
     }
 
@@ -788,57 +841,70 @@ impl Inner {
         let Ok(index) = usize::try_from(idx) else {
             return;
         };
-        let Some((new_in, new_out)) = self.trim_for(index, left, x) else {
-            return;
+        let mut state = match self.trim {
+            Some(t) if t.cancelled => return,
+            Some(t) if t.anchor.index == index && t.anchor.left == left => t,
+            _ => match self.begin_trim(index, left) {
+                Some(t) => t,
+                None => return,
+            },
         };
-        let boxes = layout(&self.project.clips, self.pps);
-        let Some(b) = boxes.get(index) else { return };
-        let clipforge_core::ClipSource::Video {
-            in_point,
-            out_point,
-        } = self.project.clips[index].source
-        else {
-            return;
-        };
-        #[allow(clippy::cast_possible_truncation)]
-        let marker = if left {
-            b.x + ((new_in - in_point).as_seconds_f64() as f32) * self.pps
-        } else {
-            b.x + b.width + ((new_out - out_point).as_seconds_f64() as f32) * self.pps
-        };
-        if let Some(w) = self.state() {
-            let s = w.global::<EditorState>();
-            s.set_trim_marker(idx);
-            s.set_trim_marker_x(marker);
-        }
-        // Scrub to the edge so the preview shows the new in/out frame.
-        let places = clipforge_core::timeline::placements(&self.project.clips);
+        let (in_point, out_point) = editor_view::trim_at_cursor(&state.anchor, x, self.pps);
+        state.in_point = in_point;
+        state.out_point = out_point;
+        self.trim = Some(state);
+        // Preview the new first / last frame from the displayed clips.
+        let mut shown = self.project.clone();
+        shown.clips = self.display_clips().into_owned();
+        let places = clipforge_core::timeline::placements(&shown.clips);
         if let Some(p) = places.get(index) {
             self.playhead = if left {
                 p.start
             } else {
                 p.end - Ticks::from_flicks(1)
             };
-            self.preview_dirty = true;
         }
+        self.snapshot = Arc::new(shown);
+        self.set_playing(false);
+        self.preview_dirty = true;
+        self.sync_timeline();
     }
 
     fn trim_released(&mut self, idx: i32, left: bool, x: f32) {
-        if let Some(w) = self.state() {
-            w.global::<EditorState>().set_trim_marker(-1);
-        }
+        let Some(state) = self.trim.take() else {
+            return;
+        };
         let Ok(index) = usize::try_from(idx) else {
             return;
         };
-        let Some((in_point, out_point)) = self.trim_for(index, left, x) else {
+        if state.cancelled || state.anchor.index != index || state.anchor.left != left {
+            self.sync_all();
             return;
-        };
+        }
+        let (in_point, out_point) = editor_view::trim_at_cursor(&state.anchor, x, self.pps);
+        if (in_point, out_point) == (state.anchor.in_point, state.anchor.out_point) {
+            self.sync_all();
+            return;
+        }
         self.apply(Command::SetTrim {
             index,
             in_point,
             out_point,
         });
         self.preview_dirty = true;
+    }
+
+    /// Escape during a trim: back to the original trim, no undo step.
+    fn cancel_trim(&mut self) -> bool {
+        match self.trim.as_mut() {
+            Some(t) if !t.cancelled => {
+                t.cancelled = true;
+                self.sync_all();
+                self.preview_dirty = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     fn step_frames(&mut self, n: i32) {
@@ -1085,19 +1151,13 @@ impl Inner {
     }
 
     fn sync_timeline(&mut self) {
-        let boxes = layout(&self.project.clips, self.pps);
-        let media_ids: Vec<MediaId> = self.project.clips.iter().map(|c| c.media).collect();
+        let boxes = self.display_boxes();
+        let clips = self.display_clips().into_owned();
+        let media_ids: Vec<MediaId> = clips.iter().map(|c| c.media).collect();
         let thumbs: Vec<Option<slint::Image>> =
             media_ids.into_iter().map(|m| self.strip_thumb(m)).collect();
-        let mut rows = Vec::with_capacity(self.project.clips.len());
-        for (i, ((clip, b), thumb)) in self
-            .project
-            .clips
-            .iter()
-            .zip(&boxes)
-            .zip(thumbs)
-            .enumerate()
-        {
+        let mut rows = Vec::with_capacity(clips.len());
+        for (i, ((clip, b), thumb)) in clips.iter().zip(&boxes).zip(thumbs).enumerate() {
             rows.push(TimelineClip {
                 index: i32::try_from(i).unwrap_or(0),
                 id: SharedString::from(clip.id.to_string()),
@@ -1157,9 +1217,9 @@ impl Inner {
     fn sync_transport(&self) {
         let Some(w) = self.state() else { return };
         let s = w.global::<EditorState>();
-        let boxes = layout(&self.project.clips, self.pps);
+        let boxes = self.display_boxes();
         s.set_playhead_x(editor_view::x_at_time(
-            &self.project.clips,
+            &self.display_clips(),
             &boxes,
             self.playhead,
         ));

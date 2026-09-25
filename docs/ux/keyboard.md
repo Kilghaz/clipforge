@@ -12,7 +12,7 @@ Rationale for the grid and timeline keys:
 | J / K / L | Reverse / pause / forward | M3 |
 | ← / → | Previous / next frame | M3 |
 | Cmd/Ctrl+A | Select all clips (timeline) / all items (library, when it has focus) | M2 |
-| Esc | Clear selection (library or timeline); cancel a library drag | M3 |
+| Esc | Clear selection (library or timeline); cancel a library drag or a trim in progress | M3 |
 | End | Playhead to the end | M3 |
 | ← → ↑ ↓ | In a choice group: move the selection | M3 |
 | ← → ↑ ↓, Home / End, Page Up / Down | Library grid: move focus; selection follows | M3 |
