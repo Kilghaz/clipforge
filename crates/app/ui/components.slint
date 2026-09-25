@@ -706,6 +706,10 @@ export component IconChoiceGroup inherits HorizontalLayout {
 /// family; typing filters the list (the app does the matching), ↑/↓ move
 /// through it, Enter picks, Escape restores. Each entry is drawn in its own
 /// font so the list is a preview.
+///
+/// The list opens *inline* below the field instead of in a popup: a popup
+/// takes the keyboard away from the field, and closing it hands focus back,
+/// which reopened it. Inline, the field keeps the focus the whole time.
 export component FontPicker inherits Rectangle {
     /// The chosen family.
     in property <string> value;
@@ -715,94 +719,116 @@ export component FontPicker inherits Rectangle {
     in property <bool> enabled: true;
     callback search(string);
     callback picked(string);
+    in-out property <bool> expanded;
     property <int> highlight: 0;
     property <length> row-height: Theme.control-height;
-    height: Theme.control-height;
-    border-radius: Theme.radius-s;
-    border-width: 1px;
-    border-color: input.has-focus ? Theme.accent : Theme.border;
-    background: Theme.surface-card;
     accessible-role: combobox;
     accessible-label: root.label;
     accessible-value: root.value;
+    accessible-expanded: root.expanded;
     forward-focus: input;
     function open() {
-        root.highlight = 0;
-        popup.show();
+        if !root.expanded {
+            root.highlight = 0;
+            root.expanded = true;
+        }
+    }
+    function close() {
+        root.expanded = false;
+        input.text = root.value;
     }
     function pick(i: int) {
         if i >= 0 && i < root.matches.length {
+            input.text = root.matches[i];
             root.picked(root.matches[i]);
         }
-        popup.close();
-        input.text = root.value;
+        root.expanded = false;
     }
-    HorizontalLayout {
-        padding-left: Theme.space-s;
-        padding-right: Theme.space-xs;
-        spacing: Theme.space-xs;
-        input := TextInput {
-            text: root.value;
-            enabled: root.enabled;
-            color: root.enabled ? Theme.text : Theme.text-disabled;
-            font-size: Theme.font-body;
-            vertical-alignment: center;
-            single-line: true;
-            horizontal-stretch: 1;
-            accessible-label: root.label;
-            changed has-focus => {
-                if self.has-focus {
-                    self.select-all();
-                    root.search("");
+    VerticalLayout {
+    spacing: Theme.space-xs;
+    field := Rectangle {
+        height: Theme.control-height;
+        border-radius: Theme.radius-s;
+        border-width: 1px;
+        border-color: input.has-focus ? Theme.accent : Theme.border;
+        background: Theme.surface-card;
+        HorizontalLayout {
+            padding-left: Theme.space-s;
+            padding-right: Theme.space-xs;
+            spacing: Theme.space-xs;
+            input := TextInput {
+                text: root.value;
+                enabled: root.enabled;
+                color: root.enabled ? Theme.text : Theme.text-disabled;
+                font-size: Theme.font-body;
+                vertical-alignment: center;
+                single-line: true;
+                horizontal-stretch: 1;
+                accessible-label: root.label;
+                // Leaving the field closes the list and shows the value again.
+                changed has-focus => {
+                    if !self.has-focus { root.close(); }
+                }
+                edited => {
+                    root.search(self.text);
                     root.open();
+                    root.highlight = 0;
+                }
+                key-pressed(event) => {
+                    if event.text == Key.DownArrow {
+                        if !root.expanded { root.search(""); root.open(); } else { root.highlight = min(root.matches.length - 1, root.highlight + 1); }
+                        return accept;
+                    }
+                    if event.text == Key.UpArrow { root.highlight = max(0, root.highlight - 1); return accept; }
+                    if event.text == Key.Return {
+                        if root.expanded { root.pick(root.highlight); } else { root.search(""); root.open(); }
+                        return accept;
+                    }
+                    if event.text == Key.Escape && root.expanded { root.close(); return accept; }
+                    return reject;
                 }
             }
-            edited => {
-                root.search(self.text);
-                root.open();
-            }
-            key-pressed(event) => {
-                if event.text == Key.DownArrow {
-                    root.highlight = min(root.matches.length - 1, root.highlight + 1);
-                    popup.show();
-                    return accept;
+            chevron := Rectangle {
+                width: Theme.icon-m;
+                Icon {
+                    source: root.expanded ? Icons.chevron-up : Icons.chevron-down;
+                    size: Theme.icon-s;
+                    color: Theme.text-secondary;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
                 }
-                if event.text == Key.UpArrow { root.highlight = max(0, root.highlight - 1); return accept; }
-                if event.text == Key.Return { root.pick(root.highlight); return accept; }
-                if event.text == Key.Escape { popup.close(); self.text = root.value; return accept; }
-                return reject;
             }
         }
-        Icon {
-            source: Icons.chevron-down;
-            size: Theme.icon-s;
-            color: Theme.text-secondary;
-            y: (parent.height - self.height) / 2;
-            TouchArea { clicked => { input.focus(); root.search(""); root.open(); } }
+        // A click anywhere on the field opens (or closes) the list; the text
+        // field underneath still gets the focus for typing.
+        TouchArea {
+            enabled: root.enabled;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    input.focus();
+                    if root.expanded { root.close(); } else { input.select-all(); root.search(""); root.open(); }
+                }
+            }
         }
     }
-    popup := PopupWindow {
-        x: 0;
-        y: root.height + Theme.space-xs;
-        width: root.width;
+    if root.expanded : Rectangle {
         height: min(8, max(1, root.matches.length)) * root.row-height + 2 * Theme.space-xs;
-        close-policy: close-on-click-outside;
-        Rectangle {
-            background: Theme.surface-card;
-            border-radius: Theme.radius-s;
-            border-width: 1px;
-            border-color: Theme.border;
-            drop-shadow-blur: 8px;
-            drop-shadow-color: Theme.shadow;
-        }
+        background: Theme.surface-card;
+        border-radius: Theme.radius-s;
+        border-width: 1px;
+        border-color: Theme.border;
+        clip: true;
         if root.matches.length == 0 : Text {
             x: Theme.space-s;
+            y: Theme.space-xs;
             height: root.row-height;
             text: @tr("No fonts match");
             color: Theme.text-secondary;
             font-size: Theme.font-secondary;
             vertical-alignment: center;
         }
+        // Rows have fixed geometry, so none of them measures its text, and
+        // rows scrolled out of view are not drawn (their fonts not loaded).
         list := Flickable {
             y: Theme.space-xs;
             height: parent.height - 2 * Theme.space-xs;
@@ -828,8 +854,18 @@ export component FontPicker inherits Rectangle {
                     vertical-alignment: center;
                     overflow: elide;
                 }
-                row-touch := TouchArea { clicked => { root.pick(i); } }
+                // Pick on press: a click could move the focus off the field
+                // first, which closes the list before the release arrives.
+                row-touch := TouchArea {
+                    pointer-event(e) => {
+                        if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                            root.pick(i);
+                            input.focus();
+                        }
+                    }
+                }
             }
         }
+    }
     }
 }

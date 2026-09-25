@@ -201,9 +201,11 @@ a screen. Four project skills run the ritual:
 | `/ux-review` | after any UI change | findings with severity from renders, cards, heuristics |
 | `/ux-feature-audit <area>` | per feature area, periodically | `docs/ux/AUDIT-<date>.md` findings |
 
-Tests back this up: `ui_tokens.rs` (no literals outside the theme) and
+Tests back this up: `ui_tokens.rs` (no literals outside the theme),
 `gallery_coverage.rs` (every exported component has a gallery row; cards
-point at real components).
+point at real components) and `ui_interaction.rs` (real pointer and key
+events against the window through Slint's testing backend: drags, handles,
+pickers). Every new gesture gets an interaction test there.
 
 ## 5. Usability checks
 

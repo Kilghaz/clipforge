@@ -50,6 +50,9 @@ swash = { version = "0.2", default-features = false, features = ["std", "scale",
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-femtovg", "software-renderer-systemfonts"] }
 slint-build = "1.18"
 i-slint-backend-winit = { version = "1.18", default-features = false, features = ["renderer-femtovg", "accessibility"] }
+# Slint's headless testing backend: finds elements and sends them real pointer
+# and key events in UI interaction tests (dev only).
+i-slint-backend-testing = "1.18"
 winit = { version = "0.30", default-features = false }
 
 [workspace.lints.rust]

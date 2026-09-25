@@ -792,6 +792,7 @@ dependencies = [
  "clipforge-render",
  "cpal",
  "crossbeam-channel",
+ "i-slint-backend-testing",
  "i-slint-backend-winit",
  "image",
  "regex",

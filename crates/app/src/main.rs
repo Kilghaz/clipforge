@@ -34,6 +34,9 @@ use tracing::{info, warn};
 /// generated; hand-written code keeps the workspace lints.
 mod ui {
     #![allow(
+        // Generated with element debug info (debug builds) it contains
+        // `todo!()` in paths the app never takes.
+        clippy::todo,
         missing_debug_implementations,
         unreachable_pub,
         clippy::all,

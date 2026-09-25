@@ -16,6 +16,9 @@
 /// Generated Slint bindings; lints relaxed only for generated code.
 mod ui {
     #![allow(
+        // Generated with element debug info (debug builds) it contains
+        // `todo!()` in paths the app never takes.
+        clippy::todo,
         missing_debug_implementations,
         unreachable_pub,
         unused,

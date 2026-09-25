@@ -19,7 +19,7 @@ Gallery rows: "TextOverlay over a 16:9 picture: …"; scenes `text.png`, `text-e
 | Hit area per visible text | the object itself is the target | box of the laid-out text (from `TextRenderer::hit_box`), mapped into the contained picture | ✅ | `text.png` (box matches the rendered text) |
 | Hover outline | affordance | 1 px `text` at 60 % | ✅ | gallery |
 | Selection box | outline | 1 px `selection` | ✅ | gallery, `text.png` |
-| Corner handles | resize | 10 px white squares, `selection` border; scale font size and width | ✅ | `corner_handle_scales_size_and_width` |
+| Corner handles | resize | 10 px white squares (18 px grab area), `selection` border; scale font size and width. Fixed elements, not a repeater: a repeater was rebuilt as the box changed and dropped the handle being dragged (fixed 2026-09-25) | ✅ | `corner_handle_scales_size_and_width`, `a_corner_handle_resizes_even_while_the_box_changes` |
 | Side handles | resize one dimension | left / right change the wrap width around the centre | ✅ | `side_handle_changes_width_around_the_centre` |
 | Snap guides | alignment feedback | the first dragged text snaps its centre to the frame centre or another visible text's centre, and its box edges to the 5 % safe margin; 1 px `Theme.guide` lines show where | ✅ | `snapping_reaches_other_texts_and_the_safe_margin`, gallery |
 | Inline editor | type in place | `TextInput` with the text's font (bundled fonts imported into Slint), size, weight, italic, colour and alignment, over the text's box colour or an offset shadow copy; the rendered copy is hidden meanwhile | ✅ | `text-edit.png` |

@@ -126,3 +126,17 @@ cards become plain colour cards; the title text lives on the text track.
 - **Alignment:** icon buttons (`IconChoiceGroup`), next to Bold, Italic and
   the new **Underline** toggle (drawn at the font's underline position; the
   inline editor shows the text without the underline while typing).
+
+## Revision 2 (2026-09-25, user feedback)
+
+- **Timeline drags scrolled the view** when the timeline was longer than
+  the window: the strip's `Flickable` panned on drag. Drag panning is off;
+  the wheel / trackpad scrolls (vertical wheel → sideways).
+- **Resize handles did not resize:** they were a repeater whose model was
+  re-evaluated whenever the text's box changed, so the first move rebuilt
+  the handle being held. They are six fixed elements now.
+- **Font picker locked the app:** its popup took the keyboard and closing it
+  handed focus back to the field, which reopened it. The list now opens
+  inline under the field; the field keeps the focus throughout.
+- All three are covered by `crates/app/tests/ui_interaction.rs`, which drives
+  the real window with pointer and key events (Slint testing backend).

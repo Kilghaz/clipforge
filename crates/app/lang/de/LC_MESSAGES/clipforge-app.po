@@ -818,3 +818,9 @@ msgstr "Unterstrichen"
 
 msgid "pt"
 msgstr "pt"
+
+msgid "Resize text"
+msgstr "Textgröße ändern"
+
+msgid "Change text width"
+msgstr "Textbreite ändern"

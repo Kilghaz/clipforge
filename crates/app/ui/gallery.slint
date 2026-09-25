@@ -192,16 +192,17 @@ export component GalleryWindow inherits Window {
             ClipView { width: 160px; height: 100px; item: { index: 1, id: "t2", is-title: true, title-bg: Theme.title-bg-white, selected: true, width: 160, overlap: 40, transition: 1, duration-text: "0:04" }; }
         }
         Row {
-            title: "FontPicker (value in its field; the list opens on focus, filtered by typing); IconChoiceGroup alignment: left / centre (selected) / right, disabled";
+            title: "FontPicker closed, and open with its inline list (each family in its own font, first row highlighted); IconChoiceGroup alignment: left / centre (selected) / right, disabled";
             Rectangle {
                 width: 280px;
-                height: 120px;
+                height: 380px;
                 background: Theme.surface-pane;
                 VerticalLayout {
                     padding: Theme.space-l;
                     spacing: Theme.space-s;
                     alignment: start;
                     FontPicker { label: "Font"; value: "Playfair Display"; matches: ["Playfair Display", "Montserrat", "Caveat"]; }
+                    FontPicker { label: "Font"; value: "Caveat"; expanded: true; matches: ["Caveat", "Montserrat", "Playfair Display", "Bebas Neue", "Dancing Script"]; }
                     HorizontalLayout {
                         spacing: Theme.space-m;
                         IconChoiceGroup { label: "Alignment"; icons: [Icons.text-align-left, Icons.text-align-center, Icons.text-align-right]; labels: ["Align left", "Centre", "Align right"]; selected-index: 1; }

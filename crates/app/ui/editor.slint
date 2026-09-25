@@ -580,6 +580,51 @@ export component TextLane inherits Rectangle {
     }
 }
 
+/// One resize handle of a selected text on the preview (see `TextOverlay`).
+component TextHandle inherits Rectangle {
+    /// 1 left side, 2 right side (wrap width), 3 corner (size).
+    in property <int> code;
+    in property <float> fx;
+    in property <float> fy;
+    in property <int> text-index;
+    /// The text box in picture coordinates, and the picture size.
+    in property <length> box-x;
+    in property <length> box-y;
+    in property <length> box-w;
+    in property <length> box-h;
+    in property <length> pic-w;
+    in property <length> pic-h;
+    property <length> size: 10px;
+    x: root.fx * root.box-w - root.size / 2;
+    y: root.fy * root.box-h - root.size / 2;
+    width: root.size;
+    height: root.size;
+    background: Theme.text;
+    border-width: 1px;
+    border-color: Theme.selection;
+    border-radius: Theme.radius-s / 2;
+    accessible-role: button;
+    accessible-label: root.code == 3 ? @tr("Resize text") : @tr("Change text width");
+    TouchArea {
+        // A larger grab area than the drawn square.
+        x: -4px;
+        y: -4px;
+        width: parent.width + 8px;
+        height: parent.height + 8px;
+        enabled: root.visible;
+        mouse-cursor: root.code == 3 ? ((root.fx == root.fy) ? MouseCursor.nwse-resize : MouseCursor.nesw-resize) : MouseCursor.ew-resize;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                EditorState.preview-text-pressed(root.text-index, root.code, (root.box-x + root.x + self.x + self.mouse-x) / root.pic-w, (root.box-y + root.y + self.y + self.mouse-y) / root.pic-h);
+            } else if e.kind == PointerEventKind.move && self.pressed {
+                EditorState.preview-text-dragged((root.box-x + root.x + self.x + self.mouse-x) / root.pic-w, (root.box-y + root.y + self.y + self.mouse-y) / root.pic-h);
+            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                EditorState.text-released();
+            }
+        }
+    }
+}
+
 /// On-preview text editing (Canva / Keynote style): hit areas for the texts
 /// visible at the playhead, the selection box with side handles (wrap
 /// width) and corner handles (size), centre snap guides and the inline
@@ -643,30 +688,85 @@ export component TextOverlay inherits Rectangle {
             }
         }
         // Handles: corners scale (code 3), sides change the wrap width (1, 2).
-        for h[i] in (t.selected && !editing) ? [
-            { code: 3, fx: 0, fy: 0 }, { code: 3, fx: 1, fy: 0 }, { code: 3, fx: 0, fy: 1 }, { code: 3, fx: 1, fy: 1 },
-            { code: 1, fx: 0, fy: 0.5 }, { code: 2, fx: 1, fy: 0.5 },
-        ] : [] : Rectangle {
-            x: h.fx * parent.width - root.handle / 2;
-            y: h.fy * parent.height - root.handle / 2;
-            width: root.handle;
-            height: root.handle;
-            background: Theme.text;
-            border-width: 1px;
-            border-color: Theme.selection;
-            border-radius: Theme.radius-s / 2;
-            TouchArea {
-                mouse-cursor: h.code == 3 ? ((h.fx == h.fy) ? MouseCursor.nwse-resize : MouseCursor.nesw-resize) : MouseCursor.ew-resize;
-                pointer-event(e) => {
-                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                        EditorState.preview-text-pressed(t.index, h.code, (text-box.x + parent.x - root.pic-x + self.mouse-x) / root.pic-w, (text-box.y + parent.y - root.pic-y + self.mouse-y) / root.pic-h);
-                    } else if e.kind == PointerEventKind.move && self.pressed {
-                        EditorState.preview-text-dragged((text-box.x + parent.x - root.pic-x + self.mouse-x) / root.pic-w, (text-box.y + parent.y - root.pic-y + self.mouse-y) / root.pic-h);
-                    } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
-                        EditorState.text-released();
-                    }
-                }
-            }
+        // Fixed elements, not a repeater: a repeater would be rebuilt as the
+        // box changes during the drag and drop the handle being held.
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 3;
+            fx: 0;
+            fy: 0;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
+        }
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 3;
+            fx: 1;
+            fy: 0;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
+        }
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 3;
+            fx: 0;
+            fy: 1;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
+        }
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 3;
+            fx: 1;
+            fy: 1;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
+        }
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 1;
+            fx: 0;
+            fy: 0.5;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
+        }
+        TextHandle {
+            visible: t.selected && !editing;
+            code: 2;
+            fx: 1;
+            fy: 0.5;
+            text-index: t.index;
+            box-x: text-box.x - root.pic-x;
+            box-y: text-box.y - root.pic-y;
+            box-w: text-box.width;
+            box-h: text-box.height;
+            pic-w: root.pic-w;
+            pic-h: root.pic-h;
         }
         // Inline editor: same font, size, colour and alignment as the video.
         // Behind the inline editor: the box and an approximated shadow, so the
@@ -870,8 +970,17 @@ export component TimelineStrip inherits Rectangle {
         flick := Flickable {
             content-width: max(EditorState.strip-width * 1px + 200px, self.width);
             content-height: self.height;
+            // Drags belong to clips, texts, trims and scrubbing; the strip
+            // scrolls with the wheel or trackpad only.
+            mouse-drag-pan-enabled: false;
             TouchArea {
                 width: parent.content-width;
+                // A vertical wheel scrolls the timeline sideways.
+                scroll-event(e) => {
+                    let delta = e.delta-x != 0 ? e.delta-x : e.delta-y;
+                    flick.content-x = max(flick.width - flick.content-width, min(0px, flick.content-x + delta));
+                    return accept;
+                }
                 pointer-event(e) => {
                     if e.kind == PointerEventKind.down {
                         EditorState.focus-visible = false;
