@@ -63,6 +63,7 @@ const SCENES: &[&str] = &[
     "export-small",
     "export-hevc",
     "library-download",
+    "narrow-download",
     "music",
     "title",
     "text",
@@ -453,7 +454,7 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_export_minutes_left(3);
         }
         // Cloud files selected, a download running (status bar).
-        "library-download" => {
+        "library-download" | "narrow-download" => {
             library.set_selected_cloud_count(2);
             library.set_status_kind(4);
             library.set_download_files_done(1);

@@ -440,13 +440,13 @@ export component LibraryPage inherits Rectangle {
         // Selection actions (NN/G bulk actions: contextual bar with count).
         Bar {
             side-padding: Theme.space-l;
-                ActionButton {
+                // Cloud files in the selection: downloading comes first, so it
+                // takes the Add button's place (the bar must fit 280 px).
+                if LibraryState.selected-cloud-count == 0 : ActionButton {
                     text: LibraryState.selected-count > 1 ? @tr("Add {} to timeline", LibraryState.selected-count) : @tr("Add to timeline");
                     enabled: LibraryState.selected-count > 0;
                     clicked => { LibraryState.add-selected-to-timeline(); }
                 }
-                // Cloud files in the selection: download them first. "Add all"
-                // gives way so the bar fits a narrow panel.
                 if LibraryState.selected-cloud-count > 0 : ActionButton {
                     text: @tr("Download {0}", LibraryState.selected-cloud-count);
                     icon: Icons.cloud;

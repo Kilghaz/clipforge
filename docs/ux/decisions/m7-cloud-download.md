@@ -13,9 +13,12 @@ status, NN/G progress indicators: percent done, cancel), Primer
 
 - **Explicit only.** Nothing is downloaded by scrolling, selecting or
   previewing. The grid shows the cloud badge ("Not downloaded").
-- **Where:** the selection bar gets "Download {n}" (cloud icon) whenever the
-  selection contains cloud files; "Add all" hides meanwhile to keep the bar
-  inside a 280 px panel. The details panel of a single cloud file has a
+- **Where:** whenever the selection contains cloud files, the selection bar
+  shows "Download {n}" (cloud icon) in place of "Add to timeline" and "Add
+  all": downloading has to come first, and the bar must fit a 280 px panel
+  (German labels overflowed with both, scene `narrow-download`). Enter and
+  dragging still add the local part of a mixed selection and name the
+  skipped cloud files. The details panel of a single cloud file has a
   "Download" button next to "Show in folder".
 - **Feedback:** the library status bar shows "Downloading 2 of 5 · 340 MB of
   1.2 GB…" (German "Herunterladen: 2 von 5 · …") with a determinate bar and a cancel button (24 px, tooltip
@@ -32,8 +35,8 @@ status, NN/G progress indicators: percent done, cancel), Primer
 - **Keyboard:** the buttons are in the Tab order; no shortcut.
 - **Platform:** Windows Cloud Files and macOS File Provider hydrate on read;
   macOS `.icloud` stubs go through `brctl download`.
-- **Scenes:** `library-download` (selection bar with Download, status bar
-  progress).
+- **Scenes:** `library-download`, `narrow-download` (selection bar with
+  Download, status bar progress).
 
 ## Tests first
 
