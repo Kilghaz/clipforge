@@ -919,3 +919,30 @@ msgstr "Windows spielt HEVC-Videos nur mit den kostenlosen HEVC-Videoerweiterung
 
 msgid "Get from Microsoft Store"
 msgstr "Im Microsoft Store holen"
+
+msgid "Download {0}"
+msgstr "{0} herunterladen"
+
+msgid "Download"
+msgstr "Herunterladen"
+
+msgid "Cancel download"
+msgstr "Download abbrechen"
+
+msgid "Downloading {0} of {1} · {2} of {3}…"
+msgstr "Herunterladen: {0} von {1} · {2} von {3}…"
+
+msgid "Downloaded {0} files."
+msgstr "{0} Dateien heruntergeladen."
+
+msgid "Downloaded {0} files; {1} could not be downloaded."
+msgstr "{0} Dateien heruntergeladen; {1} konnten nicht geladen werden."
+
+msgid "Download cancelled."
+msgstr "Download abgebrochen."
+
+msgid "{0} files are not downloaded yet. Select them and choose Download."
+msgstr "{0} Dateien sind noch nicht heruntergeladen. Wählen Sie sie aus und klicken Sie auf „Herunterladen“."
+
+msgid "{0} files are only in the cloud and will be downloaded during the export."
+msgstr "{0} Dateien liegen nur in der Cloud und werden beim Export heruntergeladen."

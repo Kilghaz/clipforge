@@ -62,6 +62,8 @@ struct Inner {
     /// Press-and-drag state.
     press: Option<Press>,
     marquee: Option<Marquee>,
+    /// The running cloud download, for Cancel.
+    download: Option<clipforge_jobs::CancellationToken>,
 }
 
 /// Rubber-band selection in progress.
@@ -104,6 +106,7 @@ impl LibraryController {
             dirty: true,
             last_refresh: Instant::now() - REFRESH_INTERVAL,
             add_to_timeline: None,
+            download: None,
             preview_ready: None,
             drop_hover: None,
             drop_insert: None,
@@ -180,6 +183,8 @@ impl LibraryController {
         on!(on_grid_width_changed, |i, width| i.set_width(width));
         on!(on_remove_selected, |i| i.remove_selected());
         on!(on_reveal_selected, |i| i.reveal_selected());
+        on!(on_download_selected, |i| i.download_selected());
+        on!(on_cancel_download, |i| i.cancel_download());
         on!(on_add_selected_to_timeline, |i| {
             let ids = i.selection.ordered(&i.ids);
             if let (false, Some(hook)) = (ids.is_empty(), i.add_to_timeline.clone()) {
@@ -525,8 +530,41 @@ impl Inner {
 
     fn sync_selection_count(&self) {
         if let Some(w) = self.state() {
-            w.global::<LibraryState>()
-                .set_selected_count(to_i32(self.selection.ids.len()));
+            let s = w.global::<LibraryState>();
+            s.set_selected_count(to_i32(self.selection.ids.len()));
+            s.set_selected_cloud_count(to_i32(self.selected_placeholders().len()));
+        }
+    }
+
+    /// Selected items whose bytes are still in the cloud.
+    fn selected_placeholders(&self) -> Vec<MediaId> {
+        let cat = self.library.catalogue();
+        self.selection
+            .ids
+            .iter()
+            .filter(|id| {
+                cat.get(**id)
+                    .is_ok_and(|r| r.cloud_state == clipforge_library::CloudState::Placeholder)
+            })
+            .copied()
+            .collect()
+    }
+
+    fn download_selected(&mut self) {
+        if self.download.is_some() {
+            return;
+        }
+        let ids = self.selected_placeholders();
+        if ids.is_empty() {
+            return;
+        }
+        let handle = self.library.download(ids);
+        self.download = Some(handle.token);
+    }
+
+    fn cancel_download(&mut self) {
+        if let Some(token) = &self.download {
+            token.cancel();
         }
     }
 
@@ -769,6 +807,37 @@ impl Inner {
                     }
                     // Sorting by date may change once capture time is known.
                     self.dirty = true;
+                }
+                LibraryEvent::DownloadProgress {
+                    files_done,
+                    files_total,
+                    bytes_done,
+                    bytes_total,
+                } => {
+                    s.set_status_kind(4);
+                    s.set_download_files_done(to_i32(files_done));
+                    s.set_download_files_total(to_i32(files_total));
+                    s.set_download_bytes_done(format::bytes(bytes_done).into());
+                    s.set_download_bytes_total(format::bytes(bytes_total).into());
+                    #[allow(clippy::cast_precision_loss)]
+                    s.set_download_progress(if bytes_total > 0 {
+                        (bytes_done as f64 / bytes_total as f64) as f32
+                    } else {
+                        0.0
+                    });
+                }
+                LibraryEvent::DownloadFinished {
+                    downloaded,
+                    failed,
+                    cancelled,
+                } => {
+                    s.set_status_kind(if cancelled { 6 } else { 5 });
+                    s.set_download_files_done(to_i32(downloaded));
+                    s.set_download_failed(to_i32(failed));
+                    self.download = None;
+                    self.dirty = true;
+                    // Downloaded items can go on the timeline now.
+                    self.sync_selection_count();
                 }
                 LibraryEvent::ThumbReady { id, level, path } => match level {
                     ThumbLevel::Small => {

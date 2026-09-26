@@ -13,7 +13,7 @@ pub mod codecs;
 pub mod dirs;
 pub mod reveal;
 
-pub use cloud::{CloudStatus, IcloudStub, cloud_status, icloud_stub};
+pub use cloud::{CloudStatus, IcloudStub, cloud_status, hydrate, icloud_stub};
 pub use codecs::{HEVC_STORE_URI, hevc_playback};
 pub use dirs::AppDirs;
 pub use reveal::{open_uri, reveal_in_file_manager};

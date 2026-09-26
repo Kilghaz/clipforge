@@ -211,6 +211,26 @@ impl Catalogue {
         }
     }
 
+    /// Replaces a provisional fingerprint with the real one once the bytes
+    /// are on disk (cloud download). Fails with a constraint error if the
+    /// same file is already in the library under another row.
+    pub fn set_fingerprint(&mut self, id: MediaId, fp: Fingerprint, mtime_ms: i64) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE media SET fp_hash = ?2, size = ?3, mtime_ms = ?4 WHERE id = ?1",
+            params![
+                id.to_string(),
+                hash_to_db(fp.hash),
+                size_to_db(fp.size),
+                mtime_ms
+            ],
+        )?;
+        if changed == 0 {
+            Err(LibraryError::NotFound(id))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Points an item at a new location (after the user moved the file).
     pub fn relink(&mut self, id: MediaId, new_path: &Path, mtime_ms: i64) -> Result<()> {
         let (file_name, folder) = split_path(new_path);

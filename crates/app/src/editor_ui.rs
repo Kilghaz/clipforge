@@ -540,18 +540,29 @@ impl Inner {
     fn insert_media(&mut self, ids: &[MediaId], at: usize) {
         let at = at.min(self.project.clips.len());
         let mut refs = Vec::new();
-        let mut skipped = 0usize;
+        let (mut skipped, mut in_cloud) = (0usize, 0usize);
         {
             let cat = self.library.catalogue();
             for id in ids {
-                match cat.get(*id).ok().as_ref().and_then(media_ref_for) {
+                let record = cat.get(*id).ok();
+                match record.as_ref().and_then(media_ref_for) {
                     Some(r) => refs.push(r),
+                    None if record.as_ref().is_some_and(|r| {
+                        r.cloud_state == clipforge_library::CloudState::Placeholder
+                    }) =>
+                    {
+                        in_cloud += 1;
+                    }
                     None => skipped += 1,
                 }
             }
         }
         if refs.is_empty() {
-            self.set_status(if skipped > 0 { 2 } else { 0 }, skipped);
+            match (in_cloud, skipped) {
+                (0, 0) => self.set_status(0, 0),
+                (0, n) => self.set_status(2, n),
+                (n, _) => self.set_status(5, n),
+            }
             return;
         }
         let added = refs.len();
@@ -594,6 +605,7 @@ impl Inner {
                 2 => strings.get_skipped_items(),
                 3 => strings.get_shuffled_transitions(),
                 4 => strings.get_shuffled_motion(),
+                5 => strings.get_skipped_cloud(),
                 _ => SharedString::default(),
             };
             w.global::<EditorState>().set_status_text(text);
@@ -1618,7 +1630,6 @@ impl Inner {
             return;
         }
         self.set_export_unseen(false);
-        self.export_refresh();
         let first = !self.export_window_visible;
         if let Some(ew) = &self.export_window {
             if let Err(e) = ew.show() {
@@ -1628,6 +1639,7 @@ impl Inner {
             self.export_window_visible = true;
             crate::window_chrome::dark_title_bar(ew.window());
         }
+        self.export_refresh();
         if first {
             self.fit_export_window();
         }
@@ -1715,6 +1727,18 @@ impl Inner {
         s.set_export_extension(summary.extension.into());
         let playback = self.hevc_playback.get().copied().flatten();
         s.set_export_hevc_hint(export_view::hevc_hint(&summary, playback));
+        // Files that went back to cloud-only are downloaded while exporting;
+        // say so. Only while the window shows (one stat per file).
+        if self.export_window_visible {
+            let in_cloud = export_view::media_in_use(&self.project)
+                .into_iter()
+                .filter(|p| {
+                    clipforge_platform::cloud_status(p)
+                        == clipforge_platform::CloudStatus::Placeholder
+                })
+                .count();
+            s.set_export_cloud_count(i32::try_from(in_cloud).unwrap_or(i32::MAX));
+        }
     }
 
     fn export_reveal(&self) {

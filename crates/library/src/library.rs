@@ -59,6 +59,19 @@ pub enum LibraryEvent {
         level: ThumbLevel,
         message: String,
     },
+    /// Cloud download running: files and bytes so far.
+    DownloadProgress {
+        files_done: usize,
+        files_total: usize,
+        bytes_done: u64,
+        bytes_total: u64,
+    },
+    /// Cloud download ended (also when cancelled).
+    DownloadFinished {
+        downloaded: usize,
+        failed: usize,
+        cancelled: bool,
+    },
 }
 
 struct Shared {
@@ -171,6 +184,18 @@ impl Library {
         self.scheduler.submit(Priority::Soon, "import", move |ctx| {
             run_import(&shared, &scheduler, ctx, &roots)
         })
+    }
+
+    /// Downloads cloud placeholders among `ids` (ADR-0007: only as an
+    /// explicit, visible job). Progress arrives as `DownloadProgress`
+    /// events; each finished file gets its real fingerprint, is probed and
+    /// thumbnailed like a fresh import.
+    pub fn download(&self, ids: Vec<MediaId>) -> JobHandle {
+        let shared = Arc::clone(&self.shared);
+        self.scheduler
+            .submit(Priority::Interactive, "download", move |ctx| {
+                run_download(&shared, ctx, &ids)
+            })
     }
 
     /// Asks for a thumbnail. If it is cached, its path is returned at once
@@ -342,6 +367,97 @@ fn run_probe(shared: &Arc<Shared>, ctx: &JobContext, ids: &[MediaId]) -> JobOutc
     Ok(())
 }
 
+fn run_download(shared: &Arc<Shared>, ctx: &JobContext, ids: &[MediaId]) -> JobOutcome {
+    let records: Vec<crate::MediaRecord> = {
+        let cat = lock(&shared.catalogue);
+        ids.iter()
+            .filter_map(|id| cat.get(*id).ok())
+            .filter(|r| r.cloud_state == CloudState::Placeholder)
+            .collect()
+    };
+    let files_total = records.len();
+    let bytes_total: u64 = records.iter().map(|r| r.fingerprint.size).sum();
+    let send_progress = |files_done: usize, bytes_done: u64| {
+        let _ = shared.events.send(LibraryEvent::DownloadProgress {
+            files_done,
+            files_total,
+            bytes_done,
+            bytes_total,
+        });
+        ctx.progress(Progress::of(bytes_done, bytes_total.max(1), "Downloading"));
+    };
+    send_progress(0, 0);
+    let (mut downloaded, mut failed, mut before) = (0usize, 0usize, 0u64);
+    let mut last = std::time::Instant::now();
+    for (i, record) in records.iter().enumerate() {
+        let token = ctx.token.clone();
+        let result = clipforge_platform::hydrate(
+            &record.path,
+            &mut |done, _| {
+                if last.elapsed() >= std::time::Duration::from_millis(100) {
+                    last = std::time::Instant::now();
+                    send_progress(i, before + done);
+                }
+            },
+            &move || !token.is_cancelled(),
+        );
+        match result {
+            Ok(()) => match finish_download(shared, record) {
+                Ok(()) => downloaded += 1,
+                Err(e) => {
+                    tracing::warn!(id = %record.id, error = %e, "downloaded file could not be registered");
+                    failed += 1;
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                let _ = shared.events.send(LibraryEvent::DownloadFinished {
+                    downloaded,
+                    failed,
+                    cancelled: true,
+                });
+                return Err(JobError::Cancelled);
+            }
+            Err(e) => {
+                tracing::warn!(path = %record.path.display(), error = %e, "download failed");
+                failed += 1;
+            }
+        }
+        before += record.fingerprint.size;
+        send_progress(i + 1, before);
+        // Probe and thumbnail right away, like an import.
+        if result_is_local(shared, record.id) {
+            run_probe(shared, ctx, &[record.id])?;
+        }
+    }
+    let _ = shared.events.send(LibraryEvent::DownloadFinished {
+        downloaded,
+        failed,
+        cancelled: false,
+    });
+    Ok(())
+}
+
+/// Real fingerprint and local state for a file whose bytes just arrived.
+fn finish_download(shared: &Arc<Shared>, record: &crate::MediaRecord) -> crate::error::Result<()> {
+    let fingerprint = crate::Fingerprint::from_path(&record.path)?;
+    let mtime = std::fs::metadata(&record.path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| i64::try_from(d.as_millis()).ok())
+        .unwrap_or(record.mtime_ms);
+    let mut cat = lock(&shared.catalogue);
+    cat.set_fingerprint(record.id, fingerprint, mtime)?;
+    cat.set_cloud_state(record.id, CloudState::Local)?;
+    Ok(())
+}
+
+fn result_is_local(shared: &Arc<Shared>, id: MediaId) -> bool {
+    lock(&shared.catalogue)
+        .get(id)
+        .is_ok_and(|r| r.cloud_state == CloudState::Local)
+}
+
 fn make_thumb(
     shared: &Arc<Shared>,
     ctx: &JobContext,
@@ -445,6 +561,79 @@ mod tests {
 
     fn drain(lib: &Library) -> Vec<LibraryEvent> {
         lib.events().try_iter().collect()
+    }
+
+    /// A local copy registered, then marked as a placeholder, stands in for a
+    /// OneDrive / iCloud file: reading it through is what hydration does.
+    #[test]
+    fn download_turns_placeholders_into_probed_local_items() {
+        let dir = tempfile::tempdir().unwrap();
+        let media = dir.path().join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::copy(fixtures().join("photo_landscape.jpg"), media.join("a.jpg")).unwrap();
+        let lib = library(dir.path());
+        lib.import(vec![media.clone()]);
+        run_all(&lib);
+        let id = lib.catalogue().query_ids(&Query::all()).unwrap()[0];
+        let real_fp = lib.catalogue().get(id).unwrap().fingerprint;
+        {
+            let mut cat = lib.catalogue();
+            cat.set_cloud_state(id, CloudState::Placeholder).unwrap();
+            cat.set_fingerprint(id, crate::Fingerprint { size: 99, hash: 1 }, 0)
+                .unwrap();
+        }
+        drain(&lib);
+
+        lib.download(vec![id]);
+        run_all(&lib);
+        let events = drain(&lib);
+        let rec = lib.catalogue().get(id).unwrap();
+        assert_eq!(rec.cloud_state, CloudState::Local);
+        assert_eq!(rec.fingerprint, real_fp, "provisional fingerprint replaced");
+        assert_eq!(rec.probe, ProbeState::Done);
+        assert!(events.contains(&LibraryEvent::DownloadFinished {
+            downloaded: 1,
+            failed: 0,
+            cancelled: false
+        }));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            LibraryEvent::DownloadProgress {
+                files_done: 1,
+                files_total: 1,
+                ..
+            }
+        )));
+        assert!(events.contains(&LibraryEvent::ItemUpdated(id)));
+    }
+
+    #[test]
+    fn a_download_that_cannot_reach_the_file_counts_as_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let media = dir.path().join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let path = media.join("b.jpg");
+        std::fs::copy(fixtures().join("photo_landscape.jpg"), &path).unwrap();
+        let lib = library(dir.path());
+        lib.import(vec![media.clone()]);
+        run_all(&lib);
+        let id = lib.catalogue().query_ids(&Query::all()).unwrap()[0];
+        lib.catalogue()
+            .set_cloud_state(id, CloudState::Placeholder)
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        drain(&lib);
+        lib.download(vec![id]);
+        run_all(&lib);
+        assert!(drain(&lib).contains(&LibraryEvent::DownloadFinished {
+            downloaded: 0,
+            failed: 1,
+            cancelled: false
+        }));
+        assert_eq!(
+            lib.catalogue().get(id).unwrap().cloud_state,
+            CloudState::Placeholder
+        );
     }
 
     #[test]

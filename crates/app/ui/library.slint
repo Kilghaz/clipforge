@@ -45,8 +45,17 @@ export struct InspectorInfo {
 export global LibraryState {
     in-out property <[GridRow]> rows;
     in-out property <int> total-count;
-    // 0 idle, 1 scanning, 2 importing, 3 finished
+    // 0 idle, 1 scanning, 2 importing, 3 import finished,
+    // 4 downloading from the cloud, 5 download finished, 6 download cancelled
     in-out property <int> status-kind;
+    // Selected items that are only in the cloud (Download button).
+    in-out property <int> selected-cloud-count;
+    in-out property <int> download-files-done;
+    in-out property <int> download-files-total;
+    in-out property <int> download-failed;
+    in-out property <string> download-bytes-done;
+    in-out property <string> download-bytes-total;
+    in-out property <float> download-progress;
     in-out property <int> import-done;
     in-out property <int> import-total;
     in-out property <int> import-added;
@@ -91,6 +100,9 @@ export global LibraryState {
     callback remove-selected();
     callback reveal-selected();
     callback add-selected-to-timeline();
+    // Downloads the selected cloud files (explicit, visible job; ADR-0007).
+    callback download-selected();
+    callback cancel-download();
     callback add-all-to-timeline();
     callback cell-double-clicked(int);
     /// Keyboard: Ctrl/Cmd+A, Escape (clear selection / cancel drag).
@@ -237,7 +249,7 @@ export component LibraryPage inherits Rectangle {
     property <bool> details-open: false;
     /// Empty state only when nothing is running; while scanning the status
     /// bar carries the progress (NN/G: never show "empty" during loading).
-    property <bool> idle: LibraryState.status-kind == 0 || LibraryState.status-kind == 3;
+    property <bool> idle: LibraryState.status-kind == 0 || LibraryState.status-kind >= 3;
 
     background: Theme.surface-pane;
     forward-focus: keys;
@@ -433,7 +445,15 @@ export component LibraryPage inherits Rectangle {
                     enabled: LibraryState.selected-count > 0;
                     clicked => { LibraryState.add-selected-to-timeline(); }
                 }
-                ActionButton {
+                // Cloud files in the selection: download them first. "Add all"
+                // gives way so the bar fits a narrow panel.
+                if LibraryState.selected-cloud-count > 0 : ActionButton {
+                    text: @tr("Download {0}", LibraryState.selected-cloud-count);
+                    icon: Icons.cloud;
+                    enabled: LibraryState.status-kind != 4;
+                    clicked => { LibraryState.download-selected(); }
+                }
+                if LibraryState.selected-cloud-count == 0 : ActionButton {
                     text: @tr("Add all");
                     enabled: root.rows.length > 0;
                     clicked => { LibraryState.add-all-to-timeline(); }
@@ -486,6 +506,7 @@ export component LibraryPage inherits Rectangle {
                         spacing: Theme.space-s;
                         alignment: start;
                         if root.inspector.hdr : Badge { text: "HDR"; label: @tr("High dynamic range"); y: (parent.height - self.height) / 2; }
+                        if root.inspector.status-kind == 3 : ActionButton { text: @tr("Download"); icon: Icons.cloud; enabled: LibraryState.status-kind != 4; clicked => { LibraryState.download-selected(); } }
                         ActionButton { text: @tr("Show in folder"); icon: Icons.folder-open; clicked => { LibraryState.reveal-selected(); } }
                         ActionButton { text: @tr("Remove from library"); icon: Icons.delete; clicked => { LibraryState.remove-selected(); } }
                     }
@@ -504,13 +525,30 @@ export component LibraryPage inherits Rectangle {
                     text: LibraryState.status-kind == 1 ? @tr("Scanning…")
                         : LibraryState.status-kind == 2 ? @tr("Adding {} of {}…", LibraryState.import-done, LibraryState.import-total)
                         : LibraryState.status-kind == 3 ? @tr("Added {} files, {} were already in the library.", LibraryState.import-added, LibraryState.import-existing)
+                        : LibraryState.status-kind == 4 ? @tr("Downloading {0} of {1} · {2} of {3}…", min(LibraryState.download-files-done + 1, LibraryState.download-files-total), LibraryState.download-files-total, LibraryState.download-bytes-done, LibraryState.download-bytes-total)
+                        : LibraryState.status-kind == 5 ? (LibraryState.download-failed == 0 ? @tr("Downloaded {0} files.", LibraryState.download-files-done) : @tr("Downloaded {0} files; {1} could not be downloaded.", LibraryState.download-files-done, LibraryState.download-failed))
+                        : LibraryState.status-kind == 6 ? @tr("Download cancelled.")
                         : (LibraryState.selected-count > 0 ? (LibraryState.selected-count == 1 ? @tr("1 selected") : @tr("{} selected", LibraryState.selected-count)) : "");
                     horizontal-stretch: 1;
                 }
-                if LibraryState.status-kind == 1 || LibraryState.status-kind == 2 : ProgressIndicator {
-                    width: 80px;
-                    progress: LibraryState.import-total > 0 ? LibraryState.import-done / LibraryState.import-total : 0;
-                    indeterminate: LibraryState.status-kind == 1;
+                // Centred at the style's own height, not stretched to the bar.
+                if LibraryState.status-kind == 1 || LibraryState.status-kind == 2 || LibraryState.status-kind == 4 : VerticalLayout {
+                    alignment: center;
+                    ProgressIndicator {
+                        width: 80px;
+                        progress: LibraryState.status-kind == 4 ? LibraryState.download-progress
+                            : LibraryState.import-total > 0 ? LibraryState.import-done / LibraryState.import-total : 0;
+                        indeterminate: LibraryState.status-kind == 1;
+                    }
+                }
+                if LibraryState.status-kind == 4 : IconButton {
+                    // Fits the 24 px status bar.
+                    width: Theme.statusbar-height;
+                    height: Theme.statusbar-height;
+                    icon: Icons.dismiss;
+                    quiet: true;
+                    tooltip: @tr("Cancel download");
+                    clicked => { LibraryState.cancel-download(); }
                 }
             }
         }

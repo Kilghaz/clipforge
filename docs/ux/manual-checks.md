@@ -243,3 +243,23 @@ Things CI cannot verify. Run before tagging a milestone.
 - [ ] Cancel export removes the partial file.
 - [ ] Making the export window small scrolls its content; the buttons stay
       visible; toggling Advanced resizes the window to fit.
+
+## Milestone 7 — Windows parity
+
+- [ ] OneDrive "Files On-Demand" folder (online-only files): import shows
+      the cloud badge and reads nothing; "Download {n}" in the selection bar
+      downloads them with progress and Cancel; afterwards thumbnails appear
+      and the files can go on the timeline.
+- [ ] Same with iCloud for Windows and macOS iCloud Drive (optimised
+      storage); on macOS the `.icloud` stubs download too.
+- [ ] Adding a cloud-only file to the timeline says it is not downloaded yet.
+- [ ] "Free up space" on a timeline file, then Export: the window says the
+      file will be downloaded; the export works.
+- [ ] Windows without "HEVC Video Extensions": export with HDR or HEVC shows
+      the Store hint and the button opens the Store page; with the extension
+      installed the hint is gone.
+- [ ] Windows title bars (main and export window) are dark even with the
+      light Windows theme; same on macOS in light mode.
+- [ ] Export on a PC with NVIDIA / Intel / AMD graphics uses the hardware
+      encoder (the export report names it); on a PC without, it falls back
+      to software without an error.

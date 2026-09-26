@@ -169,6 +169,21 @@ pub(crate) fn hevc_hint(summary: &Summary, hevc_playback: Option<bool>) -> bool 
     summary.codec == "HEVC" && hevc_playback == Some(false)
 }
 
+/// Files the export will read: media of clips and songs (not unused links).
+#[must_use]
+pub(crate) fn media_in_use(project: &Project) -> Vec<&std::path::Path> {
+    let ids: std::collections::BTreeSet<_> = project
+        .clips
+        .iter()
+        .map(|c| c.media)
+        .chain(project.music.songs.iter().map(|s| s.media))
+        .collect();
+    ids.iter()
+        .filter_map(|id| project.media.get(id))
+        .map(|m| m.path.as_path())
+        .collect()
+}
+
 /// Approximate minutes left: `None` until there is enough to go on (3 s
 /// and 2 %), `Some(0)` for "less than a minute", else whole minutes
 /// rounded up (NN/G: approximate, never a seconds countdown).
@@ -308,6 +323,23 @@ mod tests {
         assert!(!hevc_hint(&hevc, Some(true)));
         assert!(!hevc_hint(&hevc, None), "unknown stays quiet");
         assert!(!hevc_hint(&h264, Some(false)));
+    }
+
+    #[test]
+    fn cloud_files_on_the_timeline_are_counted() {
+        let mut p = project(10, false);
+        // A linked but unused file does not count.
+        let unused = MediaId::new();
+        p.media.insert(
+            unused,
+            MediaRef {
+                path: "/unused.mov".into(),
+                id: unused,
+                ..p.media.values().next().unwrap().clone()
+            },
+        );
+        let paths = media_in_use(&p);
+        assert_eq!(paths, [std::path::Path::new("/v.mov")]);
     }
 
     #[test]

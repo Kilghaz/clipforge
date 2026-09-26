@@ -62,6 +62,7 @@ const SCENES: &[&str] = &[
     "narrow",
     "export-small",
     "export-hevc",
+    "library-download",
     "music",
     "title",
     "text",
@@ -450,6 +451,16 @@ fn populate(app: &MainWindow, scene: &str, fixtures: &Path) -> Result<()> {
             editor.set_export_status(1);
             editor.set_export_progress(0.42);
             editor.set_export_minutes_left(3);
+        }
+        // Cloud files selected, a download running (status bar).
+        "library-download" => {
+            library.set_selected_cloud_count(2);
+            library.set_status_kind(4);
+            library.set_download_files_done(1);
+            library.set_download_files_total(2);
+            library.set_download_bytes_done("340 MB".into());
+            library.set_download_bytes_total("1.2 GB".into());
+            library.set_download_progress(0.28);
         }
         "settings" => app.global::<Shell>().set_settings_open(true),
         "text" | "text-edit" => {
