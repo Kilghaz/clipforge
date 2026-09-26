@@ -61,6 +61,10 @@ before-packaging-command = ""
 # The crate has two binaries (the app and the offscreen `screenshot` tool);
 # only the app goes into the bundle.
 binaries = [{ path = "clipforge", main = true }]
+# The Windows installer ships ffmpeg next to the app (ADR-0012): run
+# `cargo xtask ffmpeg-bundle` first. Without the folder the glob matches
+# nothing and the package is built without ffmpeg (macOS: always).
+resources = [{ src = "../../target/ffmpeg-bundle/*", target = "ffmpeg" }]
 
 # Formats are passed on the command line per OS (see .github/workflows/ci.yml):
 #   macOS:   cargo packager --release -p clipforge-app --formats app,dmg

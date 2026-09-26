@@ -32,11 +32,12 @@ platform, jobs, i18n, core → nothing internal
 | One crate | `cargo nextest run -p clipforge-core` |
 | Run the app | `cargo run -p clipforge-app` (`RUST_LOG=info` for logs) |
 | Screenshots for the visual pass | `cargo run -p clipforge-app --bin screenshot` → `target/screenshots/*.png` (offscreen, no window needed) |
+| Windows look on a Mac | `CLIPFORGE_SLINT_STYLE=fluent CARGO_TARGET_DIR=target/fluent cargo run -p clipforge-app --bin screenshot -- --out target/screenshots-fluent` |
 | Regenerate fixtures | `cargo xtask fixtures` (needs ffmpeg with libx264/libx265) |
 | Regenerate icons | `cargo xtask icons` (needs `rsvg-convert` or macOS) |
 | Fetch UI icon subset | `cargo xtask fluent-icons` (needs `curl`; add names to `xtask/src/fluent_icons.rs` and `ui/theme.slint`) |
 | Licence report | `cargo about generate about.hbs -o target/THIRD_PARTY_LICENSES.html` |
-| Package | `cargo build --release -p clipforge-app && cargo packager --release -p clipforge-app` → `dist/` |
+| Package | `cargo build --release -p clipforge-app && cargo packager --release -p clipforge-app` → `dist/` (Windows: `cargo xtask ffmpeg-bundle` first, ADR-0012) |
 
 Tooling: Rust pinned in `rust-toolchain.toml`; `cargo install cargo-nextest cargo-deny cargo-insta cargo-packager` and `cargo install cargo-about --features cli`.
 

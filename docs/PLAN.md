@@ -532,6 +532,17 @@ Kept short; the ADRs hold the reasoning.
   SDR base image; needs macOS bindings and a fixture), OS notifications when
   an export finishes (the toolbar status button and the dialog show the
   result instead), HDR preview on HDR displays.
+- **M7, Windows parity:** hardware encoders are chosen by a test encode at
+  export time (listed ≠ present); the Windows installer bundles a pinned
+  gyan.dev ffmpeg (ADR-0012). Cloud placeholders download on request
+  ("Download {n}"), with progress and cancel. HEVC playback hint on Windows.
+  The Fluent look is reviewed from macOS via `CLIPFORGE_SLINT_STYLE=fluent`.
+- **M7, deferred:** OS-provided thumbnails for cloud placeholders (they show
+  the cloud badge), drops of virtual files without a path (Explorer and the
+  Windows Photos app deliver real paths, which work), a `.clipforge` file
+  association (needs macOS open-file events first), bundling ffmpeg on
+  macOS. D3D11VA decoding needed no work (default since M3, with software
+  fallback).
 - **Post-M4, renderer:** the wgpu compositor landed (ADR-0010, issue #1) and
   replaces the CPU compositor for preview and export; the CPU compositor is
   the fallback without a GPU and the reference in tests. Frames are still

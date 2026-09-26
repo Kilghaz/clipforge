@@ -41,24 +41,27 @@ embedding in rendered video) are the user's matter.
 
 ## FFmpeg
 
-- **Decoding** links `libav*` as shared or static libraries (from Milestone
-  1/3 on). An LGPL-2.1+ build is enough for decoding; keep the libraries
-  dynamically linked or provide relinkable objects to satisfy the LGPL.
-- **Encoding** runs the `ffmpeg` executable as a separate process (sidecar).
-  Bundling a GPL build (needed for `libx264`/`libx265` software encoders) is
-  fine as long as it stays a separate executable and its source/licence is
-  offered. Hardware encoders (VideoToolbox, Media Foundation, NVENC) work
-  with an LGPL build.
-- Record the exact build, its configure flags and its source URL in
-  `docs/DEPENDENCIES.md` when the binary is added.
+- **Decoding and encoding** both run the `ffmpeg` / `ffprobe` executables as
+  separate processes (ADR-0003, ADR-0008); nothing links `libav*`.
+- **Windows installer** (ADR-0012): ships FFmpeg 9.0.2 as built by gyan.dev
+  ("essentials", GPL-3.0, includes libx264/libx265 and the NVENC, AMF, QSV
+  and Media Foundation encoders) in `ffmpeg\` next to `clipforge.exe`,
+  with its `LICENSE.txt`, the build's `README.txt` (configure flags and
+  library versions) and `SOURCE.txt` (source URLs, download URL, SHA-256).
+  As separate programs they do not affect ClipForge's own licence. The
+  download is pinned and verified in `xtask/src/ffmpeg_bundle.rs`.
+- **macOS**: ffmpeg is not bundled yet; the app uses one on `PATH`
+  (Homebrew) or `CLIPFORGE_FFMPEG_DIR`.
 
 ## Video codec patents
 
 H.264 (AVC) and H.265 (HEVC) are patent-encumbered. Private use is not a
 concern. For distribution beyond a hobby scale, prefer hardware encoders
 (the OS vendor holds the licence) and consider AV1 as the software fallback.
-On Windows, HEVC decoding needs Microsoft's "HEVC Video Extensions" from the
-Store; the app should detect and explain this.
+On Windows, playing HEVC files in Photos / Media Player needs Microsoft's
+"HEVC Video Extensions" from the Store; the export window detects a missing
+extension and links to the free edition (ClipForge's own decoding uses the
+bundled ffmpeg and does not need it).
 
 ## Everything else
 

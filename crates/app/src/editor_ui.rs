@@ -472,6 +472,11 @@ impl EditorController {
         Rc::new(move |id, path| inner.borrow_mut().load_preview_image(id, &path))
     }
 
+    /// Opens the project at `path` (command line, "Open with").
+    pub(crate) fn open_path(&self, path: PathBuf) {
+        self.inner.borrow_mut().open_project_path(path);
+    }
+
     /// Saves the autosave file now (app exit).
     pub(crate) fn flush_autosave(&self) {
         self.inner.borrow_mut().autosave();
@@ -1557,6 +1562,10 @@ impl Inner {
         else {
             return;
         };
+        self.open_project_path(path);
+    }
+
+    fn open_project_path(&mut self, path: PathBuf) {
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|t| Project::from_json(&t).map_err(|e| e.to_string()))

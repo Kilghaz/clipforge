@@ -95,8 +95,24 @@ jobs:
           tool: cargo-packager
       - name: Build release binary
         run: cargo build --release -p clipforge-app
+      # The Windows installer bundles a pinned, checksum-verified ffmpeg.
+      - name: Fetch the bundled ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: cargo run --quiet -p xtask -- ffmpeg-bundle
       - name: Package
         run: cargo packager --release -p clipforge-app --formats ${{ matrix.formats }}
+      # Install silently and check what landed: the app and a working ffmpeg.
+      - name: Installer smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/*.exe | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S', '/D=C:\cf-install' -Wait
+          if (-not (Test-Path 'C:\cf-install\clipforge.exe')) { throw 'clipforge.exe not installed' }
+          & 'C:\cf-install\ffmpeg\ffprobe.exe' -version
+          if ($LASTEXITCODE -ne 0) { throw 'bundled ffprobe does not run' }
+          & 'C:\cf-install\ffmpeg\ffmpeg.exe' -hide_banner -encoders | Select-String -Pattern 'h264_mf|hevc_nvenc|hevc_qsv|hevc_amf|libx265'
+          Get-ChildItem C:\cf-install -Recurse | Select-Object FullName, Length
       - uses: actions/upload-artifact@v4
         with:
           name: clipforge-${{ matrix.os }}

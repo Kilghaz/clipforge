@@ -1,6 +1,6 @@
 # Architecture (living document)
 
-Redrawn from the code after each milestone. Last update: Milestone 6 (HDR and export polish).
+Redrawn from the code after each milestone. Last update: Milestone 7 (Windows parity and packaging).
 
 ## Crates
 
@@ -12,7 +12,7 @@ Redrawn from the code after each milestone. Last update: Milestone 6 (HDR and ex
 | `clipforge-render` | GPU compositor (wgpu) with CPU fallback (ADR-0010), caption text | `FrameRenderer` (`render`, `render_hlg`), `best_renderer`, `GpuCompositor`, `colour` (transfer functions, tone map), `Frame16`, `Compositor`, `text::TextRenderer`, `draw::draw`, `transition::apply`, `Frame`, `SourceProvider`, `layout::place`, `RenderQuality` |
 | `clipforge-export` | Planner, frames, audio mix, ffmpeg sidecar | `ExportOptions` (+`Advanced`), `EncodePlan`, `Exporter`, `TimelineFrames` (SDR / HDR), `FileSources`, `sdr_frame`, `verify`, `audio::{Mixer, mix, write_mix}`, `EncoderCatalog`, `Yuv420` |
 | `clipforge-jobs` | Background work | `Scheduler`, `Priority`, `CancellationToken`, `Progress`, `JobEvent` |
-| `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `reveal_in_file_manager` |
+| `clipforge-platform` | OS glue | `AppDirs`, `cloud_status`, `icloud_stub`, `hydrate`, `hevc_playback`, `open_uri`, `reveal_in_file_manager` |
 | `clipforge-i18n` | Languages | `Language`, `LanguagePreference` |
 | `clipforge-app` | Slint UI | `MainWindow` (library panel + editor, settings overlay), `LibraryState`/`EditorState`/`Shell` (Slint globals), `LibraryController`, `EditorController`, `Player` (frame fetchers + cpal audio), `editor_view`/`library_view` (pure), `SettingsStore` |
 | `xtask` | Dev tasks | `check-deps`, `fixtures`, `icons` |
@@ -165,3 +165,21 @@ GpuCompositor::render_hlg ─► Frame16 ─► Yuv420::from_frame16 (10-bit BT.
   non-modal window (`ExportWindow`, state in the `ExportState` global, as
   Slint globals are per window); closing it never cancels, and a toolbar
   status button in the main window shows progress and the result. Time left is approximate (`export_view::minutes_left`).
+
+## Windows parity (Milestone 7, ADR-0012)
+
+- **Encoders:** `EncoderCatalog::pick_verified` walks the preference list;
+  a listed hardware encoder (VideoToolbox, NVENC, QSV, AMF, Media
+  Foundation) is used only after `args::probe` (three frames into the null
+  muxer with the real options) succeeds; results are cached per process,
+  binary and pixel format. GPU encoders get NV12 / P010.
+- **Cloud files:** `Library::download` → `platform::hydrate` (read-through
+  for Cloud Files / File Provider, `brctl download` for iCloud stubs) →
+  real fingerprint, `CloudState::Local`, probe, thumbnail. Events
+  `DownloadProgress` / `DownloadFinished` drive the library status bar.
+- **Installer:** `cargo xtask ffmpeg-bundle` → `target/ffmpeg-bundle/` →
+  cargo-packager resource `ffmpeg\` next to `clipforge.exe`; CI installs
+  the NSIS package silently and runs the bundled `ffprobe`.
+- **Look:** `build.rs` honours `CLIPFORGE_SLINT_STYLE` so the Fluent style
+  can be rendered on a Mac; `window_chrome::dark_title_bar` asks winit for a
+  dark title bar on both windows.

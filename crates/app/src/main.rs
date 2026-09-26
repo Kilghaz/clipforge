@@ -129,6 +129,14 @@ fn main() -> Result<()> {
         editor_controller.drop_hover_handle(),
         editor_controller.drop_insert_handle(),
     );
+    // `clipforge <project>`: Windows "Open with", shortcuts, the command line.
+    if let Some(project) = std::env::args_os()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+    {
+        editor_controller.open_path(project);
+    }
     if let Ok(paths) = std::env::var("CLIPFORGE_IMPORT") {
         library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());
     }
