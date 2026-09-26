@@ -58,7 +58,8 @@ fn export(
     renderer: &dyn FrameRenderer,
     hdr: bool,
     out: &std::path::Path,
-) -> EncodePlan {
+    prefer_hardware: bool,
+) -> (EncodePlan, &'static str) {
     let mut plan = EncodePlan::build(
         &ExportOptions {
             hdr,
@@ -71,7 +72,7 @@ fn export(
     let (w, h) = RenderQuality::Preview.frame_size(p.settings.aspect);
     (plan.width, plan.height, plan.video_bitrate_kbps) = (w, h, 3_000);
     let mut exporter = Exporter::new(loc.ffmpeg.clone()).unwrap();
-    exporter.prefer_hardware = false;
+    exporter.prefer_hardware = prefer_hardware;
     let sources = FileSources::for_project(p, Backends::discover());
     let mut frames = TimelineFrames::new(p, renderer, &sources, RenderQuality::Preview).hdr(hdr);
     let report = exporter
@@ -91,8 +92,13 @@ fn export(
         false,
         out,
     );
-    assert!(problems.is_empty(), "{problems:?}");
-    plan
+    assert!(
+        problems.is_empty(),
+        "{} via {}: {problems:?}",
+        plan.color.transfer,
+        report.encoder
+    );
+    (plan, report.encoder)
 }
 
 #[test]
@@ -104,7 +110,7 @@ fn sdr_export_of_an_hlg_timeline() {
     let p = project();
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("sdr.mp4");
-    let plan = export(&loc, &p, &Compositor::new(), false, &out);
+    let (plan, _) = export(&loc, &p, &Compositor::new(), false, &out, false);
     assert_eq!(plan.color.transfer, "bt709");
     let cli = FfmpegCli::new(loc);
     let info = cli.probe(&out).unwrap();
@@ -125,7 +131,7 @@ fn hdr_export_keeps_hlg_and_puts_sdr_white_at_reference_level() {
     let p = project();
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("hdr.mp4");
-    let plan = export(&loc, &p, &gpu, true, &out);
+    let (plan, _) = export(&loc, &p, &gpu, true, &out, false);
     assert_eq!(plan.codec, clipforge_export::Codec::Hevc);
     let cli = FfmpegCli::new(loc);
     let info = cli.probe(&out).unwrap();
@@ -158,4 +164,26 @@ fn hdr_export_keeps_hlg_and_puts_sdr_white_at_reference_level() {
         want[1] > 0.7 && want_green < 0.76,
         "white card near reference white"
     );
+}
+
+/// The encoder the app would pick: hardware when a test encode passes
+/// (VideoToolbox on a Mac; NVENC / QSV / AMF / MF on Windows), else
+/// software. Either way the file must match the plan.
+#[test]
+fn hdr_export_with_the_preferred_encoder() {
+    let Some(loc) = FfmpegLocation::discover() else {
+        eprintln!("ffmpeg not installed; skipping");
+        return;
+    };
+    let Some(gpu) = GpuCompositor::new() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let p = project();
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("hdr-hw.mp4");
+    let (_, encoder) = export(&loc, &p, &gpu, true, &out, true);
+    eprintln!("HDR export used {encoder}");
+    let info = FfmpegCli::new(loc).probe(&out).unwrap();
+    assert_eq!(info.transfer, clipforge_media::ColorTransfer::Hlg);
 }

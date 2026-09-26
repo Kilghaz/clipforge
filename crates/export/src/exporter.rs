@@ -97,10 +97,14 @@ impl Exporter {
         }
     }
 
-    /// The encoder that would be used for `plan`.
+    /// The encoder that would be used for `plan`. Hardware encoders are
+    /// test-encoded once per process (listed is not the same as present).
     #[must_use]
     pub fn encoder_for(&self, plan: &EncodePlan) -> Option<Encoder> {
-        self.catalog.pick(plan.codec, self.prefer_hardware)
+        self.catalog
+            .pick_verified(plan.codec, self.prefer_hardware, |e| {
+                hardware_works(&self.ffmpeg, e, plan.pixel_format)
+            })
     }
 
     /// Runs the export. Blocks; call from a job. `on_progress` is invoked
@@ -269,6 +273,55 @@ impl Exporter {
             elapsed: started.elapsed(),
             bytes,
         })
+    }
+}
+
+/// Test encodes already run in this process, keyed by binary, encoder and
+/// pixel format (a GPU may do 8-bit H.264 but no 10-bit HEVC).
+type ProbeKey = (PathBuf, &'static str, crate::plan::PixelFormat);
+static PROBES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<ProbeKey, bool>>> =
+    std::sync::OnceLock::new();
+
+/// How long a test encode may take before the encoder counts as broken.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn hardware_works(ffmpeg: &Path, encoder: &Encoder, format: crate::plan::PixelFormat) -> bool {
+    let key = (ffmpeg.to_path_buf(), encoder.name, format);
+    let cache = PROBES.get_or_init(Default::default);
+    if let Some(known) = cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+        return known;
+    }
+    let ok = run_probe(ffmpeg, &args::probe(encoder, format));
+    tracing::info!(encoder = encoder.name, ?format, ok, "encoder test encode");
+    if let Ok(mut c) = cache.lock() {
+        c.insert(key, ok);
+    }
+    ok
+}
+
+fn run_probe(ffmpeg: &Path, argv: &[String]) -> bool {
+    let Ok(mut child) = Command::new(ffmpeg)
+        .args(argv)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
     }
 }
 
@@ -534,6 +587,44 @@ mod tests {
         let at = |x: usize| f32::from(img.rgb48[(90 * 320 + x) * 3 + 1]) / 65_535.0;
         assert!((at(80) - 0.75).abs() < 0.01, "white {}", at(80));
         assert!((at(240) - 0.95).abs() < 0.01, "highlight {}", at(240));
+    }
+
+    #[test]
+    fn test_encodes_accept_real_encoders_and_reject_absent_ones() {
+        let Some(loc) = ffmpeg() else { return };
+        let sw = Encoder {
+            name: "libx264",
+            hardware: true, // pretend, to force the probe
+        };
+        assert!(hardware_works(
+            &loc.ffmpeg,
+            &sw,
+            crate::plan::PixelFormat::Yuv420p
+        ));
+        // An encoder this machine cannot have (NVENC on a Mac, or a name
+        // that does not exist) fails quickly and is remembered.
+        let absent = Encoder {
+            name: if cfg!(target_os = "macos") {
+                "h264_nvenc"
+            } else {
+                "h264_videotoolbox"
+            },
+            hardware: true,
+        };
+        let started = Instant::now();
+        assert!(!hardware_works(
+            &loc.ffmpeg,
+            &absent,
+            crate::plan::PixelFormat::Yuv420p
+        ));
+        assert!(started.elapsed() < PROBE_TIMEOUT);
+        let again = Instant::now();
+        assert!(!hardware_works(
+            &loc.ffmpeg,
+            &absent,
+            crate::plan::PixelFormat::Yuv420p
+        ));
+        assert!(again.elapsed() < Duration::from_millis(50), "cached");
     }
 
     #[test]

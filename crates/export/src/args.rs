@@ -70,7 +70,7 @@ pub fn build(
         "-c:v".into(),
         encoder.name.into(),
         "-pix_fmt".into(),
-        pix_fmt(plan.pixel_format).into(),
+        output_pix_fmt(encoder, plan.pixel_format).into(),
         "-b:v".into(),
         format!("{}k", plan.video_bitrate_kbps),
         "-maxrate".into(),
@@ -122,6 +122,60 @@ fn pix_fmt(format: PixelFormat) -> &'static str {
     }
 }
 
+/// What the encoder is fed: hardware encoders take the semi-planar
+/// layouts their drivers use (NV12 / P010), software ones planar YUV.
+#[must_use]
+pub fn output_pix_fmt(encoder: &Encoder, format: PixelFormat) -> &'static str {
+    match (encoder.hardware, format) {
+        (true, PixelFormat::Yuv420p) => "nv12",
+        (true, PixelFormat::Yuv420p10le) => "p010le",
+        (false, f) => pix_fmt(f),
+    }
+}
+
+/// A test encode for `encoder`: three frames of a generated picture into
+/// the null muxer, with the options a real export would use. Hardware
+/// encoders listed without a matching GPU fail here within a second.
+#[must_use]
+pub fn probe(encoder: &Encoder, format: PixelFormat) -> Vec<String> {
+    let plan = EncodePlan {
+        width: 256,
+        height: 144,
+        pixel_format: format,
+        video_bitrate_kbps: 1_000,
+        ..EncodePlan::build(
+            &crate::options::ExportOptions {
+                hdr: format == PixelFormat::Yuv420p10le,
+                ..crate::options::ExportOptions::default()
+            },
+            clipforge_core::Aspect::Landscape16x9,
+            clipforge_core::FrameRate::FPS_30,
+        )
+    };
+    let mut a: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=gray:s=256x144:r=30:d=0.1",
+        "-frames:v",
+        "3",
+        "-c:v",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect();
+    a.push(encoder.name.into());
+    a.extend(["-pix_fmt".into(), output_pix_fmt(encoder, format).into()]);
+    a.extend(["-b:v".into(), format!("{}k", plan.video_bitrate_kbps)]);
+    a.extend(encoder_specific(&plan, encoder));
+    a.extend(["-f".into(), "null".into(), "-".into()]);
+    a
+}
+
 fn gop_frames(plan: &EncodePlan) -> u32 {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let g = (plan.frame_rate.as_f64() * f64::from(plan.gop_seconds)).round() as u32;
@@ -158,9 +212,38 @@ fn encoder_specific(plan: &EncodePlan, encoder: &Encoder) -> Vec<String> {
             v
         }
         "h264_nvenc" | "hevc_nvenc" => {
-            vec!["-preset".into(), "p5".into(), "-rc".into(), "vbr".into()]
+            let mut v: Vec<String> = ["-preset", "p5", "-tune", "hq", "-rc", "vbr"]
+                .map(String::from)
+                .to_vec();
+            v.extend(profile(plan, encoder));
+            v
         }
+        "h264_qsv" | "hevc_qsv" => {
+            let mut v = vec!["-preset".into(), "medium".into()];
+            v.extend(profile(plan, encoder));
+            v
+        }
+        "h264_amf" | "hevc_amf" => {
+            let mut v: Vec<String> = ["-quality", "balanced", "-rc", "vbr_peak"]
+                .map(String::from)
+                .to_vec();
+            v.extend(profile(plan, encoder));
+            v
+        }
+        // Media Foundation picks Main10 from the P010 input itself.
+        "h264_mf" | "hevc_mf" => vec!["-rate_control".into(), "pc_vbr".into()],
         _ => Vec::new(),
+    }
+}
+
+/// `-profile:v` for the GPU encoders: High for H.264, Main10 for 10-bit HEVC.
+fn profile(plan: &EncodePlan, encoder: &Encoder) -> Vec<String> {
+    if encoder.name.starts_with("h264") {
+        vec!["-profile:v".into(), "high".into()]
+    } else if plan.pixel_format == PixelFormat::Yuv420p10le {
+        vec!["-profile:v".into(), "main10".into()]
+    } else {
+        vec!["-profile:v".into(), "main".into()]
     }
 }
 
@@ -270,6 +353,59 @@ mod tests {
             )
             .contains(&"+cgop".to_owned())
         );
+    }
+
+    #[test]
+    fn gpu_encoders_get_nv12_or_p010_and_their_own_options() {
+        let hw = |name| Encoder {
+            name,
+            hardware: true,
+        };
+        let sdr = build(&plan(false), &hw("h264_nvenc"), Path::new("o.mp4"), None);
+        assert!(has_pair(&sdr, "-pix_fmt", "nv12"));
+        assert!(has_pair(&sdr, "-rc", "vbr") && has_pair(&sdr, "-profile:v", "high"));
+        // The piped input stays planar: ffmpeg converts for the encoder.
+        let input = sdr.iter().position(|s| s == "pipe:0").unwrap();
+        assert!(has_pair(&sdr[..input], "-pix_fmt", "yuv420p"));
+        for name in ["hevc_nvenc", "hevc_qsv", "hevc_amf"] {
+            let a = build(&plan(true), &hw(name), Path::new("o.mp4"), None);
+            assert!(has_pair(&a, "-pix_fmt", "p010le"), "{name}");
+            assert!(has_pair(&a, "-profile:v", "main10"), "{name}");
+        }
+        let mf = build(&plan(true), &hw("hevc_mf"), Path::new("o.mp4"), None);
+        assert!(has_pair(&mf, "-pix_fmt", "p010le") && has_pair(&mf, "-rate_control", "pc_vbr"));
+        assert!(has_pair(
+            &build(&plan(false), &hw("h264_amf"), Path::new("o.mp4"), None),
+            "-quality",
+            "balanced"
+        ));
+        // Software stays planar.
+        let sw = build(
+            &plan(true),
+            &Encoder {
+                name: "libx265",
+                hardware: false,
+            },
+            Path::new("o.mp4"),
+            None,
+        );
+        let out = sw.iter().rposition(|s| s == "-pix_fmt").unwrap();
+        assert_eq!(sw[out + 1], "yuv420p10le");
+    }
+
+    #[test]
+    fn probe_is_a_short_null_encode_with_the_real_options() {
+        let a = probe(
+            &Encoder {
+                name: "hevc_nvenc",
+                hardware: true,
+            },
+            PixelFormat::Yuv420p10le,
+        );
+        assert!(has_pair(&a, "-f", "lavfi") && has_pair(&a, "-frames:v", "3"));
+        assert!(has_pair(&a, "-c:v", "hevc_nvenc"));
+        assert!(has_pair(&a, "-pix_fmt", "p010le") && has_pair(&a, "-profile:v", "main10"));
+        assert_eq!(a[a.len() - 3..], ["-f", "null", "-"]);
     }
 
     #[test]

@@ -126,7 +126,38 @@ impl EncoderCatalog {
         self.names.iter().any(|n| n == name)
     }
 
-    /// Best available encoder for `codec`, honouring `prefer_hardware`.
+    /// Best listed encoder for `codec` that `works` accepts, honouring
+    /// `prefer_hardware`. Listing is not enough for hardware encoders: the
+    /// Windows builds list NVENC, QSV and AMF whatever GPU is present, so
+    /// the exporter passes a test encode as `works`. Software encoders are
+    /// taken as listed.
+    #[must_use]
+    pub fn pick_verified(
+        &self,
+        codec: Codec,
+        prefer_hardware: bool,
+        mut works: impl FnMut(&Encoder) -> bool,
+    ) -> Option<Encoder> {
+        let prefs = match codec {
+            Codec::H264 => H264_PREFERENCE,
+            Codec::Hevc => HEVC_PREFERENCE,
+        };
+        let order: Vec<bool> = if prefer_hardware {
+            vec![true, false]
+        } else {
+            vec![false, true]
+        };
+        order.into_iter().find_map(|hw| {
+            prefs
+                .iter()
+                .filter(|e| e.hardware == hw && self.has(e.name))
+                .find(|e| !e.hardware || works(e))
+                .cloned()
+        })
+    }
+
+    /// Best listed encoder for `codec`, honouring `prefer_hardware`
+    /// (no test encodes; see [`EncoderCatalog::pick_verified`]).
     #[must_use]
     pub fn pick(&self, codec: Codec, prefer_hardware: bool) -> Option<Encoder> {
         let prefs = match codec {
@@ -178,5 +209,27 @@ mod tests {
             "h264_nvenc"
         );
         assert_eq!(EncoderCatalog::default().pick(Codec::H264, true), None);
+    }
+
+    #[test]
+    fn listed_hardware_that_fails_its_test_encode_is_skipped() {
+        let c = EncoderCatalog::from_names(["h264_nvenc", "h264_qsv", "h264_mf", "libx264"]);
+        let mut tried = Vec::new();
+        let pick = c.pick_verified(Codec::H264, true, |e| {
+            tried.push(e.name);
+            e.name == "h264_mf"
+        });
+        assert_eq!(pick.unwrap().name, "h264_mf");
+        assert_eq!(
+            tried,
+            ["h264_nvenc", "h264_qsv", "h264_mf"],
+            "in preference order"
+        );
+        // Nothing works: software.
+        let pick = c.pick_verified(Codec::H264, true, |_| false);
+        assert_eq!(pick.unwrap().name, "libx264");
+        // Software first never runs a test encode when software exists.
+        let pick = c.pick_verified(Codec::H264, false, |_| panic!("no probe needed"));
+        assert_eq!(pick.unwrap().name, "libx264");
     }
 }
