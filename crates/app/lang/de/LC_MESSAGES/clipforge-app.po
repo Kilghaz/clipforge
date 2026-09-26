@@ -913,3 +913,9 @@ msgstr "Export anzeigen"
 
 msgid "Export again…"
 msgstr "Erneut exportieren…"
+
+msgid "Windows plays HEVC videos only with the free HEVC Video Extensions."
+msgstr "Windows spielt HEVC-Videos nur mit den kostenlosen HEVC-Videoerweiterungen ab."
+
+msgid "Get from Microsoft Store"
+msgstr "Im Microsoft Store holen"

@@ -164,6 +164,8 @@ struct Inner {
     /// The separate export window, created hidden at start.
     export_window: Option<ExportWindow>,
     export_window_visible: bool,
+    /// Whether the OS plays HEVC; checked once in the background.
+    hevc_playback: Arc<std::sync::OnceLock<Option<bool>>>,
     /// The music lane is selected (the inspector shows the music).
     music_selected: bool,
     pending_songs: music_titles::PendingSongs,
@@ -255,6 +257,16 @@ impl EditorController {
             last_export: None,
             export_window,
             export_window_visible: false,
+            hevc_playback: {
+                let cell = Arc::new(std::sync::OnceLock::new());
+                let fill = Arc::clone(&cell);
+                let _ = std::thread::Builder::new()
+                    .name("clipforge-hevc-check".into())
+                    .spawn(move || {
+                        let _ = fill.set(clipforge_platform::hevc_playback());
+                    });
+                cell
+            },
             music_selected: false,
             pending_songs: music_titles::PendingSongs::default(),
             text_selection: Vec::new(),
@@ -339,6 +351,11 @@ impl EditorController {
             on_export!(on_export_refresh, |i| i.export_refresh());
             on_export!(on_export_reveal, |i| i.export_reveal());
             on_export!(on_close, |i| i.close_export());
+            on_export!(on_open_hevc_store, |_i| {
+                if let Err(e) = clipforge_platform::open_uri(clipforge_platform::HEVC_STORE_URI) {
+                    warn!(error = %e, "cannot open the Microsoft Store");
+                }
+            });
             on_export!(on_layout_changed, |i| i.fit_export_window());
             // The title-bar close button hides; a running export keeps going.
             let closing = Rc::clone(&inner);
@@ -1609,6 +1626,7 @@ impl Inner {
                 return;
             }
             self.export_window_visible = true;
+            crate::window_chrome::dark_title_bar(ew.window());
         }
         if first {
             self.fit_export_window();
@@ -1695,6 +1713,8 @@ impl Inner {
         #[allow(clippy::cast_possible_truncation)]
         s.set_export_project_fps(self.project.settings.frame_rate.as_f64() as f32);
         s.set_export_extension(summary.extension.into());
+        let playback = self.hevc_playback.get().copied().flatten();
+        s.set_export_hevc_hint(export_view::hevc_hint(&summary, playback));
     }
 
     fn export_reveal(&self) {

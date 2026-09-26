@@ -161,6 +161,14 @@ pub(crate) fn summary(options: &ExportOptions, project: &Project) -> Summary {
     }
 }
 
+/// Whether to point at the Store's HEVC extension: the output is HEVC and
+/// the OS is known not to play it (Windows without the extension). Unknown
+/// stays quiet rather than nagging.
+#[must_use]
+pub(crate) fn hevc_hint(summary: &Summary, hevc_playback: Option<bool>) -> bool {
+    summary.codec == "HEVC" && hevc_playback == Some(false)
+}
+
 /// Approximate minutes left: `None` until there is enough to go on (3 s
 /// and 2 %), `Some(0)` for "less than a minute", else whole minutes
 /// rounded up (NN/G: approximate, never a seconds countdown).
@@ -283,6 +291,23 @@ mod tests {
         assert!((s.video_mbps - 12.0).abs() < 0.01, "chosen bitrate");
         assert!((s.auto_video_mbps - 8.0).abs() < 0.01, "HEVC ladder");
         assert_eq!(s.auto_audio_kbps, 384);
+    }
+
+    #[test]
+    fn hevc_hint_only_for_hevc_output_on_a_system_without_playback() {
+        let p = project(10, true);
+        let h264 = summary(&options(&DialogState::default()), &p);
+        let hevc = summary(
+            &options(&DialogState {
+                codec: 2,
+                ..DialogState::default()
+            }),
+            &p,
+        );
+        assert!(hevc_hint(&hevc, Some(false)));
+        assert!(!hevc_hint(&hevc, Some(true)));
+        assert!(!hevc_hint(&hevc, None), "unknown stays quiet");
+        assert!(!hevc_hint(&h264, Some(false)));
     }
 
     #[test]

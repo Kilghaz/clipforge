@@ -20,6 +20,7 @@ mod player;
 mod preview_worker;
 mod settings;
 mod text_view;
+mod window_chrome;
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -132,7 +133,10 @@ fn main() -> Result<()> {
         library_controller.import(paths.split(':').map(std::path::PathBuf::from).collect());
     }
 
-    window.run()?;
+    window.show()?;
+    window_chrome::dark_title_bar(window.window());
+    slint::run_event_loop()?;
+    let _ = window.hide();
     editor_controller.flush_autosave();
     drop(library_controller);
     drop(editor_controller);

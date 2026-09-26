@@ -46,6 +46,9 @@ export global ExportState {
     callback export-refresh();
     callback export-reveal();
     callback close();
+    // Windows without the HEVC Video Extensions: say how to play the file.
+    in-out property <bool> export-hevc-hint;
+    callback open-hevc-store();
     // Advanced opened or closed: Rust fits the window to the content.
     callback layout-changed();
 }
@@ -156,6 +159,23 @@ export component ExportWindow inherits Window {
                                 : ExportState.export-hdr-availability == 2 ? @tr("HDR export needs a graphics card this computer does not offer.")
                                 : @tr("HEVC 10-bit HLG. Plays in HDR on iPhone, Mac and YouTube; photos and texts keep their look.");
                             wrap: word-wrap;
+                        }
+                        if ExportState.export-hevc-hint : HorizontalLayout {
+                            spacing: Theme.space-s;
+                            VerticalLayout {
+                                alignment: center;
+                                Icon { source: Icons.info; color: Theme.text-secondary; size: Theme.icon-s; }
+                            }
+                            Caption {
+                                text: @tr("Windows plays HEVC videos only with the free HEVC Video Extensions.");
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            ActionButton {
+                                text: @tr("Get from Microsoft Store");
+                                clicked => { ExportState.open-hevc-store(); }
+                            }
                         }
                     }
                     VerticalLayout {

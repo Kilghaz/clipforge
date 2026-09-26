@@ -61,6 +61,7 @@ const SCENES: &[&str] = &[
     "settings",
     "narrow",
     "export-small",
+    "export-hevc",
     "music",
     "title",
     "text",
@@ -158,7 +159,13 @@ fn main() -> Result<()> {
 
 /// Draws a few frames (layout first, then bindings that depend on layout
 /// such as grid width and strip geometry) and writes the PNG.
-const EXPORT_SCENES: &[&str] = &["export", "export-running", "export-done", "export-small"];
+const EXPORT_SCENES: &[&str] = &[
+    "export",
+    "export-running",
+    "export-done",
+    "export-small",
+    "export-hevc",
+];
 
 fn populate_export(export: &ExportWindow, scene: &str) {
     export.global::<Shell>().set_macos(false);
@@ -171,6 +178,8 @@ fn populate_export(export: &ExportWindow, scene: &str) {
     s.set_export_hdr(true);
     match scene {
         "export" | "export-small" => s.set_export_advanced_open(true),
+        // Windows without the HEVC extension: the Store hint.
+        "export-hevc" => s.set_export_hevc_hint(true),
         "export-running" => {
             s.set_export_status(1);
             s.set_export_progress(0.42);
